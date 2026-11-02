@@ -67,6 +67,7 @@ ICON_SIZE = (154, 154)                     # icon cards (and the bicycle parts, 
 ICON_TYPES = {t.value for t in SVG_TYPES} | {"SPROCKET", "PEDAL_CRANK", "CHAIN_LINK", "OBJECT"}
 CARD_SIZE = (150, 80)
 LANES_W, LANE_H = 1260, 104                # LANES: labels + road + counts, and one lane's height
+SEESAW_SIZE = (1100, 470)                  # SEESAW: the beam swinging, the loads on it, the mean under the pivot
 GRAPH_W, GRAPH_H = round(SCREEN_W * 0.7), round(SCREEN_H * 0.6) + 49   # + the legend under it (measured)
 FORMULA_EM = 2.2 * 24 * 1.21               # KaTeX glyph size in px: 2.2rem of 24 px, times KaTeX's 1.21
 FORMULA_PADDING, FORMULA_H = 76, 129       # card padding + border; a card's height (measured, with or without \frac)
@@ -127,6 +128,8 @@ def shape_size(entity, graph_count):
         return SHAPES[kind]
     if kind in ICON_TYPES:
         return ICON_SIZE
+    if kind == "SEESAW":
+        return SEESAW_SIZE
     if kind == "LANES":
         lanes = state.get("lanes")
         return LANES_W, LANE_H * (len(lanes) if isinstance(lanes, list) else 2)
@@ -288,13 +291,18 @@ def uses_column(brief):
                    for a in brief["actions"]))
 
 
-def solve_layout(brief, corrections):
+def solve_layout(brief, corrections, template="circuit"):
     """Make the brief's layout feasible (see the module's docstring). Edits `brief` in place, adds a
-    line to `corrections` for each change, and returns the conflicts it could not resolve."""
+    line to `corrections` for each change, and returns the conflicts it could not resolve.
+    `template`: the scene's layout template (agent010's page). Only "circuit" has the instrument
+    column (elsewhere status badges and counters make a row under the titles): nothing is squeezed
+    to its left. On a "comparison", a thing never leaves its panel (A: x < 0, B: x > 0): a move that
+    would take it across is undone."""
     where = f"scene {brief['scene_id']}"
     overlay = brief.get("text_overlay") or {}
     header = HEADER_WITH_SUBTITLE if overlay.get("subtitle") else HEADER
-    column = uses_column(brief)
+    column = uses_column(brief) and template == "circuit"
+    before = {e["id"]: e["position"] for e in brief["entities"]}
     right = COLUMN_LEFT - 24 if column else SCREEN_W
     ids = {e["id"] for e in brief["entities"]}
     graph_count = sum(e["type"] == "AXES_GRAPH" or own_axes(e, ids) for e in brief["entities"])
@@ -327,7 +335,12 @@ def solve_layout(brief, corrections):
 
     for item in items.values():
         if item.moved():
-            item.entity["position"] = to_scene(item.x, item.y)
+            position = to_scene(item.x, item.y)
+            side = lambda p: scene_point(p)[0] < 0
+            if template == "comparison" and side(position) != side(before[item.id]):
+                corrections.append(f"{where}: layout: {item.id} kept in its panel (the move would cross to the other one)")
+                continue
+            item.entity["position"] = position
     for curve in curves:                          # a curve keeps its axes' position
         axes = items.get((curve.get("initial_state") or {}).get("axes"))
         if axes is not None and axes.id in graph_home and axes.moved():

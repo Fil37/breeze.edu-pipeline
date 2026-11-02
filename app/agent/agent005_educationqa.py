@@ -82,10 +82,10 @@ DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "ma
 
 ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
            "emphasize")
-STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level")
+STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
-                                   "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone")
+                                   "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit")
 VOCABULARY = "\n".join(f"  * {t.value}: ports {list(p) if p else 'none'}" for t, p in COMPONENT_PORTS.items())
 
 PROMPT = """ROLE: You are the lead pedagogical QA judge of an educational animation studio. You review a
@@ -633,9 +633,11 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     corrections, layout_conflicts, applied = [], [], {}
     apply_patches(briefs, answer.get("patches"), corrections, applied)
     from_patches = len(corrections)
-    for brief in briefs.values():
+    templates = {str(scene["visual_brief"]["scene_id"]): scene.get("layout_template") or "circuit"
+                 for scene in storyboard["scenes"]}
+    for scene_id, brief in briefs.items():
         fix_circuits(brief, corrections)
-        layout_conflicts += solve_layout(brief, corrections)
+        layout_conflicts += solve_layout(brief, corrections, templates.get(scene_id, "circuit"))
     issues = issue_severities(answer.get("issues"), applied, corrections[from_patches:], briefs)
     try:
         for scene in storyboard["scenes"]:

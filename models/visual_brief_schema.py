@@ -49,6 +49,7 @@ class ComponentType(str, Enum):
     TEX_FORMULA = "TEX_FORMULA"
     BODY = "BODY"                            # a body (satellite, planet, ball): a disc, moving along a curve or in a straight line
     OBJECT = "OBJECT"                        # any concrete thing with no type of its own, drawn from OBJECT_ICONS
+    SEESAW = "SEESAW"                        # a beam on a pivot with a load at each end: weights, the weighted mean
     LANES = "LANES"                          # queues side by side (a toll, checkouts): delimited lanes, things rolling through a gate
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
@@ -82,6 +83,7 @@ COMPONENT_PORTS = {
     ComponentType.TEX_FORMULA: (),
     ComponentType.BODY: (),
     ComponentType.LANES: (),
+    ComponentType.SEESAW: (),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
@@ -138,6 +140,36 @@ def lanes_problem(state):
                     f"got {rate!r}")
     if state.get("icon", "car") not in LANE_ICONS:
         return f"LANES icon must be one of {list(LANE_ICONS)}, got {state.get('icon')!r}"
+    return None
+
+
+# SEESAW: a beam on a pivot, a load at each end, tipping towards the heavier one (a damped swing).
+#   initial_state {"left": {"label": "Classe A", "weight": 30, "value": 15},
+#                  "right": {"label": "Classe B", "weight": 5, "value": 10}, "unit": "/20"}
+# "weight": how heavy the load is (> 0); "value" (optional, both or neither): the number at that end of
+# the beam, which is then a scale from one value to the other. set_state {"left": true} / {"right":
+# true} drops that load on its end (both are there from the start when neither is set); {"balanced":
+# true} slides the beam on the pivot until it balances: the pivot then stands at the weighted mean
+# of the two values, shown under it.
+SEESAW_LABEL_MAX = 30
+
+
+def seesaw_problem(state):
+    """Why a SEESAW initial_state is wrong (see above), or None."""
+    sides = [state.get(side) for side in ("left", "right")]
+    for side, load in zip(("left", "right"), sides):
+        if not isinstance(load, dict) or set(load) - {"label", "weight", "value"}:
+            return f'SEESAW needs "{side}": {{"label": "...", "weight": <number > 0>, "value": <number, optional>}}, got {load!r}'[:300]
+        if not is_number(load.get("weight")) or load["weight"] <= 0:
+            return f'the {side} load\'s "weight" must be a number > 0, got {load.get("weight")!r}'
+        if not isinstance(load.get("label", ""), str) or len(load.get("label", "")) > SEESAW_LABEL_MAX:
+            return f"the {side} load's label is a short text (at most {SEESAW_LABEL_MAX} characters)"
+        if "value" in load and not is_number(load["value"]):
+            return f'the {side} load\'s "value" must be a number, got {load["value"]!r}'
+    if ("value" in sides[0]) != ("value" in sides[1]):
+        return 'give a "value" to both loads or to neither'
+    if not isinstance(state.get("unit", ""), str) or len(state.get("unit", "")) > 8:
+        return '"unit" is a short text (at most 8 characters), e.g. "/20", "€"'
     return None
 
 
@@ -513,6 +545,12 @@ class VisualEntity(StrictModel):
         if self.type == ComponentType.OBJECT and self.initial_state.get("icon", DEFAULT_OBJECT_ICON) not in OBJECT_ICON_NAMES:
             raise ValueError(f"{self.id}: OBJECT icon must be one of {list(OBJECT_ICON_NAMES)}, "
                              f"got {self.initial_state.get('icon')!r}")
+        if self.type == ComponentType.SEESAW and seesaw_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {seesaw_problem(self.initial_state)}")
+        if self.type == ComponentType.VECTOR_ARROW and "value" in self.initial_state and (
+                not is_number(self.initial_state["value"]) or self.initial_state["value"] == 0):
+            raise ValueError(f'{self.id}: a vector\'s "value" is its magnitude, a number other than 0 (588 for 588 N); '
+                             f'got {self.initial_state["value"]!r}')
         if self.type == ComponentType.LANES and lanes_problem(self.initial_state):
             raise ValueError(f"{self.id}: {lanes_problem(self.initial_state)}")
         if self.type == ComponentType.TEX_FORMULA:

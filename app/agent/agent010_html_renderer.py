@@ -69,7 +69,7 @@ from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.layout_solver import annotation_targets, target_first_timing
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, SVG_TYPES, check_curve, check_function_expression, find_cue,
-                                        is_parametric, is_status_annotation, narration_words, parameter_range,
+                                        is_number, is_parametric, is_status_annotation, narration_words, parameter_range,
                                         scene_point, unit_direction)
 from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
                               ffmpeg, make_error_visual, mux_scene, scene_field)
@@ -303,6 +303,14 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["icon"] = icon_data_uri(state.get("icon", DEFAULT_OBJECT_ICON), ink)
         if state.get("icon") in SPHERES:          # a planet, a moon, the Sun: drawn as a lit sphere, not an icon card
             data["sphere"] = SPHERES[state["icon"]]
+    if entity["type"] == "SEESAW":                # a beam on a pivot, a load at each end
+        data["seesaw"] = {side: {"label": plain_math((state.get(side) or {}).get("label")),
+                                 "weight": float(state[side]["weight"]),
+                                 **({"value": float(state[side]["value"])} if is_number(state[side].get("value")) else {})}
+                          for side in ("left", "right")}
+        data["seesaw"]["unit"] = str(state.get("unit") or "")[:8]
+    if entity["type"] == "VECTOR_ARROW" and is_number(state.get("value")) and state["value"] != 0:
+        data["vector_value"] = {"value": float(state["value"]), "unit": str(state.get("unit") or "")}
     if entity["type"] == "LANES":                 # queues side by side: their labels and rates, one icon for all
         data["lanes"] = [{"label": plain_math(lane.get("label")), "rate": float(lane.get("rate"))}
                          for lane in state.get("lanes", [])]
@@ -524,6 +532,28 @@ def named_colour(label):
     return min(found)[1] if found else None
 
 
+VECTOR_MAX_UNITS = 2.6      # the largest value of a unit gets this length (scene units); the others to scale
+
+
+def vectors_to_scale(entities, actions):
+    """Vectors given a "value" (588 N): drawn to scale, the largest value of each unit (all its vectors,
+    all their set_value steps) VECTOR_MAX_UNITS long. Each keeps its largest value (value_max, the
+    length it is laid out with) and its first (value): the page draws value / value_max of it."""
+    steps = {}
+    for action in actions:
+        if action.get("action") == "set_value" and is_number(action.get("value")):
+            steps.setdefault(action.get("target"), []).append(abs(float(action["value"])))
+    scaled = [d for d in entities if d.get("vector") and d.get("vector_value")]
+    largest = {}
+    for d in scaled:
+        top = max([abs(d["vector_value"]["value"])] + steps.get(d["id"], []))
+        d["vector"]["value_max"] = top
+        largest[d["vector_value"]["unit"]] = max(largest.get(d["vector_value"]["unit"], 0), top)
+    for d in scaled:
+        d["vector"]["value"] = d["vector_value"]["value"]
+        d["vector"]["length"] = VECTOR_MAX_UNITS * SCENE_PX_PER_UNIT * d["vector"]["value_max"] / largest[d["vector_value"]["unit"]]
+
+
 def colour_by_name(entities):
     """Vectors and curves named by a colour take it; then each legend line ("B : Bleu diffusé") one
     colour for all its arrows (the first one's)."""
@@ -605,6 +635,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
             vector["color"], vector["label_color"] = RIDER_COLORS[i % len(RIDER_COLORS)], True
     vector_symbols(entities)
     colour_by_name(entities)
+    vectors_to_scale(entities, brief.get("actions", []))
     if layout in ("circuit", "comparison") and not any(a.get("action") == "move" for a in brief.get("actions", [])):
         centre_content(entities, brief, layout == "circuit")   # (a straight move keeps its scene positions: its end is one)
     targets = annotation_targets(brief)       # what each badge points at (as the layout solver sees it)
@@ -761,6 +792,24 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .lane-count { position:absolute; left:1146px; top:50%; transform:translateY(-50%); min-width:100px; padding:6px 12px; box-sizing:border-box;
                 border-radius:10px; background:var(--card); border:2px solid var(--border); text-align:center;
                 font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:32px; font-weight:700; color:var(--accent); }
+  /* SEESAW: a beam on a pivot, a load on each end, the balance point's value under the pivot. */
+  .seesaw { position:relative; width:1100px; height:470px; }
+  .seesaw .beam { position:absolute; height:16px; border-radius:8px; background:var(--ink); transform-origin:0 50%; }
+  .seesaw .pivot { position:absolute; width:0; height:0; border-left:48px solid transparent; border-right:48px solid transparent;
+                   border-bottom:96px solid var(--accent); filter:drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 45%, transparent)); }
+  .seesaw .base { position:absolute; height:8px; border-radius:4px; background:color-mix(in srgb, var(--ink) 45%, transparent); }
+  .seesaw .load { position:absolute; display:flex; flex-direction:column; align-items:center; justify-content:center; box-sizing:border-box;
+                  width:210px; padding:8px 12px; border-radius:var(--radius); background:var(--card); border:3px solid var(--accent);
+                  color:var(--text); font-size:26px; font-weight:600; text-align:center; line-height:1.15;
+                  box-shadow:0 12px 24px -8px rgba(0, 0, 0, .45); }
+  .seesaw .load b { font-size:40px; font-weight:800; color:var(--accent); }
+  .seesaw .end-value { position:absolute; transform:translate(-50%, 0); font-family:"Fira Code", "DejaVu Sans Mono", monospace;
+                       font-size:30px; font-weight:700; color:var(--muted); }
+  .seesaw .mean { position:absolute; transform:translate(-50%, 0); padding:6px 16px; border-radius:9999px; background:var(--accent);
+                  color:#FFFFFF; font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:34px; font-weight:700; white-space:nowrap; }
+  .electron { position:absolute; left:0; top:0; width:28px; height:28px; border-radius:50%; background:var(--electron); color:#FFFFFF;
+              font:700 26px/26px "Inter", "DejaVu Sans", sans-serif; text-align:center; offset-anchor:center;
+              box-shadow:0 0 14px var(--electron); z-index:5; }
   .junction { width:160px; height:14px; border-radius:7px; background:var(--ink); }
   .body-disc { border-radius:50%; box-shadow:0 0 0 4px var(--ring), 0 6px 16px rgba(15, 23, 42, .25); }
   /* A planet, a moon, the Sun: a sphere lit from the top left, its atmosphere or its light around it. */
@@ -867,7 +916,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const easeOutBack = p => { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
 const easeInOut = p => -(Math.cos(Math.PI * p) - 1) / 2;
 const progress = (t, start, length) => clamp((t - start) / length, 0, 1);
-const frenchNumber = (v, d) => v.toLocaleString("fr-FR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const frenchNumber = (v, d) => v.toLocaleString("fr-FR", {minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: "always"});   // 1 000 as 10 000
 const LATEX = {"\\times":"×","\\cdot":"·","\\pm":"±","\\leq":"≤","\\geq":"≥","\\neq":"≠","\\approx":"≈","\\Delta":"Δ",
                "\\pi":"π","\\alpha":"α","\\beta":"β","\\theta":"θ","\\lambda":"λ","\\mu":"μ","\\omega":"ω","\\Omega":"Ω"};
 const SUP = {"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹","-":"⁻"};
@@ -922,7 +971,7 @@ function buildAxes(g, holder) {
   sv("line", {x1: ax, y1: ay, x2: bx, y2: ay}, axes); sv("line", {x1: cx, y1: cy, x2: cx, y2: dy}, axes);
   sv("polygon", {points: `${bx + 22},${ay} ${bx},${ay - 11} ${bx},${ay + 11}`, stroke: "none"}, axes);
   sv("polygon", {points: `${cx},${dy - 22} ${cx - 11},${dy} ${cx + 11},${dy}`, stroke: "none"}, axes);
-  const step = (lo, hi) => { const r = hi - lo; return r <= 12 ? 1 : r <= 30 ? 5 : r <= 120 ? 10 : Math.pow(10, Math.floor(Math.log10(r))); };
+  const step = (lo, hi) => { const r = hi - lo; return r <= 12 ? 1 : r <= 30 ? 5 : r <= 120 ? 10 : niceStep(r); };
   const tick = v => frenchNumber(v, Number.isInteger(v) ? 0 : 1);
   const sx = step(x0, x1), sy = step(y0, y1);
   for (let i = Math.ceil(x0 / sx); i * sx <= x1 + 1e-9; i++) {
@@ -959,16 +1008,39 @@ function buildNumberLine(g, holder) {
   const [ax] = map(x0, 0), [bx] = map(x1, 0);
   sv("line", {x1: ax - 30, y1: mid, x2: bx, y2: mid}, axes);
   sv("polygon", {points: `${bx + 22},${mid} ${bx},${mid - 11} ${bx},${mid + 11}`, stroke: "none"}, axes);
-  const r = x1 - x0, step = r <= 2 ? 0.1 : r <= 12 ? 1 : r <= 30 ? 5 : r <= 120 ? 10 : Math.pow(10, Math.floor(Math.log10(r)));
+  const r = x1 - x0, step = r <= 2 ? 0.1 : r <= 12 ? 1 : niceStep(r), ticks = [];
   for (let i = Math.ceil(x0 / step - 1e-9); i * step <= x1 + 1e-9; i++) {
-    const x = Math.round(i * step * 1000) / 1000, [px] = map(x, 0), whole = Math.abs(x - Math.round(x)) < 1e-9;
+    const x = Math.round(i * step * 1000) / 1000 + 0, [px] = map(x, 0), whole = Math.abs(x - Math.round(x)) < 1e-9;   // + 0: never "-0"
     sv("line", {x1: px, y1: mid - (whole ? 14 : 8), x2: px, y2: mid + (whole ? 14 : 8), "stroke-width": whole ? 4 : 2}, axes);
-    if (whole || r <= 2) sv("text", {x: px, y: mid + 48, "text-anchor": "middle", class: "tick-label"}, s).textContent = frenchNumber(x, whole ? 0 : 1);
+    if (whole || r <= 2) {
+      const t = sv("text", {x: px, y: mid + 48, "text-anchor": "middle", class: "tick-label"}, s);
+      t.textContent = frenchNumber(x, whole ? 0 : 1); ticks.push(t);
+    }
   }
   const curves = sv("g", {}, s), labels = [];
   if (g.x_label) { const t = sv("text", {x: bx, y: mid - 30, "text-anchor": "end", class: "axis-label halo"}, s); t.textContent = g.x_label; labels.push(t); }
   holder.append(s);
-  return {svg: s, map, curves, labels, lines: [[ax - 30, mid, bx, mid]], line: true};
+  return {svg: s, map, curves, labels, ticks, lines: [[ax - 30, mid, bx, mid]], line: true};
+}
+// A step giving 5 to 10 graduations over a range: 1, 2 or 5 times a power of ten (0 to 10 000: 1 000).
+function niceStep(range) {
+  const raw = range / 8, unit = Math.pow(10, Math.floor(Math.log10(raw))), k = raw / unit;
+  return (k < 1.5 ? 1 : k < 3.5 ? 2 : k < 7.5 ? 5 : 10) * unit;
+}
+// A number line's dots carry their own labels ("9 000 €"): a graduation's number under one is hidden,
+// the dot's label already says where it is; so is one too close to the previous number shown (every
+// other one stays). Run once the dots are where they rest (after the first seek).
+function hideCoveredTicks() {
+  const labels = Object.values(E).filter(e => e.box && e.data.body).map(e => e.box.getBoundingClientRect());
+  const hit = (b, r, gap) => Math.min(b.right, r.right) > Math.max(b.left, r.left) - gap && Math.min(b.bottom, r.bottom) > Math.max(b.top, r.top);
+  for (const host of Object.values(E).filter(e => e.data.axes && e.data.axes.line)) {
+    let last = null;
+    for (const t of host.data.axes.ticks) {
+      const r = t.getBoundingClientRect();
+      if (labels.some(b => hit(b, r, 20)) || (last && hit(last, r, 14))) { t.style.display = "none"; continue; }
+      last = r;
+    }
+  }
 }
 function curvePath(points, map, closed) {   // gaps (null y) split the curve into separate segments
   const parts = []; let current = [];
@@ -1040,6 +1112,92 @@ function seekLanes(e, t) {
     });
     lane.count.textContent = String(travel > LANE_PAST - LANE_GATE ? Math.floor((travel - LANE_PAST + LANE_GATE) / LANE_STEP) + 1 : 0);   // backs past the gate
   }
+}
+// SEESAW: a beam on a pivot, a load on each end ("left", "right": a label and a weight; a "value" at
+// each end makes the beam a scale from one value to the other). Each load drops onto its end (set_state
+// {"left": true} / {"right": true}; both there from the start when neither is set) and the beam tips
+// towards the heavier side on a damped spring (it overshoots, then settles). set_state
+// {"balanced": true}: the beam slides on the pivot until the loads balance; the pivot then stands at
+// the weighted mean of the two values, shown under it. All worked out from t (seekSeesaw).
+const SEESAW_W = 1100, SEESAW_BEAM = 820, SEESAW_PIVOT_Y = 330, SEESAW_TILT = 15, LOAD_INSET = 120, LOAD_FALL = 0.5;
+function buildSeesaw(ent) {
+  const shape = el("div", "seesaw"), z = ent.seesaw;
+  const base = el("div", "base"), pivot = el("div", "pivot"), beam = el("div", "beam");
+  Object.assign(base.style, {left: `${SEESAW_W / 2 - 160}px`, width: "320px", top: `${SEESAW_PIVOT_Y + 96}px`});
+  Object.assign(pivot.style, {left: `${SEESAW_W / 2 - 48}px`, top: `${SEESAW_PIVOT_Y}px`});
+  beam.style.width = `${SEESAW_BEAM}px`;
+  shape.append(base, beam, pivot);
+  const wmax = Math.max(z.left.weight, z.right.weight);
+  const side = s => {
+    const load = el("div", "load"); load.append(el("b", "", frenchNumber(s.weight, decimalsOf(s.weight))), el("span", "", s.label || ""));
+    load.style.minHeight = `${Math.round(80 + 70 * Math.sqrt(s.weight / wmax))}px`;   // heavier, taller
+    const end = el("div", "end-value", s.value === undefined ? "" : frenchNumber(s.value, decimalsOf(s.value)));
+    shape.append(load, end);
+    return {load, end, weight: s.weight, value: s.value};
+  };
+  const mean = el("div", "mean"); shape.append(mean);
+  Object.assign(ent, {seesawParts: {beam, pivot, left: side(z.left), right: side(z.right), mean}});
+  return shape;
+}
+function stateTime(e, key) {        // when a set_state first made `key` true, else null
+  const s = e.states.find(s => s.at >= 0 && s.state && typeof s.state === "object" && s.state[key] === true);
+  return s ? s.at : null;
+}
+const CURVE_DRAW = 2.2;             // s: a curve draws itself (as a pen would, at the voice's pace)
+const easeOutElastic = p => p <= 0 ? 0 : p >= 1 ? 1 : Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+function seekSeesaw(e, t) {
+  const z = e.data.seesawParts, given = ["left", "right"].some(k => stateTime(e, k) !== null);
+  const drop = k => given ? stateTime(e, k) : e.spawn + 0.3;   // when each load starts falling (null: never)
+  const landed = (k, at) => drop(k) !== null && at >= drop(k) + LOAD_FALL;
+  const balance = stateTime(e, "balanced"), wl = z.left.weight, wr = z.right.weight;
+  const share = wr / (wl + wr);        // where the pivot balances the loads, from the left end (0 to 1)
+  const pivotAt = at => balance === null ? 0.5 : 0.5 + (share - 0.5) * easeInOut(progress(at, balance, 1.6));
+  const target = at => {               // the beam's resting angle (degrees, clockwise) for the loads and pivot at `at`
+    const l = landed("left", at) ? wl : 0, r = landed("right", at) ? wr : 0, p = pivotAt(at);
+    const left = l * p, right = r * (1 - p);
+    return left + right > 0 ? SEESAW_TILT * Math.max(-1, Math.min(1, (right - left) / (left + right))) : 0;
+  };
+  let angle = 0, speed = 0;             // a damped spring towards the target, stepped from 0 to t
+  for (let at = 0, dt = 1 / 120; at < t; at += dt) {
+    speed += (-55 * (angle - target(at)) - 6 * speed) * dt;
+    angle += speed * dt;
+  }
+  const p = pivotAt(t), a = angle * Math.PI / 180, cx = SEESAW_W / 2, cy = SEESAW_PIVOT_Y;
+  const along = d => [cx + d * Math.cos(a), cy + d * Math.sin(a)];   // a point of the beam, d px from the pivot
+  const [lx, ly] = along(-p * SEESAW_BEAM);
+  Object.assign(z.beam.style, {left: `${lx}px`, top: `${ly - 8}px`, transform: `rotate(${angle}deg)`});
+  for (const [k, part, d] of [["left", z.left, -p * SEESAW_BEAM + LOAD_INSET], ["right", z.right, (1 - p) * SEESAW_BEAM - LOAD_INSET]]) {
+    const [x, y] = along(d), h = part.load.offsetHeight, start = drop(k);
+    const fall = start === null ? 0 : progress(t, start, LOAD_FALL);
+    const lift = (1 - fall * fall) * 300;   // falling: faster and faster
+    Object.assign(part.load.style, {left: `${x - 105}px`, top: `${y - 8 - h - lift}px`, opacity: start !== null && t >= start ? 1 : 0});
+    const [ex, ey] = along(k === "left" ? -p * SEESAW_BEAM : (1 - p) * SEESAW_BEAM);
+    Object.assign(part.end.style, {left: `${ex}px`, top: `${ey + 22}px`});
+  }
+  const m = z.left.value !== undefined && z.right.value !== undefined && balance !== null;
+  const shown = m ? easeInOut(progress(t, balance + 1.4, 0.5)) : 0;
+  if (m) {
+    const value = z.left.value + share * (z.right.value - z.left.value);
+    z.mean.textContent = `${frenchNumber(value, 2)}${e.data.seesaw.unit ? " " + e.data.seesaw.unit : ""}`;
+  }
+  Object.assign(z.mean.style, {left: `${cx}px`, top: `${cy + 112}px`, opacity: shown});
+}
+// A vector given a "value" is drawn to scale (Python: length from the largest value of its unit) and
+// follows its set_value steps: it shrinks or grows before the eyes, with an elastic overshoot.
+function vectorShare(e, t) {
+  const vec = e.data.vector;
+  let shown = vec.value, from = shown, at = null;
+  for (const c of e.values) { if (c.at > t) break; from = shown; shown = c.value; at = c.at; }
+  const value = at === null ? shown : from + (shown - from) * easeOutElastic(progress(t, at, 1.2));
+  return Math.max(VECTOR_MIN_PX / Math.max(e.vector.length, 1), Math.abs(value) / vec.value_max);
+}
+const VECTOR_MIN_PX = 36;
+// "floating": a thing that loses its weight rises slowly and drifts up and down (what rides on it and
+// the vectors starting on it go along).
+function floatOffset(e, t) {
+  const at = stateTime(e, "floating");
+  if (at === null || t < at) return 0;
+  return 100 * easeInOut(progress(t, at, 3)) + 12 * Math.sin(1.7 * (t - at)) * Math.min(1, (t - at) / 1.5);
 }
 function buildLamp(shape) {                 // a bulb with a filament and a radial glow behind it
   const s = sv("svg", {viewBox: "-125 -125 250 250"});
@@ -1229,6 +1387,7 @@ for (const ent of D.entities) {
     if (GLOW) shape.style.boxShadow = `0 0 0 3px var(--ring), 0 0 22px color-mix(in srgb, ${ent.body.color} 70%, transparent)`;
   }
   else if (ent.lanes) shape = buildLanes(ent);
+  else if (ent.seesaw) shape = buildSeesaw(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1288,7 +1447,9 @@ for (const ent of D.entities.filter(e => e.type === "CURVE_PLOT")) {
     legend = el("div"); const swatch = el("span"); swatch.style.background = color;
     legend.append(swatch, el("b", "", ent.label)); host.data.legend.append(legend);
   }
-  Object.assign(E[ent.id], {curvePath: path, curveLength: path.getTotalLength(), legendItem: legend, curveHalo: halo, curveArea: area});
+  // A glowing dot at the head of the curve while it draws itself: the eye follows it.
+  const tracer = sv("circle", {r: 12, fill: color, stroke: "var(--bg)", "stroke-width": 4, opacity: 0}, host.data.axes.curves);
+  Object.assign(E[ent.id], {curvePath: path, curveLength: path.getTotalLength(), legendItem: legend, curveHalo: halo, curveArea: area, curveTracer: tracer});
 }
 // A symbol as a physicist writes it: "F_g" is F with a g below ("_" starts the subscript), text only.
 function writeSymbol(node, symbol, svgText) {
@@ -2316,13 +2477,19 @@ function buildFlows() {
     if (pts.length < 2) continue;
     const stop = D.events.find(s => s.action === "stop_flow" && s.at > ev.at
                                     && (!s.path || JSON.stringify(s.path) === JSON.stringify(ev.path)));
+    // "carriers": "electrons": the real carriers, from - to + (against the conventional current): the
+    // dots go the other way round, each marked with a minus sign.
+    const electrons = ev.carriers === "electrons";
     const total = polylineLength(pts), g = sv("g", {filter: "url(#electronGlow)"}, svg), d = pathD(pts);
-    const dots = [...Array(Math.max(8, Math.round(total / 90)))].map(() => {
-      const dot = sv("circle", {r: 9}, g);
-      dot.style.fill = "var(--electron)"; dot.style.offsetPath = `path("${d}")`; dot.style.offsetRotate = "0deg";
+    const dots = [...Array(Math.max(8, Math.round(total / (electrons ? 110 : 90))))].map(() => {
+      // electrons: HTML discs with their minus sign (offset-path moves HTML boxes and single SVG shapes,
+      // not SVG groups), in stage pixels as the wires
+      const dot = electrons ? el("div", "electron", "−") : sv("circle", {r: 9}, g);
+      if (electrons) stage.append(dot); else dot.style.fill = "var(--electron)";
+      dot.style.offsetPath = `path("${d}")`; dot.style.offsetRotate = "0deg";
       return dot;
     });
-    F.push({start: ev.at, stop: stop ? stop.at : Infinity, total, dots, ids});
+    F.push({start: ev.at, stop: stop ? stop.at : Infinity, total, dots, ids, electrons});
   }
 }
 // Voltmeter probes: a red (pin a) and a black (pin b) probe on Bezier cables from the meter's jacks.
@@ -2449,10 +2616,11 @@ const lit = s => is(s, "on") || is(s, "active"), closed = s => is(s, "closed") |
 
 function seekTelemetry(e, t, gone) {
   // The entity's telemetry card in the column: it fades in with the first value, rolls each new
-  // value up from the previous one in 1.5 s, and fades out with its entity (then it is hidden). A
-  // value in a new unit never overlaps the old text: the old one fades out, then the new one in.
+  // value up from the previous one in 0.8 s (the value is read while it is said, not after), and
+  // fades out with its entity (then it is hidden). A value in a new unit never overlaps the old text:
+  // the old one fades out, then the new one in.
   if (!e.counter) return;
-  const [value, v, before] = valueAt(e, t, 1.5), text = e.counter.lastChild;
+  const [value, v, before] = valueAt(e, t, 0.8), text = e.counter.lastChild;
   const opacity = v ? easeInOut(progress(t, e.values[0].at, 0.4)) * (1 - gone) : 0;
   e.counter.style.opacity = opacity;
   e.counter.style.visibility = opacity > 0 ? "visible" : "hidden";
@@ -2538,8 +2706,13 @@ window.seek = function (t) {
     const gone = e.out === null ? 0 : progress(t, e.out, 0.5);
     const s = stateAt(e, t), k = s ? easeInOut(progress(t, s.at, 0.5)) : 0;
     const dim = is(s, "dimmed") ? 1 - 0.65 * k : 1;
-    if (e.curvePath) {               // a curve draws itself along its length over 1.2 s
-      const p = easeInOut(progress(t, e.spawn, 1.2));
+    if (e.curvePath) {               // a curve draws itself along its length over CURVE_DRAW s, a dot at its head
+      const p = easeInOut(progress(t, e.spawn, CURVE_DRAW));
+      if (e.curveTracer) {
+        const head = e.curvePath.getPointAtLength(e.curveLength * p);
+        e.curveTracer.setAttribute("cx", head.x); e.curveTracer.setAttribute("cy", head.y);
+        e.curveTracer.setAttribute("opacity", p > 0 && p < 1 ? 1 - gone : 0);
+      }
       e.curvePath.setAttribute("stroke-dasharray", e.curveLength);
       e.curvePath.setAttribute("stroke-dashoffset", e.curveLength * (1 - p));
       e.curvePath.style.opacity = (1 - gone) * dim;
@@ -2553,7 +2726,15 @@ window.seek = function (t) {
     }
     if (e.vector) {                  // a vector grows from its start point
       seekTelemetry(e, t, gone);
-      const v = e.vector, p = easeOutBack(progress(t, e.spawn, 0.7)), len = v.length * p;
+      const v = e.vector, p = easeOutBack(progress(t, e.spawn, 0.7)), share = e.data.vector.value_max ? vectorShare(e, t) : 1;
+      const len = v.length * p * share;
+      const host = e.data.vector.anchor && e.data.vector.anchor.body && E[e.data.vector.anchor.body];
+      const lift = host ? floatOffset(host, t) : 0;        // on a floating thing: up with it
+      v.g.setAttribute("transform", `translate(0 ${-lift})`);
+      if (e.vectorLabel && share < 1) {    // its label stays beside the arrow's middle as it shrinks
+        const back = v.length * p * (1 - share) / 2;
+        e.vectorLabel.label.setAttribute("transform", `translate(${-v.dx * back} ${-v.dy * back})`);
+      } else if (e.vectorLabel) e.vectorLabel.label.removeAttribute("transform");
       const [x, y] = e.data.xy, ex = x + v.dx * len, ey = y + v.dy * len, nx = -v.dy, ny = v.dx;
       v.line.setAttribute("x1", x); v.line.setAttribute("y1", y);
       v.line.setAttribute("x2", ex - v.dx * 22 * Math.min(p, 1)); v.line.setAttribute("y2", ey - v.dy * 22 * Math.min(p, 1));
@@ -2564,6 +2745,9 @@ window.seek = function (t) {
     // popIn: the paused keyframes, scrubbed to (t - spawn); before the spawn they show their first frame.
     e.pop.style.animationDelay = `${-(t - e.spawn)}s`;
     e.box.style.opacity = (1 - gone) * dim;
+    e.box.style.translate = `0 ${-floatOffset(e, t)}px`;
+    if (e.data.type === "TEX_FORMULA" && e.shape.firstElementChild)   // written from left to right as it appears
+      e.shape.firstElementChild.style.clipPath = `inset(-20% ${100 * (1 - easeInOut(progress(t, e.spawn + 0.15, 0.9)))}% -20% 0)`;
     if (e.ann) {                     // the badge's arrow grows towards its component after the pop
       const p = easeInOut(progress(t, e.spawn + 0.2, 0.4)), {tail, end} = e.ann;
       e.ann.line.setAttribute("x1", tail[0]); e.ann.line.setAttribute("y1", tail[1]);
@@ -2585,6 +2769,8 @@ window.seek = function (t) {
       e.shape.style.boxShadow = is(s, "highlighted") ? "0 0 0 10px rgba(59, 130, 246, .25)" : "";   // the current is read here
     } else if (e.data.lanes) {
       seekLanes(e, t);
+    } else if (e.data.seesaw) {
+      seekSeesaw(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {
@@ -2608,8 +2794,9 @@ window.seek = function (t) {
     const on = t >= f.start && t < f.stop;
     f.dots.forEach((dot, i) => {
       if (!on) { dot.style.opacity = 0; return; }
-      dot.style.offsetDistance = `${((t - f.start) * 260 + i * f.total / f.dots.length) % f.total}px`;
-      dot.setAttribute("r", 8 + 2.5 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 1.5 * t + i)));
+      const along = ((t - f.start) * (f.electrons ? 150 : 260) + i * f.total / f.dots.length) % f.total;   // electrons drift slower
+      dot.style.offsetDistance = `${f.electrons ? f.total - along : along}px`;
+      if (!f.electrons) dot.setAttribute("r", 8 + 2.5 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 1.5 * t + i)));
       dot.style.opacity = Math.min(1, (t - f.start) / 0.3);
     });
   }
@@ -2644,7 +2831,7 @@ function layoutConflicts() {
 document.fonts.ready.then(() => {
   locateSideItems(); layoutZones(); spreadOut(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
   window.layoutConflicts = layoutConflicts();
-  window.seek(0); window.sceneReady = true;
+  window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });
 </script></body></html>
 """

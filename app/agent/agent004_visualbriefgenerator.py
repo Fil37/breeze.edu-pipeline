@@ -49,7 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import numpy as np
 from pydantic import TypeAdapter, ValidationError
 
-from app.agent import channel_dir, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
+from app.agent import channel_dir, find_route, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
 from app import provenance
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
@@ -66,6 +66,7 @@ MAX_ERROR_CHARS = 2000    # errors sent back to the LLM on a retry
 MAX_ENTITIES = 8          # per scene, instruments included: more does not fit in one readable frame
 MAX_FORMULAS = 2          # TEX_FORMULA per scene: equations only, never notes
 MAX_OVER_FOOTAGE = 3      # things drawn over the hook's film (app/render/footage.py)
+FOOTAGE_DOMAINS = ("electronics", "physics_math", "economics")   # routes.json domains whose hook always has a film
 LAYOUT_TEMPLATES = ("circuit", "comparison", "analogy_fullscreen")   # agent010's pages (scene "layout_template")
 BRIEFS = TypeAdapter(list[SceneVisualBrief])
 
@@ -96,15 +97,22 @@ STATES = {
                                          'of the scene>", "label": "..."}, or parametric {"x_func": "np.cos(t)", '
                                          '"y_func": "np.sin(t)", "t_min": 0, "t_max": 6.2832, "axes": ..., "label": ...}',
     ComponentType.VECTOR_ARROW: NO_STATE + '; initial_state {"direction": "DOWN" or [dx, dy], "length": 1.8, '
-                                           '"symbol": "P", "label": "Poids"}; on a curve: {"anchor": {"curve": "<CURVE_PLOT id>", '
+                                           '"symbol": "P", "label": "Poids"}; with a number: "value": 588, "unit": "N" '
+                                           '(drawn to scale with the other vectors of that unit; set_value on it later '
+                                           'shrinks or grows it before the eyes); on a curve: {"anchor": {"curve": "<CURVE_PLOT id>", '
                                            '"t": 0}, "direction": "TANGENT" or "CENTER" or "OUTWARD", ...}',
     ComponentType.TEX_FORMULA: NO_STATE + '; initial_state {"latex": "E=mc^2", "tone": "result"}',
-    ComponentType.OBJECT: '{"active": true|false} (green outline); initial_state {"icon": "<one of the OBJECT icons>", '
+    ComponentType.OBJECT: '{"active": true|false} (green outline), {"floating": true} (rises slowly and drifts: '
+                          'weight lost); initial_state {"icon": "<one of the OBJECT icons>", '
                           '"label": "Ascenseur"}; in a graph: "anchor": {"axes": "<AXES_GRAPH id>", "x": 0, "y": 0}; '
                           'moves in a straight line with "move"; rides in another one: "anchor": {"body": "<its id>"}',
     ComponentType.BODY: NO_STATE + '; moves with "move_along" (on a curve) or "move" (straight); initial_state '
                                    '{"label": "Satellite", "anchor": {"curve": "<CURVE_PLOT id>", "t": 0}, "size": 0.25, '
                                    '"color": "#F59E0B"}; rides in another body or object: "anchor": {"body": "<its id>"}',
+    ComponentType.SEESAW: '{"left": true} / {"right": true} drops that load on its end (both there from the start '
+                          'if never set), {"balanced": true} slides the beam until it balances: the pivot shows the '
+                          'weighted mean; initial_state {"left": {"label": "Classe A", "weight": 30, "value": 15}, '
+                          '"right": {"label": "Classe B", "weight": 5, "value": 10}, "unit": "/20"}',
     ComponentType.LANES: '{"active": true|false} (false stops the lanes, true sets them off again); initial_state '
                          '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
                          f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
@@ -281,8 +289,22 @@ STRICT RULES:
   curve or a number line. Never a disc standing for an idea, a price or a quantity ("Prix du pain"):
   show a thing by its icon (OBJECT with an icon, CART, COINS...), a value by a GAUGE or a graph, an
   idea by an ARROW_ANNOTATION. A planet, a moon, the Sun: an OBJECT with the icon "earth", "moon" or "sun".
+- THE PICTURE DEMONSTRATES, IT DOES NOT DECORATE: every key idea is an action the viewer sees happen,
+  in proportion to the numbers said:
+  * a force or a quantity with a number is a VECTOR_ARROW with "value" (and "unit"): vectors are drawn
+    to scale; when the value changes (Terre -> Lune: 588 N -> 96 N) it is set_value on THE SAME vector,
+    which shrinks before the eyes; never two separate arrows with made-up lengths. A thing losing
+    its weight: set_state {{"floating": true}} on it.
+  * weights, a weighted mean, a lever, a comparison of two amounts: ONE SEESAW (the loads drop on its
+    ends, it tips; set_state {{"balanced": true}} shows where it balances: the weighted mean).
+  * electrons in a circuit move: start_flow with "carriers": "electrons" (they go from - to +, against
+    the conventional current, which is a plain start_flow); never BODY discs standing still on a wire.
+  * a curve draws itself, a formula writes itself: spawn them on the words that say them.
 - A LIGHT OR A RAY NAMED BY ITS COLOUR IS DRAWN IN IT: "Bleu diffusé" is blue (#3B82F6), "Rouge direct"
   red (#EF4444), green #10B981, orange #F97316, yellow #EAB308, violet #8B5CF6; never a blue ray in red.
+- A GRAPH SHOWS REAL NUMBERS: its axes run over the quantity's real range, named with their unit
+  ("années" 2015 to 2025, "PIB (milliards d'€)"), and its curve goes through the values the narration
+  gives; never a line from 0 to 10 over "temps" and "PIB".
 - A GAUGE SHOWS A VALUE: every GAUGE gets its number with set_value, cued on the words that say it; a
   dial with no number means nothing (for an idea with no number: an OBJECT icon or an ARROW_ANNOTATION).
 - THE SAME VALUES ALL ALONG: a battery, a price, an object keeps the values the narration gives it
@@ -391,18 +413,21 @@ STRICT RULES:
   * "comparison": two panels side by side: side A on the left (x < 0), side B on the right (x > 0),
     e.g. "ce qu'on croit" | "ce qui est vrai", or two branches to compare. Only when the scene's
     narration opposes two notions, and only with something drawn on EACH side (an empty panel
-    compares nothing). Optional "panel_titles": ["<A>", "<B>"], short, in French. A thing moved
-    with "move" stays in its panel.
+    compares nothing). Optional "panel_titles": ["<A>", "<B>"], short, in French. Each thing goes in
+    the panel of what it is about: with "Masse (kg)" | "Poids (N)", m = 60 kg on the left (x < 0), the
+    weights in newtons on the right (x > 0); never both formulas in one panel. A thing moved with
+    "move" stays in its panel.
   * "analogy_fullscreen": one large visual across the screen, annotations over it. Only when the
     scene's narration makes an explicit analogy (château d'eau, péage...).
   Vary them as far as the script allows: at most {max_circuit} scenes "circuit"; at least one
   "analogy_fullscreen" when a scene makes an analogy, at least one "comparison" when a scene opposes
   two notions; never the same template in two consecutive scenes. What this script allows, per scene:
 {layout_eligibility}
-- FILM BEHIND THE HOOK: the first scene (the hook) may have a real film clip behind it, full-frame and
+- FILM BEHIND THE HOOK: the first scene (the hook) has a real film clip behind it, full-frame and
   darkened: "footage": {{"query": "<1 to 4 French words of what to film>"}} next to its "scene_id" (outside
-  the visual brief). Use it when a real sight opens the question better than icons: the sky to ask
-  why it is blue, a motorway toll, a market, rain on a window, power lines, a city at night. The query
+  the visual brief): the real sight the question starts from, instead of icons: the sky to ask why it
+  is blue, a motorway toll, a market, rain on a window, power lines, a city at night, a phone charging.
+  Only a topic of pure mathematics with nothing to film goes without one. The query
   names landscapes, sky, water, streets, machines, objects: never people ("enfant", "foule", "élèves"...).
   Over the film draw at most {max_over_footage} things: the question as an ARROW_ANNOTATION status badge,
   a formula or one key icon; never icons standing for the setting the film already shows.
@@ -490,6 +515,8 @@ def validate_storyboard_topology(briefs, durations) -> list:
             current = action.get("current")
             if kind == "start_flow" and current is not None and not (isinstance(current, (int, float)) and current >= 0):
                 errors.append(f"{where}: start_flow current must be a number of amps >= 0, got {current!r}")
+            if kind == "start_flow" and action.get("carriers", "conventional") not in ("conventional", "electrons"):
+                errors.append(f"{where}: start_flow carriers must be \"conventional\" or \"electrons\", got {action.get('carriers')!r}")
         if len(brief.entities) > MAX_ENTITIES:
             errors.append(f"{where}: {len(brief.entities)} entities, at most {MAX_ENTITIES}: drop or reuse some")
         formulas = sum(entity.type == ComponentType.TEX_FORMULA for entity in brief.entities)
@@ -697,12 +724,44 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.LANES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
 
 QUEUE_ICONS = set(LANE_ICONS)
 QUEUE_MOVERS = 3          # this many vehicles or people moved one by one: a queue, drawn by hand
+
+
+UNIT_MARK = re.compile(r"[(%€$°/]|\d|\b(?:années?|ans|mois|jours?|heures?|secondes?|mètres?|km|kg|euros?|dollars?|habitants?|milliards?|millions?)\b")
+
+
+def placeholder_graphs(brief):
+    """AXES_GRAPHs drawn 0 to 10 on both axes with names that carry no unit ("temps", "PIB"): a line
+    over made-up numbers, explaining nothing. A maths variable ("x", "t", "y") is a name of its own."""
+    errors = []
+    for axes in (e for e in brief.entities if e.type == ComponentType.AXES_GRAPH):
+        state = axes.initial_state
+        ranges = [state.get(k) or [0, 10] for k in ("x_range", "y_range")]
+        default = all(isinstance(r, list) and len(r) >= 2 and r[:2] == [0, 10] for r in ranges)
+        names = [str(state.get(k) or "") for k in ("x_label", "y_label")]
+        if default and not any(len(n.strip()) <= 2 or UNIT_MARK.search(n.lower()) for n in names):
+            errors.append(f"scene {brief.scene_id}: the graph {axes.id} ({names[0]!r}, {names[1]!r}) runs 0 to 10 on both "
+                          f"axes with no unit: a line over made-up numbers; give the real ranges and units of the "
+                          f"quantity (\"années\" 2015 to 2025, \"PIB (milliards d'€)\"), with the narration's values on the curve")
+    return errors
+
+
+ELECTRON_LABEL = re.compile(r"(?:^|\W)(?:e\s*[-−⁻]|électrons?)(?:\W|$)", re.IGNORECASE)
+
+
+def electrons_as_discs(brief):
+    """BODY discs standing for electrons in a scene with a circuit: still dots on a wire; electrons are
+    a flow (start_flow "carriers": "electrons")."""
+    if not brief.connections:
+        return []
+    found = [e.id for e in brief.entities if e.type == ComponentType.BODY and ELECTRON_LABEL.search(str(e.initial_state.get("label") or ""))]
+    return [f"scene {brief.scene_id}: {found} are discs standing for electrons: drop them and show the electrons moving, "
+            f"start_flow along the circuit with \"carriers\": \"electrons\" (from - to +)"] if found else []
 
 
 def gauges_without_value(brief):
@@ -813,6 +872,8 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += idle_discs(brief, graphs)
     errors += queues_by_hand(brief)
     errors += gauges_without_value(brief)
+    errors += placeholder_graphs(brief)
+    errors += electrons_as_discs(brief)
     errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
@@ -1157,10 +1218,13 @@ def force_layouts(order, proposed, eligible, locked, briefs):
     return templates, forced
 
 
-def footage_problems(order, briefs, layouts):
-    """A film asked for on another scene than the hook, a query that is not a few words, or too much
-    drawn over the film."""
+def footage_problems(order, briefs, layouts, expected=False):
+    """A film asked for on another scene than the hook, a query that is not a few words, too much
+    drawn over the film, or (`expected`: a channel of FOOTAGE_DOMAINS) a hook without one."""
     errors = []
+    if expected and order and (layouts.get(order[0]) or {}).get("footage") is None:
+        errors.append(f"scene {order[0]}: the hook has no film: give it \"footage\": {{\"query\": \"<1 to 4 French words "
+                      f"of the real sight the question starts from>\"}}, and keep at most {MAX_OVER_FOOTAGE} things drawn over it")
     for scene_id in order:
         wanted = (layouts.get(scene_id) or {}).get("footage")
         if wanted is None:
@@ -1249,7 +1313,7 @@ def qa_feedback_section():
     return feedback_section(AGENT, "storyboard")
 
 
-def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None):
+def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False):
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
@@ -1283,7 +1347,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None):
                      for e in coherence_problems(brief, narrations.get(brief.scene_id, ""), durations.get(brief.scene_id))]
         proposed = {i: (layouts.get(i) or {}).get("layout_template") for i in order}
         layout = layout_problems(order, proposed, eligible, needs_circuit(briefs)) + empty_panels(briefs, proposed)
-        coherence += footage_problems(order, briefs, layouts)
+        coherence += footage_problems(order, briefs, layouts, footage_expected)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
@@ -1333,7 +1397,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
 
     try:
         briefs, layouts, attempts, coherence_left, layout_left = ask_for_storyboard(
-            scenes_for_prompt, qa_section, None if renderer == "skip" else measure)
+            scenes_for_prompt, qa_section, None if renderer == "skip" else measure,
+            (find_route(routes, channel_id) or {}).get("domain") in FOOTAGE_DOMAINS)
     except RuntimeError as exc:
         return finish(channel_id, AGENT, "storyboard", "critical", output_path, error=str(exc))
     order = [s["scene_id"] for s in scenes_for_prompt]

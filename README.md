@@ -178,6 +178,7 @@ fixed HTML/JavaScript code.
 | | `VECTOR_ARROW` | — | `direction` (see below), `length`, `label` |
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
+| Weights | `SEESAW` | — | `left`, `right` (`{"label", "weight", "value"}`), `unit`; `left` / `right` (drop a load), `balanced` |
 | Queues | `LANES` | — | `lanes` (2 to 4 `{"label", "rate"}`), `icon` (car, bus, truck, bike, user, users, person-standing, shopping-bag), `label`; `active` (false stops them) |
 | | `TEX_FORMULA` | — | `latex` (MathTex if LaTeX is installed, else readable text: `E=mc^2` → `E=mc²`) |
 | Annotation | `ARROW_ANNOTATION` | — | `text`, `direction` (see below), `target` (id it points at), `kind` (`pointer` / `status`; default: `status` from 20 characters) |
@@ -481,6 +482,30 @@ logged). A badge in a graph's empty margin is not a conflict. The axis titles ar
 curves, outlined in the background colour, and every badge keeps off every graph's axis titles; a
 badge over a formula or an icon costs more than one over a graph's empty plot. A graph with three
 or more things beside it takes 48 % x 42 % of the frame. Check: `python tests/test_eval_fixes.py`.
+
+**Pictures that demonstrate (reactive, to scale).** agent004's prompt asks for every key idea as an
+action the viewer sees happen, in proportion to the numbers said:
+- a VECTOR_ARROW with `"value"` (and `"unit"`) is drawn to scale with the other vectors of its unit
+  (the largest 2.6 units long, `vectors_to_scale`); `set_value` on it later shrinks or grows it before
+  the eyes with an elastic overshoot (588 N on the Earth to 96 N on the Moon), its label following;
+- `set_state {"floating": true}` on an OBJECT or a BODY: it rises slowly (100 px over 3 s) and
+  drifts, the vectors starting on it going along;
+- SEESAW (`initial_state {"left": {"label", "weight", "value"}, "right": {...}, "unit"}`): each load
+  drops onto its end (`set_state {"left": true}` / `{"right": true}`), the beam tips towards the
+  heavier side on a damped spring (it overshoots, then settles), and `{"balanced": true}` slides the
+  beam on the pivot until it balances: the pivot then stands at the weighted mean of the two values,
+  shown under it (30 x 15 + 5 x 10 over 35: 14,29 /20);
+- `start_flow` with `"carriers": "electrons"`: discs marked "−" going from − to + (slower than the
+  conventional current's dots, the other way round); agent004 sends back BODY discs standing for
+  electrons on a circuit (`electrons_as_discs`);
+- a curve draws itself over 2.2 s with a dot at its head; a formula writes itself left to right.
+agent004 also sends back a graph running 0 to 10 on both axes with no unit (`placeholder_graphs`:
+"temps" / "PIB", a line over made-up numbers) and, on the electronics, physics and economics channels
+(`FOOTAGE_DOMAINS`), a hook without a film. agent005's layout arbiter only squeezes a "circuit" scene
+left of its instrument column, and keeps a comparison's things in their panel. A number line's
+graduations are 1, 2 or 5 times a power of ten (0 to 10 000: every 1 000), never "-0", and a number
+under a dot's label, or too close to the previous one, is hidden. Counters roll in 0.8 s.
+Check: `python tests/test_reactive.py`.
 
 **Film behind the hook.** agent004 may give the first scene a real film clip: `"footage": {"query":
 "ciel bleu nuages"}` on the storyboard scene (1 to 4 French words, letters only; never people), with at

@@ -15,7 +15,9 @@ the environment at each call, never written anywhere; nothing else is sent but t
 
 Settings (environment / .env, all optional):
   ELEVENLABS_API_KEY    no key: edge-tts only (said once on stderr)
-  ELEVENLABS_VOICE_ID   the voice; default ELEVENLABS_DEFAULT_VOICE below
+  ELEVENLABS_VOICE_ID   the voice of a channel with none of its own; default ELEVENLABS_DEFAULT_VOICE below
+Each channel may have its own voice: "voice_by_channel" in schemas/settings.json ({channel: {"voice_id",
+"name"}}), passed by agent010 as generate_voice(..., voice_id=...).
   ELEVENLABS_MODEL_ID   default "eleven_multilingual_v2" (speaks French with any voice)
 """
 
@@ -35,15 +37,19 @@ try:
 except ImportError:
     pass  # python-dotenv not installed: rely on variables already in the environment
 
-# ElevenLabs. Change the voice here or with ELEVENLABS_VOICE_ID: the voice id is in the ElevenLabs
-# app (Voices -> the voice -> "Copy voice ID"); a native French voice from the Voice Library sounds
-# the most natural. Default: "Charlotte" (premade voice, multilingual: speaks French with v2).
+# ElevenLabs. A channel's voice is in schemas/settings.json ("voice_by_channel"); else ELEVENLABS_VOICE_ID,
+# else this default. The voice id is in the ElevenLabs app (Voices -> the voice -> "Copy voice ID"); a
+# native French voice from the Voice Library sounds the most natural, and works by its id alone.
+# Default: "Olivier D" (a French voice made for cartoons: slow, the channels have their own).
 ELEVENLABS_DEFAULT_VOICE = "GFj5Qf6cNQ3Lgp8VKBwc"
 ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps"
 ELEVENLABS_FORMAT = "mp3_44100_128"
-# Lower stability = more expressive delivery; style adds emphasis (a teaching tone, not flat).
-ELEVENLABS_SETTINGS = {"stability": 0.4, "similarity_boost": 0.75, "style": 0.3, "use_speaker_boost": True}
+# Lower stability = more expressive delivery, but below 0.5 the voice now and then restarts a sentence
+# (heard: "ne remplissent pas le ..." said twice); style adds emphasis (a teaching tone, not flat); speed
+# 1.12: the pace and short pauses of the YouTube educators the voices were compared with (measured:
+# 5.5 to 6.9 syllables per second while speaking, pauses of 0.2 to 0.3 s; 1.0 gave 4.9 and 0.4 s).
+ELEVENLABS_SETTINGS = {"stability": 0.5, "similarity_boost": 0.75, "style": 0.2, "use_speaker_boost": True, "speed": 1.12}
 ELEVENLABS_TIMEOUT_SEC = 60
 ELEVENLABS_ATTEMPTS = 2   # a second try on a network error / 429 / 5xx (not on a refused key or quota)
 
@@ -172,9 +178,10 @@ class ElevenLabsError(RuntimeError):
         self.retry = retry
 
 
-def elevenlabs_voice(text, mp3_path, key):
-    """Write ElevenLabs' MP3 of `text` to mp3_path; returns its word timings [(seconds, word)]."""
-    voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or ELEVENLABS_DEFAULT_VOICE
+def elevenlabs_voice(text, mp3_path, key, voice_id=None):
+    """Write ElevenLabs' MP3 of `text` to mp3_path, in `voice_id` (else ELEVENLABS_VOICE_ID, else the
+    default); returns its word timings [(seconds, word)]."""
+    voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or ELEVENLABS_DEFAULT_VOICE
     model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or ELEVENLABS_DEFAULT_MODEL
     try:
         response = requests.post(ELEVENLABS_URL.format(voice=voice), params={"output_format": ELEVENLABS_FORMAT},
@@ -232,12 +239,13 @@ def edge_voice(text, mp3_path, words=None):
             time.sleep(wait)
 
 
-def generate_voice(text, mp3_path, spoken=None, engine=None):
+def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None):
     """French voice-over of `text` in mp3_path: ElevenLabs, else edge-tts (see the module's notes).
     Returns the measured duration in seconds. Given a list `spoken`, fills it with when each word is
     said: [(seconds, word)] (agent010 times the actions' cues on them). Given a dict `engine`, sets
     engine["used"] to "elevenlabs" or "edge-tts", and engine["fallback"] to why ElevenLabs failed
     when edge-tts stood in for it (None otherwise: ElevenLabs worked, or there is no key).
+    `voice_id`: the channel's ElevenLabs voice (else ELEVENLABS_VOICE_ID, else the default).
     Raises only if edge-tts fails too."""
     global _said_no_key
     text = normalize_text_for_tts(text)        # for both engines; the caller's text is left as it is
@@ -246,7 +254,7 @@ def generate_voice(text, mp3_path, spoken=None, engine=None):
     if key:
         for attempt in range(1, ELEVENLABS_ATTEMPTS + 1):
             try:
-                words = elevenlabs_voice(text, mp3_path, key)
+                words = elevenlabs_voice(text, mp3_path, key, voice_id)
                 used = "elevenlabs"
                 break
             except ElevenLabsError as exc:

@@ -57,7 +57,7 @@ from app.layout_solver import annotation_targets, target_first_timing
 from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
-from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
+from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
                                         OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
@@ -110,10 +110,15 @@ STATES = {
     ComponentType.BODY: NO_STATE + '; moves with "move_along" (on a curve) or "move" (straight); initial_state '
                                    '{"label": "Satellite", "anchor": {"curve": "<CURVE_PLOT id>", "t": 0}, "size": 0.25, '
                                    '"color": "#F59E0B"}; rides in another body or object: "anchor": {"body": "<its id>"}',
-    ComponentType.SEESAW: '{"left": true} / {"right": true} drops that load on its end (both there from the start '
-                          'if never set), {"balanced": true} slides the beam until it balances: the pivot shows the '
+    ComponentType.SEESAW: '{"left": true} / {"right": true} drops that load on its end (a side never set is there '
+                          'from the start), {"balanced": true} slides the pivot until it balances: it shows the '
                           'weighted mean; initial_state {"left": {"label": "Classe A", "weight": 30, "value": 15}, '
                           '"right": {"label": "Classe B", "weight": 5, "value": 10}, "unit": "/20"}',
+    ComponentType.SPEED_RACE: '{"go": true} sets the runners off (else at its pop); initial_state {"distance": 1, '
+                              f'"distance_unit": one of {list(RACE_DISTANCE_UNITS)}, "runners": [{{"label": "Électron", '
+                              f'"speed": 0.1, "unit": "mm/s", "icon": "atom"}}, {{"label": "Signal", "speed": 200000, '
+                              f'"unit": "km/s", "icon": "zap"}}]}}; 2 or 3 runners, "unit" one of {list(RACE_SPEED_UNITS)}, '
+                              '"icon" an OBJECT icon; the real speeds: the race is drawn to scale',
     ComponentType.LANES: '{"active": true|false} (false stops the lanes, true sets them off again); initial_state '
                          '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
                          f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
@@ -298,6 +303,11 @@ STRICT RULES:
     its weight: set_state {{"floating": true}} on it.
   * weights, a weighted mean, a lever, a comparison of two amounts: ONE SEESAW (the loads drop on its
     ends, it tips; set_state {{"balanced": true}} shows where it balances: the weighted mean).
+  * two or three speeds compared ("the electrons drift slowly, the signal is almost instant", a
+    snail and a car): ONE SPEED_RACE with their real speeds and units, on a track of a real length:
+    they set off together on one track, to one scale, so the viewer sees the gap (the slow one does
+    not move while the fast one arrives), then each one's real time and how many times faster;
+    never two icons with "lent" / "rapide" badges.
   * electrons in a circuit move: start_flow with "carriers": "electrons" (they go from - to +, against
     the conventional current, which is a plain start_flow); never BODY discs standing still on a wire.
   * a curve draws itself, a formula writes itself: spawn them on the words that say them.
@@ -726,7 +736,7 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
 
@@ -764,6 +774,24 @@ def electrons_as_discs(brief):
     found = [e.id for e in brief.entities if e.type == ComponentType.BODY and ELECTRON_LABEL.search(str(e.initial_state.get("label") or ""))]
     return [f"scene {brief.scene_id}: {found} are discs standing for electrons: drop them and show the electrons moving, "
             f"start_flow along the circuit with \"carriers\": \"electrons\" (from - to +)"] if found else []
+
+
+SLOW_WORDS = re.compile(r"\b(?:lents?|lentes?|lentement|escargot|dérive)\b", re.IGNORECASE)
+FAST_WORDS = re.compile(r"\b(?:rapides?|vite|instantané(?:e|ment)?|immédiat(?:e|ement)?|vitesse de la lumière)\b", re.IGNORECASE)
+
+
+def speeds_by_badges(brief, narration):
+    """A narration opposing a slow thing and a fast one, drawn without anything showing the speeds
+    (no SPEED_RACE, no graph, no moving body): "lent" and "rapide" badges on two icons say it, never
+    show how big the gap is."""
+    if not (SLOW_WORDS.search(str(narration or "")) and FAST_WORDS.search(str(narration or ""))):
+        return []
+    shown = {ComponentType.SPEED_RACE, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.LANES}
+    if any(e.type in shown for e in brief.entities) or brief.connections:   # a circuit: its flows show the pace
+        return []
+    return [f"scene {brief.scene_id}: the narration compares a slow and a fast thing, but nothing shows how far "
+            f"apart their speeds are: draw ONE SPEED_RACE with their real speeds (units) on one track, set off "
+            f"on the words that compare them"]
 
 
 def gauges_without_value(brief):
@@ -874,6 +902,7 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += idle_discs(brief, graphs)
     errors += queues_by_hand(brief)
     errors += gauges_without_value(brief)
+    errors += speeds_by_badges(brief, narration)
     errors += placeholder_graphs(brief)
     errors += electrons_as_discs(brief)
     errors += battery_in_column(brief)

@@ -68,7 +68,9 @@ from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.layout_solver import annotation_targets, target_first_timing
-from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, SVG_TYPES, check_curve, check_function_expression, find_cue,
+from app.render.soundtrack import soundtrack
+from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
+                                        check_curve, check_function_expression, find_cue,
                                         is_number, is_parametric, is_status_annotation, narration_words, parameter_range,
                                         scene_point, unit_direction)
 from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
@@ -276,6 +278,56 @@ SUB = str.maketrans("0123456789+-=()aehijklmnoprstuvx", "₀₁₂₃₄₅₆�
 PLAIN_MATH = re.compile(r"(?<=[\w)}])([\^_])(?:\{([^{}]{1,8})\}|(-?\w))")
 
 
+def french_amount(x):
+    """A positive number as said in French, about 3 significant digits: 1 000, 2,5, 0,96."""
+    if x >= 99.5:
+        return f"{round(x):,}".replace(",", "\u202f")
+    return f"{x:.{1 if x >= 9.95 else 2}f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def french_big(x):
+    """A large count in words past a million: 2 000 milliards, 3,5 millions, 800."""
+    for size, word in ((1e9, "milliards"), (1e6, "millions")):
+        if x >= size:
+            return f"{french_amount(x / size)} {word}"
+    return french_amount(x)
+
+
+def race_time(seconds):
+    """A duration in the unit a viewer pictures: 5 ns, 30 µs, 2,5 s, 2 h 47 min, 11 jours, 3 200 ans."""
+    for limit, size, unit in ((1e-6, 1e-9, "ns"), (1e-3, 1e-6, "µs"), (1, 1e-3, "ms"), (60, 1, "s")):
+        if seconds < limit:
+            return f"{french_amount(seconds / size)} {unit}"
+    if seconds < 600:
+        minutes, rest = divmod(round(seconds), 60)
+        return f"{minutes} min {rest:02d} s" if rest else f"{minutes} min"
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    if seconds < 86400:
+        hours, rest = divmod(minutes, 60)
+        return f"{hours} h {rest:02d} min" if rest else f"{hours} h"
+    days = seconds / 86400
+    if days < 730:
+        return f"{french_amount(days)} jours"
+    return f"{french_big(days / 365.25)} ans"
+
+
+def race_data(state, ink):
+    """SPEED_RACE: each runner's share of the fastest's speed (its pace on the one track), its real
+    time over the track, and how many times faster the fastest goes than the slowest."""
+    distance = float(state["distance"]) * RACE_DISTANCE_UNITS[state["distance_unit"]]
+    speeds = [float(r["speed"]) * RACE_SPEED_UNITS[r["unit"]] for r in state["runners"]]
+    fastest, slowest = speeds.index(max(speeds)), speeds.index(min(speeds))
+    times = french_big(speeds[fastest] / speeds[slowest])     # "2 000 milliards" (de fois), "800" (fois)
+    return {"distance": f"{french_amount(float(state['distance']))} {state['distance_unit']}",
+            "runners": [{"label": plain_math(r.get("label")), "share": v / speeds[fastest], "time": race_time(distance / v),
+                         "icon": icon_data_uri(r.get("icon", DEFAULT_OBJECT_ICON), ink)} for r, v in zip(state["runners"], speeds)],
+            "fastest": fastest,
+            "ratio": f"{plain_math(state['runners'][fastest]['label'])} : {times} {'de ' if times[-1] == 's' else ''}"
+                     f"fois plus rapide"}
+
+
 def plain_math(text):
     if not isinstance(text, str):
         return text
@@ -315,6 +367,8 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["lanes"] = [{"label": plain_math(lane.get("label")), "rate": float(lane.get("rate"))}
                          for lane in state.get("lanes", [])]
         data["icon"] = icon_data_uri(state.get("icon", "car"), ink)
+    if entity["type"] == "SPEED_RACE":            # speeds on one track, to one scale
+        data["race"] = race_data(state, ink)
     if entity["type"] == "ARROW_ANNOTATION":     # a pill badge; the position is where its short arrow points
         direction = vector_direction(state.get("direction", "DOWN"), "DOWN")
         data["annotation"] = {"direction": direction, "angle": direction_degrees(direction),
@@ -792,6 +846,23 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .lane-count { position:absolute; left:1146px; top:50%; transform:translateY(-50%); min-width:100px; padding:6px 12px; box-sizing:border-box;
                 border-radius:10px; background:var(--card); border:2px solid var(--border); text-align:center;
                 font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:32px; font-weight:700; color:var(--accent); }
+  /* SPEED_RACE: the track's length on top, a row per runner (its label, the track from the start line
+     to the finish line, its real time), how many times faster under. Sizes in app/layout_solver.py. */
+  .race { position:relative; width:1400px; }
+  .race-head { position:absolute; left:230px; top:0; width:900px; text-align:center; font-size:26px; font-weight:600; color:var(--muted); }
+  .race-row { position:absolute; left:0; width:100%; height:120px; }
+  .race-label { position:absolute; left:0; top:0; width:214px; height:100%; display:flex; align-items:center; justify-content:flex-end;
+                font-size:28px; font-weight:600; color:var(--text); text-align:right; line-height:1.1; }
+  .race-track { position:absolute; left:230px; top:14px; width:900px; height:92px; box-sizing:border-box; border-radius:10px;
+                background:color-mix(in srgb, var(--muted) 14%, transparent); border-left:6px solid var(--ink);
+                border-right:6px dashed var(--accent); }
+  .race-runner { position:absolute; top:50%; width:62px; height:62px; margin-top:-31px; }
+  .race-time { position:absolute; left:1150px; top:50%; transform:translateY(-50%); min-width:150px; padding:6px 14px; box-sizing:border-box;
+               border-radius:10px; background:var(--card); border:2px solid var(--border); text-align:center; white-space:nowrap;
+               font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:30px; font-weight:700; color:var(--accent); }
+  .race-ratio { position:absolute; left:230px; width:900px; text-align:center; }
+  .race-ratio span { display:inline-block; padding:8px 20px; border-radius:9999px; background:var(--accent); color:#FFFFFF;
+                     font-size:30px; font-weight:700; }
   /* SEESAW: a beam on a pivot, a load on each end, the balance point's value under the pivot. */
   .seesaw { position:relative; width:1100px; height:470px; }
   .seesaw .beam { position:absolute; height:16px; border-radius:8px; background:var(--ink); transform-origin:0 50%; }
@@ -1113,6 +1184,39 @@ function seekLanes(e, t) {
     lane.count.textContent = String(travel > LANE_PAST - LANE_GATE ? Math.floor((travel - LANE_PAST + LANE_GATE) / LANE_STEP) + 1 : 0);   // backs past the gate
   }
 }
+// SPEED_RACE: the runners set off together (at the pop, or set_state {"go": true}) on one track, to
+// one scale: the fastest crosses it in RACE_SEC, the others at their share of its speed, so a runner a
+// million times slower does not move a pixel. A runner's real time over the track shows when it
+// arrives, or soon after the fastest for one that would take far too long; then the ratio.
+const RACE_SEC = 2.5, RACE_ROW = 120, RACE_HEAD = 44, RACE_TRACK = 900, RACE_RUNNER = 62, RACE_WAIT = 6;
+function buildRace(ent) {
+  const shape = el("div", "race"), z = ent.race;
+  shape.style.height = `${RACE_HEAD + z.runners.length * RACE_ROW + 70}px`;
+  shape.append(el("div", "race-head", `Même piste : ${z.distance}`));
+  ent.raceRows = z.runners.map((r, i) => {
+    const row = el("div", "race-row"), track = el("div", "race-track"), runner = el("img", "race-runner"), time = el("div", "race-time", r.time);
+    runner.src = r.icon; track.append(runner);
+    row.style.top = `${RACE_HEAD + i * RACE_ROW}px`;
+    row.append(el("div", "race-label", r.label || ""), track, time);   // LLM text: textContent only
+    shape.append(row);
+    return {share: r.share, runner, time};
+  });
+  const ratio = el("div", "race-ratio"); ratio.append(el("span", "", z.ratio));
+  ratio.style.top = `${RACE_HEAD + z.runners.length * RACE_ROW + 12}px`;
+  shape.append(ratio);
+  ent.raceRatio = ratio;
+  return shape;
+}
+function seekRace(e, t) {
+  const run = Math.max(0, t - (stateTime(e, "go") ?? e.spawn + 0.6));
+  for (const r of e.data.raceRows) {
+    const arrives = RACE_SEC / r.share;              // screen seconds to cross, at its share of the fastest's pace
+    r.runner.style.left = `${Math.min(1, run / arrives) * (RACE_TRACK - 12 - RACE_RUNNER)}px`;
+    const shown = arrives <= RACE_SEC + RACE_WAIT ? arrives : RACE_SEC + 0.8;
+    r.time.style.opacity = clamp((run - shown) / 0.4, 0, 1);
+  }
+  e.data.raceRatio.style.opacity = clamp((run - RACE_SEC - 1.4) / 0.4, 0, 1);
+}
 // SEESAW: a beam on a pivot, a load on each end ("left", "right": a label and a weight; a "value" at
 // each end makes the beam a scale from one value to the other). Each load drops onto its end (set_state
 // {"left": true} / {"right": true}; a side never set is there from the start) and the beam tips
@@ -1389,6 +1493,7 @@ for (const ent of D.entities) {
   }
   else if (ent.lanes) shape = buildLanes(ent);
   else if (ent.seesaw) shape = buildSeesaw(ent);
+  else if (ent.race) shape = buildRace(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1740,7 +1845,7 @@ function layoutZones() {           // outside "circuit": where the diagram start
   if (PANELS) for (const e of Object.values(E)) if (e.box && !e.inSide) e.panel = e.data.xy[0] < D.width / 2 ? 0 : 1;
 }
 // What is wider than its room (a panel, the main area, the backdrop) is made smaller, not left to
-// spill out: a formula by its font size, a fixed-size drawing (a seesaw, toll lanes) scaled down
+// spill out: a formula by its font size, a fixed-size drawing (a seesaw, toll lanes, a race) scaled down
 // inside a wrapper of its new size, so every measure after this sees the size shown.
 function fitToRoom() {
   for (const e of Object.values(E)) {
@@ -1752,7 +1857,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -2808,6 +2913,8 @@ window.seek = function (t) {
       seekLanes(e, t);
     } else if (e.data.seesaw) {
       seekSeesaw(e, t);
+    } else if (e.data.race) {
+      seekRace(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {
@@ -2971,6 +3078,7 @@ def render_html_visual(page, html_path, duration, visual_path):
 # each line appears when the voice says them. Without a usable one (older scripts, a plan that does
 # not match the scenes), it is built here from the scenes' titles ("D'abord, ... Et enfin, ...").
 # From then on each scene shows where it is in the plan (D.progress, top right).
+SCENE_SOUNDS = {"spawn": "pop", "set_value": "tick"}   # the sound effect of an action (app/render/soundtrack.py)
 PLAN_AFTER = 1                     # the plan comes after this many scenes
 PLAN_MIN_CHAPTERS = 2              # fewer chapters: no plan scene
 PLAN_TITLE, PLAN_SUBTITLE = "Au programme", "Le plan de la vidéo"
@@ -3048,9 +3156,12 @@ def plan_page_data(plan, spoken, voice, total, style):
     return data
 
 
-def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True):
+def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True, sound=None):
     """1. every voice-over, 2. every picture in one browser session, 3. join and concatenate, and the
-    subtitles in folder/subtitles.srt (burnt into the picture too, unless burn_subtitles is False)."""
+    subtitles in folder/subtitles.srt (burnt into the picture too, unless burn_subtitles is False).
+    `sound` {"channel", "music", "effects", "voice_id"}: the music bed and sound effects mixed under the
+    voice (app/render/soundtrack.py), what was made going into sound["made"]; the channel's ElevenLabs
+    voice (None: the default)."""
     from playwright.sync_api import sync_playwright
 
     temp_dir = os.path.join(folder, "temp_html")
@@ -3069,7 +3180,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
             audio_path = os.path.join(temp_dir, name + ".mp3")
             spoken = []                    # when each word is said: the actions' cues are timed on it
             engine = {}
-            voice = generate_voice(narration, audio_path, spoken, engine)
+            voice = generate_voice(narration, audio_path, spoken, engine, (sound or {}).get("voice_id"))
             jobs.append({"name": name, "scene": scene, "source": source, "audio": audio_path, "voice": voice, "spoken": spoken,
                          "subtitles": subtitle_cues(narration, spoken, voice, plain_math),
                          "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, name + "_visual.mp4"),
@@ -3080,7 +3191,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
         if plan:                           # the plan, after the hook
             audio_path = os.path.join(temp_dir, "plan.mp3")
             spoken, engine = [], {}
-            voice = generate_voice(plan["narration"], audio_path, spoken, engine)
+            voice = generate_voice(plan["narration"], audio_path, spoken, engine, (sound or {}).get("voice_id"))
             jobs.insert(PLAN_AFTER, {"name": "plan", "plan": plan, "audio": audio_path, "voice": voice, "spoken": spoken,
                                      "subtitles": subtitle_cues(plan["narration"], spoken, voice, plain_math),
                                      "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, "plan_visual.mp4"),
@@ -3118,6 +3229,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                             data["subtitles"] = job["subtitles"]
                         with open(html_path, "w", encoding="utf-8") as f:
                             f.write(build_page(data))
+                        job["sounds"] = [(item["at"], "pop") for item in data["plan"]]
                         job["entry"]["layout_conflicts"] = render_html_visual(page, html_path, job["total"], job["visual"])
                         continue
                     number += 1
@@ -3138,6 +3250,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                         data["progress"] = {"current": number - PLAN_AFTER, "total": total_chapters - PLAN_AFTER}
                     with open(html_path, "w", encoding="utf-8") as f:
                         f.write(build_page(data))
+                    job["sounds"] = [(ev["at"], SCENE_SOUNDS[ev.get("action")]) for ev in data.get("events", [])
+                                     if ev.get("action") in SCENE_SOUNDS and is_number(ev.get("at"))]
                     conflicts = render_html_visual(page, html_path, job["total"], job["visual"])
                     job["entry"]["layout_conflicts"] = conflicts
                     if conflicts:
@@ -3159,7 +3273,14 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
             start += duration
             clips.append(clip_path)
             scenes.append(job["entry"])
-        concat_scenes(clips, os.path.join(temp_dir, "scenes.txt"), video_path)
+        beds = []
+        if sound and (sound.get("music") or sound.get("effects")):
+            events = [(job["entry"]["start_sec"] + at, kind) for job in jobs for at, kind in job.get("sounds", [])]
+            events += [(job["entry"]["start_sec"] - 0.3, "whoosh") for job in jobs[1:]]   # a scene gives way to the next
+            sound["made"], beds = soundtrack(start, events, sound.get("channel"), os.path.join(temp_dir, "music.wav"),
+                                             os.path.join(temp_dir, "effects.wav"), sound.get("music"), sound.get("effects"),
+                                             sound.get("style"))
+        concat_scenes(clips, os.path.join(temp_dir, "scenes.txt"), video_path, beds)
         with open(os.path.join(folder, "subtitles.srt"), "w", encoding="utf-8") as f:   # the whole video's lines
             f.write(srt([{**cue, "at": cue["at"] + job["entry"]["start_sec"], "end": cue["end"] + job["entry"]["start_sec"]}
                          for job in jobs for cue in job["subtitles"]]))
@@ -3185,6 +3306,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         return finish(channel_id, AGENT, "render", "critical", manifest_path, error=brief_error)
 
     warnings, scenes, duration = [], [], None
+    sound = {"channel": channel_id, "music": settings.get("background_music", True), "effects": settings.get("sound_effects", True),
+             "style": settings.get("music_style_by_channel", {}).get(channel_id) or settings.get("music_style", "ambient"),
+             "voice_id": str((settings.get("voice_by_channel", {}).get(channel_id) or {}).get("voice_id") or "").strip() or None}
     try:
         if settings.get("dry_run", True):
             with open(video_path, "wb") as f:
@@ -3196,7 +3320,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             if missing:
                 raise RuntimeError(f"{' and '.join(missing)} not found on PATH")
             scenes = render_video(storyboard, script, video_path, folder, warnings, channel_style(channel_id),
-                                  settings.get("burn_subtitles", True))
+                                  settings.get("burn_subtitles", True), sound)
             duration = round(media_duration(video_path), 2)
             renderer_used = "html_playwright"
     except ImportError:
@@ -3209,7 +3333,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     voice_engine = voice_report(scenes, warnings)
     status = "not_healthy" if warnings else "healthy"
     manifest = {"video_path": video_path, "duration": duration if duration is not None else script.get("total_duration_sec"),
-                "resolution": f"{WIDTH}x{HEIGHT}", "renderer_used": renderer_used,
+                "resolution": f"{WIDTH}x{HEIGHT}", "renderer_used": renderer_used, "soundtrack": sound.get("made"),
                 "rendered_at": utc_now(), "status": status, "voice_engine": voice_engine, "scenes": scenes}
     if os.path.exists(video_path) and renderer_used != "skip":   # written by ffmpeg (or the dry-run placeholder)
         provenance.register_artifact(run_id, channel_id, "video.mp4", AGENT)

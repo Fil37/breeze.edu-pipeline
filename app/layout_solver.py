@@ -68,6 +68,7 @@ ICON_TYPES = {t.value for t in SVG_TYPES} | {"SPROCKET", "PEDAL_CRANK", "CHAIN_L
 CARD_SIZE = (150, 80)
 LANES_W, LANE_H = 1260, 104                # LANES: labels + road + counts, and one lane's height
 SEESAW_SIZE = (1100, 470)                  # SEESAW: the beam swinging, the loads on it, the mean under the pivot
+RACE_W, RACE_ROW, RACE_EXTRA = 1400, 120, 114   # SPEED_RACE: label + track + time; a runner's row; the head and the ratio
 GRAPH_W, GRAPH_H = round(SCREEN_W * 0.7), round(SCREEN_H * 0.6) + 49   # + the legend under it (measured)
 FORMULA_EM = 2.2 * 24 * 1.21               # KaTeX glyph size in px: 2.2rem of 24 px, times KaTeX's 1.21
 FORMULA_PADDING, FORMULA_H = 76, 129       # card padding + border; a card's height (measured, with or without \frac)
@@ -130,6 +131,9 @@ def shape_size(entity, graph_count):
         return ICON_SIZE
     if kind == "SEESAW":
         return SEESAW_SIZE
+    if kind == "SPEED_RACE":
+        runners = state.get("runners")
+        return RACE_W, RACE_EXTRA + RACE_ROW * (len(runners) if isinstance(runners, list) else 2)
     if kind == "LANES":
         lanes = state.get("lanes")
         return LANES_W, LANE_H * (len(lanes) if isinstance(lanes, list) else 2)

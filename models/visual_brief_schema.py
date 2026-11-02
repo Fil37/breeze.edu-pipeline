@@ -51,6 +51,7 @@ class ComponentType(str, Enum):
     OBJECT = "OBJECT"                        # any concrete thing with no type of its own, drawn from OBJECT_ICONS
     SEESAW = "SEESAW"                        # a beam on a pivot with a load at each end: weights, the weighted mean
     LANES = "LANES"                          # queues side by side (a toll, checkouts): delimited lanes, things rolling through a gate
+    SPEED_RACE = "SPEED_RACE"                # speeds compared on one track, to one scale: who arrives, how long the others would take
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
 
@@ -84,6 +85,7 @@ COMPONENT_PORTS = {
     ComponentType.BODY: (),
     ComponentType.LANES: (),
     ComponentType.SEESAW: (),
+    ComponentType.SPEED_RACE: (),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
@@ -148,10 +150,46 @@ def lanes_problem(state):
 #                  "right": {"label": "Classe B", "weight": 5, "value": 10}, "unit": "/20"}
 # "weight": how heavy the load is (> 0); "value" (optional, both or neither): the number at that end of
 # the beam, which is then a scale from one value to the other. set_state {"left": true} / {"right":
-# true} drops that load on its end (both are there from the start when neither is set); {"balanced":
-# true} slides the beam on the pivot until it balances: the pivot then stands at the weighted mean
-# of the two values, shown under it.
+# true} drops that load on its end (a side never set is there from the start); {"balanced": true}
+# slides the pivot under the beam until it balances: it then stands at the weighted mean of the two
+# values, shown under it.
 SEESAW_LABEL_MAX = 30
+
+
+# SPEED_RACE: two or three speeds on ONE track, to ONE scale (the analogy of "how much faster"):
+#   initial_state {"distance": 1, "distance_unit": "m",
+#                  "runners": [{"label": "Électron", "speed": 0.1, "unit": "mm/s", "icon": "atom"},
+#                              {"label": "Signal", "speed": 200000, "unit": "km/s", "icon": "zap"}]}
+# The fastest crosses the track in a few seconds on screen, the others at their share of its speed
+# (an electron drifting at 0.1 mm/s does not move a pixel); each lane then gives the real time its
+# runner takes ("5 ns", "2 h 47 min"), and the fastest how many times faster it goes than the slowest.
+# Off at its pop, or at set_state {"go": true}.
+RACE_SPEED_UNITS = {"mm/h": 1e-3 / 3600, "mm/s": 1e-3, "cm/s": 1e-2, "m/s": 1.0, "km/h": 1 / 3.6, "km/s": 1e3}
+RACE_DISTANCE_UNITS = {"mm": 1e-3, "cm": 1e-2, "m": 1.0, "km": 1e3}
+RACE_RUNNERS = (2, 3)
+RACE_LABEL_MAX = 24
+
+
+def race_problem(state):
+    """Why a SPEED_RACE initial_state is wrong (see above), or None."""
+    if not is_number(state.get("distance")) or state["distance"] <= 0 or state.get("distance_unit") not in RACE_DISTANCE_UNITS:
+        return (f'SPEED_RACE needs the track\'s length: "distance": <number > 0>, "distance_unit": one of '
+                f'{list(RACE_DISTANCE_UNITS)}; got {state.get("distance")!r} {state.get("distance_unit")!r}')
+    runners = state.get("runners")
+    if not isinstance(runners, list) or not RACE_RUNNERS[0] <= len(runners) <= RACE_RUNNERS[1]:
+        return (f'SPEED_RACE needs "runners": {RACE_RUNNERS[0]} to {RACE_RUNNERS[1]} of {{"label": "...", "speed": '
+                f'<number > 0>, "unit": one of {list(RACE_SPEED_UNITS)}, "icon": <an OBJECT icon>}}; got {runners!r}'[:300])
+    for runner in runners:
+        if not isinstance(runner, dict) or set(runner) - {"label", "speed", "unit", "icon"}:
+            return f'a runner is {{"label", "speed", "unit", "icon"}}, got {runner!r}'[:300]
+        if not isinstance(runner.get("label"), str) or not runner["label"].strip() or len(runner["label"]) > RACE_LABEL_MAX:
+            return f"a runner's label is a short text (at most {RACE_LABEL_MAX} characters), got {runner.get('label')!r}"
+        if not is_number(runner.get("speed")) or runner["speed"] <= 0 or runner.get("unit") not in RACE_SPEED_UNITS:
+            return (f'a runner\'s "speed" is a number > 0 in "unit", one of {list(RACE_SPEED_UNITS)} (0.1 mm/s, '
+                    f'200000 km/s); got {runner.get("speed")!r} {runner.get("unit")!r}')
+        if runner.get("icon", DEFAULT_OBJECT_ICON) not in OBJECT_ICON_NAMES:
+            return f"a runner's icon is an OBJECT icon, got {runner.get('icon')!r}"
+    return None
 
 
 def seesaw_problem(state):
@@ -553,6 +591,8 @@ class VisualEntity(StrictModel):
                              f'got {self.initial_state["value"]!r}')
         if self.type == ComponentType.LANES and lanes_problem(self.initial_state):
             raise ValueError(f"{self.id}: {lanes_problem(self.initial_state)}")
+        if self.type == ComponentType.SPEED_RACE and race_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {race_problem(self.initial_state)}")
         if self.type == ComponentType.TEX_FORMULA:
             latex = self.initial_state.get("latex")
             if not isinstance(latex, str) or not latex.strip() or len(latex) > 200:

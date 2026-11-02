@@ -1,7 +1,8 @@
 """
 What every video goes through after its pictures are drawn (agent010, the HTML renderer): the frame
 size and rate, one encoding for every scene, the error screen of a scene that failed, picture + voice
-joined per scene, the scenes concatenated, and the audio brought to YouTube's loudness (-14 LUFS).
+joined per scene, the scenes concatenated, the music and sound effects mixed under the voice
+(app/render/soundtrack.py), and the audio brought to YouTube's loudness (-14 LUFS).
 Also the storyboard check the renderer starts with. ffmpeg and ffprobe come from the system.
 
 (Moved here from agent006, the Manim renderer, when it was retired: see archive/manim/README.md.)
@@ -34,6 +35,12 @@ AUDIO_CODEC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
 # Loudness of the final video (EBU R128): YouTube plays everything at about -14 LUFS, so a video
 # mixed quieter (the voices come out near -23 LUFS) sounds weak next to the others.
 LOUDNESS_TARGET = {"I": -16.0, "TP": -1.5, "LRA": 11.0}   # integrated LUFS, true peak dBTP, range LU
+# Under the voice, set from the voice's own loudness before the whole mix is normalized: the music this
+# many LU below it (and pushed down further while someone speaks: sidechain), the effects' peaks this
+# many dB above it (a speech peak is about 10 dB above its loudness: the effects stay under it).
+MUSIC_UNDER_VOICE = 21.0
+EFFECTS_PEAK_OVER_VOICE = 6.0
+DUCKING = "sidechaincompress=threshold=0.02:ratio=4:attack=20:release=500"
 
 
 def scene_field(scene, *names):
@@ -98,19 +105,55 @@ def normalize_loudness(source, video_path):
     second = (f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
               f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
               f":offset={measured['target_offset']}:linear=true")
-    ffmpeg(["-i", source, "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", second, *AUDIO_CODEC,
+    ffmpeg(["-i", source, "-map", "0:v:0?", "-map", "0:a:0", "-c:v", "copy", "-af", second, *AUDIO_CODEC,
             "-movflags", "+faststart", video_path], "normalize loudness")
     return round(loudness, 1)
 
 
-def concat_scenes(clip_paths, list_path, video_path):
-    """The scene clips, end to end (streams copied), then the audio normalized to LOUDNESS_TARGET.
-    Returns the loudness before normalization (LUFS), or None for a silent video."""
+def peak_db(path):
+    """The highest sample of a file's audio, in dBFS."""
+    result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                            capture_output=True, text=True, timeout=FFMPEG_TIMEOUT_SEC)
+    found = re.findall(r"max_volume: (-?[\d.]+) dB", result.stderr)
+    return float(found[-1]) if found else 0.0
+
+
+def mix_beds(joined, beds, mixed):
+    """The voice of `joined` with the beds ([("music" | "effects", WAV path)]) under it: the music
+    MUSIC_UNDER_VOICE LU below the voice and ducked while it speaks, the effects' peaks at
+    EFFECTS_PEAK_OVER_VOICE dB over its loudness. The picture is copied. False when the voice is
+    silent (nothing to set the levels by): `mixed` is then not written."""
+    voice = float(measure_loudness(joined)["input_i"])
+    if voice == float("-inf"):
+        return False
+    gains = {"music": lambda path: voice - MUSIC_UNDER_VOICE - float(measure_loudness(path)["input_i"]),
+             "effects": lambda path: voice + EFFECTS_PEAK_OVER_VOICE - peak_db(path)}
+    ducked = [i for i, (kind, _) in enumerate(beds, start=1) if kind == "music"]
+    graph = [f"[0:a]asplit={len(ducked) + 1}[voice]" + "".join(f"[key{i}]" for i in ducked)]
+    for i, (kind, path) in enumerate(beds, start=1):
+        graph.append(f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={gains[kind](path):.2f}dB"
+                     + (f"[raw{i}];[raw{i}][key{i}]{DUCKING}[bed{i}]" if i in ducked else f"[bed{i}]"))
+    graph.append("[voice]" + "".join(f"[bed{i}]" for i in range(1, len(beds) + 1))
+                 + f"amix=inputs={len(beds) + 1}:normalize=0:duration=first[a]")
+    inputs = [arg for _, path in beds for arg in ("-i", path)]
+    ffmpeg(["-i", joined, *inputs, "-filter_complex", ";".join(graph), "-map", "0:v:0?", "-map", "[a]",
+            "-c:v", "copy", *AUDIO_CODEC, mixed], "mix music and effects")
+    return True
+
+
+def concat_scenes(clip_paths, list_path, video_path, beds=()):
+    """The scene clips, end to end (streams copied), the beds mixed under the voice (mix_beds), then
+    the audio normalized to LOUDNESS_TARGET. Returns the loudness before normalization (LUFS), or None
+    for a silent video."""
     with open(list_path, "w", encoding="utf-8") as f:
         for clip in clip_paths:
             f.write("file '" + clip.replace("'", "'\\''") + "'\n")
     joined = os.path.join(os.path.dirname(list_path), "joined.mp4")
     ffmpeg(["-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", joined], "concatenate scenes")
+    if beds:
+        mixed = os.path.join(os.path.dirname(list_path), "mixed.mp4")
+        if mix_beds(joined, list(beds), mixed):
+            os.replace(mixed, joined)
     loudness = normalize_loudness(joined, video_path)
     os.remove(joined)
     if loudness is not None:

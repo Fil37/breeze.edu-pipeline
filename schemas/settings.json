@@ -17,5 +17,20 @@
   "dry_run": false,
   "qa_strict_mode": true,
   "burn_subtitles": true,
+  "voice_by_channel": {
+    "breeze_(electronics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
+    "breeze_(physics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
+    "breeze_(math)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"},
+    "breeze_(economics)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"}
+  },
+  "background_music": true,
+  "music_style_by_channel": {
+    "breeze_(electronics)": "cinematic",
+    "breeze_(physics)": "cinematic",
+    "breeze_(math)": "ambient",
+    "breeze_(economics)": "ambient"
+  },
+  "music_style": "ambient",
+  "sound_effects": true,
   "max_revisions": 3
 }

@@ -81,8 +81,8 @@ def case_engines():
     narration = "On a 10x = 0,999..."
     original = {name: getattr(tts_manager, name) for name in ("elevenlabs_voice", "edge_voice", "media_duration")}
 
-    def failing_elevenlabs(text, mp3_path, key):
-        sent["elevenlabs"] = text
+    def failing_elevenlabs(text, mp3_path, key, voice_id=None):
+        sent["elevenlabs"], sent["voice_id"] = text, voice_id
         raise tts_manager.ElevenLabsError("HTTP 401 (test)", retry=False)
 
     def edge(text, mp3_path, words=None):
@@ -94,7 +94,7 @@ def case_engines():
         os.environ["ELEVENLABS_API_KEY"] = "test-key"
         stderr, sys.stderr = sys.stderr, open(os.devnull, "w")      # the fallback's WARNING
         try:
-            tts_manager.generate_voice(narration, os.devnull)
+            tts_manager.generate_voice(narration, os.devnull, voice_id="channel-voice")
         finally:
             sys.stderr.close()
             sys.stderr = stderr
@@ -109,10 +109,12 @@ def case_engines():
     for engine in ("elevenlabs", "edge-tts"):
         if sent.get(engine) != expected:
             problems.append(f"{engine} received {sent.get(engine)!r}, expected {expected!r}")
+    if sent.get("voice_id") != "channel-voice":
+        problems.append(f"the channel's voice not passed on: {sent.get('voice_id')!r}")
     if narration != "On a 10x = 0,999...":
         problems.append("the caller's text changed")
-    return report("3. ElevenLabs and edge-tts both receive the normalized text", problems,
-                  [f"{engine}: {text!r}" for engine, text in sent.items()])
+    return report("3. ElevenLabs and edge-tts both receive the normalized text; the channel's voice is used", problems,
+                  [f"{engine}: {text!r}" for engine, text in sent.items() if engine != "voice_id"])
 
 
 def case_cues():

@@ -82,10 +82,11 @@ DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "ma
 
 ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
            "emphasize")
-STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating")
+STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
-                                   "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit")
+                                   "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
+                                   "distance", "distance_unit", "runners")
 VOCABULARY = "\n".join(f"  * {t.value}: ports {list(p) if p else 'none'}" for t, p in COMPONENT_PORTS.items())
 
 PROMPT = """ROLE: You are the lead pedagogical QA judge of an educational animation studio. You review a

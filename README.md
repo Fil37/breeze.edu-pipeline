@@ -178,6 +178,7 @@ fixed HTML/JavaScript code.
 | | `VECTOR_ARROW` | — | `direction` (see below), `length`, `label` |
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
+| Speeds | `SPEED_RACE` | — | `distance`, `distance_unit`, `runners` (`{"label", "speed", "unit", "icon"}`, 2 or 3); `go` |
 | Weights | `SEESAW` | — | `left`, `right` (`{"label", "weight", "value"}`), `unit`; `left` / `right` (drop a load), `balanced` |
 | Queues | `LANES` | — | `lanes` (2 to 4 `{"label", "rate"}`), `icon` (car, bus, truck, bike, user, users, person-standing, shopping-bag), `label`; `active` (false stops them) |
 | | `TEX_FORMULA` | — | `latex` (MathTex if LaTeX is installed, else readable text: `E=mc^2` → `E=mc²`) |
@@ -496,6 +497,14 @@ action the viewer sees happen, in proportion to the numbers said:
   and `{"balanced": true}` slides the pivot under the beam until it balances: it then stands at the
   weighted mean of the two values,
   shown under it (30 x 15 + 5 x 10 over 35: 14,29 /20);
+- SPEED_RACE (`initial_state {"distance": 1, "distance_unit": "m", "runners": [{"label": "Électron",
+  "speed": 0.1, "unit": "mm/s", "icon": "atom"}, {"label": "Signal", "speed": 200000, "unit": "km/s",
+  "icon": "zap"}]}`): the runners set off together (at the pop, or `set_state {"go": true}`) on one
+  track, to one scale: the fastest crosses it in 2.5 s, the others at their share of its speed (the
+  electron does not move a pixel); each lane then shows its runner's real time ("5 ns", "2 h 47 min")
+  and the fastest how many times faster it goes ("2 000 milliards de fois plus rapide"). agent004 sends
+  back a narration opposing a slow and a fast thing drawn with nothing showing the gap
+  (`speeds_by_badges`);
 - `start_flow` with `"carriers": "electrons"`: discs marked "−" going from − to + (slower than the
   conventional current's dots, the other way round); agent004 sends back BODY discs standing for
   electrons on a circuit (`electrons_as_discs`);
@@ -538,6 +547,21 @@ the description ("Images : <author> sur Pixabay (<page>)"), agent005 is told a f
 scene. No clip found (no match, no key, network): the scene is drawn without one, agent010
 `not_healthy`. The clips are git-ignored, `index.json` is kept. Check: `python tests/test_footage.py`.
 
+**Music and sound effects.** Everything under the voice is made by the code (`app/render/soundtrack.py`,
+numpy): no clip, no licence, no Content ID claim. A music bed the length of the video, in the channel's
+mood (electronics: A minor, brisk; physics: D minor, slow; maths: C major; economics: F major) and the
+style of the settings (`"music_style_by_channel"`: cinematic for electronics and physics, ambient for
+maths and economics; else `"music_style"`): `"ambient"` (soft chords, a bass note, a light arpeggio),
+`"lofi"` (electric piano chords, a soft kick, hats and rim, a little vinyl hiss) or `"cinematic"` (a
+slow string pad, low piano notes, a quiet pulse); faded in and out, the same for the same channel. Sound effects on
+the animation: a soft "pop" when a thing appears (spawn, and each line of the plan), a "tick" when a
+value changes (set_value), a "whoosh" between two scenes; effects closer than 0.25 s are one.
+`app/render/video.py` mixes them under the voice before the loudness pass (still -16 LUFS): the music
+21 LU below the voice and ducked while someone speaks (sidechain), the effects' peaks 6 dB above the
+voice's loudness. `render_manifest.json` says what was added (`soundtrack`).
+`"background_music": false` / `"sound_effects": false` in the settings leave either out.
+Check: `python tests/test_soundtrack.py`.
+
 **Subtitles.** Each scene's narration (the plan's too) is cut into short lines (`app/render/subtitles.py`:
 at most about 62 characters, cut at a sentence's end or a comma, a long sentence into lines of even
 length), each timed on the voice's word timings, found through the text as the voice reads it
@@ -578,12 +602,15 @@ On the dashboard, the render step is agent010's (older runs rendered by agent006
 
 ### Voice-over (`app/tts_manager.py`)
 
-agent010 makes each scene's voice with `generate_voice(text, mp3_path, spoken)`:
+agent010 makes each scene's voice with `generate_voice(text, mp3_path, spoken, engine, voice_id)`:
 
-1. **ElevenLabs** when `ELEVENLABS_API_KEY` is in `.env`: model `eleven_multilingual_v2`, voice
-   "Charlotte" (`XB0fDUnXU5powFXDhCwa`) by default. Change them with `ELEVENLABS_VOICE_ID` (in the
-   ElevenLabs app: Voices -> the voice -> "Copy voice ID"; a native French voice from the Voice Library
-   sounds the most natural) and `ELEVENLABS_MODEL_ID`. It calls the `with-timestamps` endpoint (plain
+1. **ElevenLabs** when `ELEVENLABS_API_KEY` is in `.env`: model `eleven_multilingual_v2`, a voice per
+   channel (`"voice_by_channel"` in `schemas/settings.json`: Nicolas - Narrator for electronics and
+   physics, Anaïs - Instructor for maths and economics; Voice Library voices, used by their id alone).
+   A channel without one gets `ELEVENLABS_VOICE_ID`, else "Olivier D" (`GFj5Qf6cNQ3Lgp8VKBwc`).
+   Settings: stability 0.5 (below, the voice now and then restarts a sentence), style 0.2, speed 1.12
+   (the pace and short pauses of the educators it was compared with: 5.5 to 6.9 syllables a second
+   while speaking, pauses of 0.2 to 0.3 s). `ELEVENLABS_MODEL_ID` changes the model. It calls the `with-timestamps` endpoint (plain
    `requests`, no extra package), which also says when each word is spoken, for agent010's cues.
 2. **edge-tts** (`fr-FR-VivienneMultilingualNeural`, rate +3%, pitch +0Hz) without a key, or when
    ElevenLabs fails (network, timeout, invalid key, quota): a `WARNING tts: ElevenLabs failed (...)`

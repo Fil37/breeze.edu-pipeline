@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,14 +11,14 @@
   <header class="topbar">
     <a class="brand" href="/"><span class="logo" aria-hidden="true"></span>breeze <span class="brand-sub">studio</span></a>
     <nav>
-      <a href="/" {% if active == "dashboard" %}aria-current="page"{% endif %}>Tableau de bord</a>
+      <a href="/" {% if active == "dashboard" %}aria-current="page"{% endif %}>Dashboard</a>
       <a href="/standup" {% if active == "standup" %}aria-current="page"{% endif %}>Standup</a>
     </nav>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
-  <footer class="foot">breeze · lecture seule : cette interface ne lance rien et ne modifie aucun fichier.</footer>
+  <footer class="foot">breeze · read-only: this interface starts nothing and changes no file.</footer>
   <script src="{{ url_for('static', filename='js/breeze.js') }}" defer></script>
 </body>
 </html>

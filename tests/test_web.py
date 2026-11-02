@@ -1,6 +1,6 @@
 """
 Check the web interface (Flask test client, no server, no browser):
-  1. the dashboard, a channel's page and the standup answer 200, in French; an unknown channel is a 404
+  1. the dashboard, a channel's page and the standup answer 200, in English; an unknown channel is a 404
   2. /video/<channel_id> serves only a channel of routes.json, with range requests (the player seeks);
      anything else, a path included, is a 404; /fonts/ serves only the listed woff2 files
   3. each channel gets its video theme's accent colour (a #RRGGBB, from agent010's THEMES)
@@ -36,14 +36,14 @@ def get(url, **kwargs):
 def case_pages():
     problems = []
     channel = page.routes()[0]["channel_id"]
-    for url, words in (("/", "Tableau de bord"), (f"/channel/{channel.replace('(', '%28').replace(')', '%29')}", "Dernière vidéo"),
+    for url, words in (("/", "Dashboard"), (f"/channel/{channel.replace('(', '%28').replace(')', '%29')}", "Latest video"),
                        ("/standup", "Standup")):
         response = get(url)
         if response.status_code != 200 or words not in response.get_data(as_text=True):
             problems.append(f"{url}: {response.status_code}")
     if get("/channel/breeze_(nope)").status_code != 404:
         problems.append("an unknown channel is not a 404")
-    return report("1. the three pages answer, in French; an unknown channel is a 404", problems)
+    return report("1. the three pages answer, in English; an unknown channel is a 404", problems)
 
 
 def case_files():

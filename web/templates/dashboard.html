@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Tableau de bord{% endblock %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
 {% set ready = channels | selectattr("latest.video") | list %}
 <section class="hero">
   <div>
-    <h1>Tableau de bord</h1>
-    <p class="muted">Les {{ channels | length }} chaînes, leur dernière vidéo et l'état de chaque agent au dernier run.</p>
+    <h1>Dashboard</h1>
+    <p class="muted">The {{ channels | length }} channels, their latest video and the state of each agent at the last run.</p>
   </div>
   <ul class="kpis">
-    <li><b>{{ channels | length }}</b><span>chaînes</span></li>
-    <li><b>{{ ready | length }}</b><span>vidéos prêtes</span></li>
-    <li><b>{{ channels | selectattr("overall", "equalto", "critical") | list | length }}</b><span>en échec</span></li>
+    <li><b>{{ channels | length }}</b><span>channels</span></li>
+    <li><b>{{ ready | length }}</b><span>videos ready</span></li>
+    <li><b>{{ channels | selectattr("overall", "equalto", "critical") | list | length }}</b><span>failed</span></li>
   </ul>
 </section>
 <div class="grid">

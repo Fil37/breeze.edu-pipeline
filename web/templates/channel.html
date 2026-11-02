@@ -2,118 +2,118 @@
 {% block title %}{{ route.name }}{% endblock %}
 {% block content %}
 <div class="channel" style="--ch: {{ theme.accent }}">
-  <p class="crumbs"><a href="/">Tableau de bord</a> / {{ route.channel_id }}</p>
+  <p class="crumbs"><a href="/">Dashboard</a> / {{ route.channel_id }}</p>
   <section class="hero">
     <div>
-      <p class="eyebrow">thème {{ theme.name }} · public {{ route.target_age_band }} · {{ route.persona }}</p>
-      <h1>{{ route.name }}</h1>
-      <p class="muted">Plateformes : {{ route.publish_platforms | join(", ") }}{% if not route.enabled %} · chaîne désactivée{% endif %}</p>
+      <p class="eyebrow">theme {{ theme.name }} · audience {{ route.target_age_band }} · <span lang="fr">{{ route.persona }}</span></p>
+      <h1 lang="fr">{{ route.name }}</h1>
+      <p class="muted">Platforms: {{ route.publish_platforms | join(", ") }}{% if not route.enabled %} · channel disabled{% endif %}</p>
     </div>
     {% if agents %}{% include "partials/pipeline.html" %}{% endif %}
   </section>
 
-  <h2>Dernière vidéo</h2>
+  <h2>Latest video</h2>
   {% if latest.video %}
   <div class="player-row">
     <div class="player">
       <video id="player" src="/video/{{ route.channel_id | quote }}" controls preload="metadata" playsinline></video>
-      <p class="video-title">{{ latest.title or latest.concept or "Sans titre" }}</p>
-      <p class="muted small">Rendue le {{ latest.rendered_at or "—" }} · {{ latest.duration | clock }} · voix {{ latest.voice_engine or "—" }}
-        · rendu <span class="badge b-{{ latest.render_status }}">{{ latest.render_status | status }}</span></p>
+      <p class="video-title" lang="fr">{{ latest.title or latest.concept or "Untitled" }}</p>
+      <p class="muted small">Rendered {{ latest.rendered_at or "—" }} · {{ latest.duration | clock }} · voice {{ latest.voice_engine or "—" }}
+        · render <span class="badge b-{{ latest.render_status }}">{{ latest.render_status | status }}</span></p>
     </div>
     <aside class="panel chapters">
-      <h3>Plan de la vidéo</h3>
+      <h3>Video outline</h3>
       {% if latest.scenes %}
       <ol class="scene-list">
         {% for s in latest.scenes %}
         <li{% if s.plan %} class="is-plan"{% endif %}>
           <button type="button" class="seek" data-t="{{ s.start or 0 }}">
             <span class="t">{{ s.start | clock }}</span>
-            <span class="name">{% if s.plan %}Au programme{% else %}{{ s.title }}{% endif %}</span>
-            {% if s.conflicts %}<span class="warn" title="{{ s.conflicts }} chevauchement(s) mesuré(s) au rendu">⚠ {{ s.conflicts }}</span>{% endif %}
+            <span class="name" lang="fr">{% if s.plan %}Au programme{% else %}{{ s.title }}{% endif %}</span>
+            {% if s.conflicts %}<span class="warn" title="{{ s.conflicts }} layout conflict(s) measured at render time">⚠ {{ s.conflicts }}</span>{% endif %}
           </button>
         </li>
         {% endfor %}
       </ol>
-      {% else %}<p class="muted">Pas de manifeste de rendu.</p>{% endif %}
+      {% else %}<p class="muted">No render manifest.</p>{% endif %}
       {% if latest.chapters %}
-      <details><summary>Chapitres YouTube ({{ latest.chapters | length }})</summary>
-        <ul class="plain">{% for c in latest.chapters %}<li><code>{{ c.time }}</code> {{ c.title }}</li>{% endfor %}</ul>
+      <details><summary>YouTube chapters ({{ latest.chapters | length }})</summary>
+        <ul class="plain" lang="fr">{% for c in latest.chapters %}<li><code>{{ c.time }}</code> {{ c.title }}</li>{% endfor %}</ul>
       </details>
       {% endif %}
     </aside>
   </div>
   {% else %}
-  <p class="panel muted">Pas encore de vidéo pour cette chaîne. Lancez un run avec <code>./run</code>.</p>
+  <p class="panel muted">No video yet for this channel. Start a run with <code>./run</code>.</p>
   {% endif %}
 
   {% if latest.qa %}
-  <h2>Contrôle qualité (agent005)</h2>
+  <h2>Quality check (agent005)</h2>
   <div class="qa">
     <div class="panel">
-      <p>Verdict <span class="badge b-{{ 'healthy' if latest.qa.verdict == 'pass' else 'critical' }}">{{ "validé" if latest.qa.verdict == "pass" else (latest.qa.verdict or "—") }}</span></p>
+      <p>Verdict <span class="badge b-{{ 'healthy' if latest.qa.verdict == 'pass' else 'critical' }}">{{ "passed" if latest.qa.verdict == "pass" else (latest.qa.verdict or "—") }}</span></p>
       <ul class="scores">
-        {% for key, label in [("accuracy", "Exactitude"), ("simplicity", "Simplicité"), ("clarity", "Clarté")] %}
+        {% for key, label in [("accuracy", "Accuracy"), ("simplicity", "Simplicity"), ("clarity", "Clarity")] %}
         {% set v = latest.qa.scores.get(key) %}
         <li><span>{{ label }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
         {% endfor %}
       </ul>
-      <p class="muted small">{{ latest.qa.corrected }} corrigé(s) · {{ latest.qa.blocking }} bloquant(s)</p>
+      <p class="muted small">{{ latest.qa.corrected }} corrected · {{ latest.qa.blocking }} blocking</p>
     </div>
     <div class="panel">
       {% if latest.qa.issues %}
-      <ul class="issues">
+      <ul class="issues" lang="fr">
         {% for i in latest.qa.issues %}
-        <li><span class="tag">scène {{ i.scene_id }}</span><span class="tag sev-{{ i.severity }}">{{ i.severity }}</span> {{ i.text }}</li>
+        <li><span class="tag" lang="en">scene {{ i.scene_id }}</span><span class="tag sev-{{ i.severity }}" lang="en">{{ i.severity }}</span> {{ i.text }}</li>
         {% endfor %}
       </ul>
-      {% else %}<p class="muted">Aucun problème relevé.</p>{% endif %}
+      {% else %}<p class="muted">No issue found.</p>{% endif %}
     </div>
   </div>
   {% endif %}
 
-  <h2>Les 10 derniers runs</h2>
+  <h2>Last 10 runs</h2>
   {% if runs %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Run</th><th>Statut</th><th>Sujet</th><th>Révisions QA</th><th>Durée</th></tr></thead>
+    <thead><tr><th>Run</th><th>Status</th><th>Topic</th><th>QA revisions</th><th>Duration</th></tr></thead>
     <tbody>
     {% for r in runs %}
     <tr><td><code>{{ r.run_id }}</code></td><td><span class="badge b-{{ r.overall_status }}">{{ r.overall_status | status }}</span></td>
-        <td class="prose">{{ r.topic or "—" }}</td><td>{{ r.revisions }}</td><td>{{ r.duration_sec | clock }}</td></tr>
+        <td class="prose" lang="fr">{{ r.topic or "—" }}</td><td>{{ r.revisions }}</td><td>{{ r.duration_sec | clock }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
-  {% else %}<p class="muted">Aucun run pour l'instant.</p>{% endif %}
+  {% else %}<p class="muted">No run yet.</p>{% endif %}
 
-  <h2>Vidéos publiées</h2>
+  <h2>Published videos</h2>
   {% if videos %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Publiée le</th><th>Plateforme</th><th>Lien</th></tr></thead>
+    <thead><tr><th>Published</th><th>Platform</th><th>Link</th></tr></thead>
     <tbody>
     {% for v in videos %}
     <tr><td>{{ v.data.publish_timestamp }}</td><td>{{ v.data.platform }}</td><td><a href="{{ v.data.url }}" rel="noopener">{{ v.data.url }}</a></td></tr>
     {% endfor %}
     </tbody>
   </table></div>
-  {% else %}<p class="muted">Rien de publié pour l'instant (les uploads sont privés et désactivés par défaut).</p>{% endif %}
+  {% else %}<p class="muted">Nothing published yet (uploads are private).</p>{% endif %}
 
-  <h2>Rejets du QA</h2>
+  <h2>QA rejections</h2>
   {% if rejections %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Run</th><th>Notes (exact./simpl./clarté)</th><th>Renvoyé à</th><th>Raison</th></tr></thead>
+    <thead><tr><th>Run</th><th>Scores (acc./simp./clarity)</th><th>Sent back to</th><th>Reason</th></tr></thead>
     <tbody>
     {% for r in rejections %}
     <tr><td><code>{{ r.run_id }}</code></td>
         <td>{{ r.data.scores.accuracy }} / {{ r.data.scores.simplicity }} / {{ r.data.scores.clarity }}</td>
-        <td>{{ r.data.reject_to }}</td><td class="prose">{{ r.data.rejection_notes }}</td></tr>
+        <td>{{ r.data.reject_to }}</td><td class="prose" lang="fr">{{ r.data.rejection_notes }}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
-  {% else %}<p class="muted">Aucun rejet.</p>{% endif %}
+  {% else %}<p class="muted">No rejection.</p>{% endif %}
 
   {% if topics %}
-  <h2>Sujets traités</h2>
-  <ul class="chips">{% for t in topics %}<li>{{ t }}</li>{% endfor %}</ul>
+  <h2>Topics</h2>
+  <ul class="chips" lang="fr">{% for t in topics %}<li>{{ t }}</li>{% endfor %}</ul>
   {% endif %}
 </div>
 {% endblock %}

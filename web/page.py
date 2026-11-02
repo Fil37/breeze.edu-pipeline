@@ -18,33 +18,33 @@ from app.agent.agent010_html_renderer import channel_style
 AGENT_ORDER = ["agent009", "agent001", "agent002", "agent003", "agent004",
                "agent005", "agent010", "agent007", "agent008"]
 AGENT_NAMES = {
-    "agent009": "Statistiques", "agent001": "Recherche", "agent002": "Plan pédagogique", "agent003": "Script",
-    "agent004": "Storyboard", "agent005": "Contrôle QA", "agent006": "Rendu (Manim)", "agent010": "Rendu",
-    "agent007": "Métadonnées", "agent008": "Publication",
+    "agent009": "Analytics", "agent001": "Research", "agent002": "Outline", "agent003": "Script",
+    "agent004": "Storyboard", "agent005": "QA", "agent006": "Render (Manim)", "agent010": "Render",
+    "agent007": "Metadata", "agent008": "Publish",
 }
 AGENT_JOBS = {
-    "agent009": "lecture des statistiques",
-    "agent001": "recherche d'un concept",
-    "agent002": "plan pédagogique",
-    "agent003": "écriture de la narration",
-    "agent004": "storyboard",
-    "agent005": "contrôle qualité",
-    "agent006": "rendu de la vidéo (Manim, retiré)",
-    "agent010": "rendu de la vidéo",
-    "agent007": "métadonnées YouTube",
-    "agent008": "publication",
+    "agent009": "read the analytics",
+    "agent001": "researched a concept",
+    "agent002": "built the learning outline",
+    "agent003": "wrote the narration",
+    "agent004": "wrote the storyboard",
+    "agent005": "reviewed the video (QA)",
+    "agent006": "rendered the video (Manim, retired)",
+    "agent010": "rendered the video",
+    "agent007": "wrote the YouTube metadata",
+    "agent008": "published the video",
 }
 STATUS_LABELS = {
-    "healthy": "OK", "not_healthy": "avertissement", "critical": "échec", "revision_needed": "révision",
-    "not_run": "non lancé", "skipped": "ignoré",
+    "healthy": "healthy", "not_healthy": "warning", "critical": "critical", "revision_needed": "revision",
+    "not_run": "not run", "skipped": "skipped",
 }
 STATUS_PHRASES = {
-    "healthy": "terminé sans problème",
-    "not_healthy": "terminé avec un avertissement",
-    "critical": "en échec",
-    "revision_needed": "révision demandée",
-    "not_run": "non lancé (un agent précédent a échoué)",
-    "skipped": "ignoré volontairement (--skip-agents)",
+    "healthy": "finished cleanly",
+    "not_healthy": "finished with a warning",
+    "critical": "failed",
+    "revision_needed": "asked for a revision",
+    "not_run": "did not run (an earlier agent failed)",
+    "skipped": "skipped on purpose (--skip-agents)",
 }
 HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
@@ -102,7 +102,7 @@ def latest(channel_id):
     titles = {str(s.get("scene_id")): ((s.get("visual_brief") or {}).get("text_overlay") or {}).get("title")
               for s in storyboard.get("scenes", [])}           # for videos rendered before the manifest kept them
     scenes = [{"scene_id": s.get("scene_id"),
-               "title": s.get("title") or titles.get(str(s.get("scene_id"))) or f"Scène {s.get('scene_id')}",
+               "title": s.get("title") or titles.get(str(s.get("scene_id"))) or f"Scene {s.get('scene_id')}",
                "plan": s.get("scene_id") == "plan", "start": s.get("start_sec"), "duration": s.get("duration_sec"),
                "voice": s.get("voice_engine"), "status": s.get("status"), "conflicts": len(s.get("layout_conflicts") or [])}
               for s in manifest.get("scenes", [])]
@@ -181,7 +181,7 @@ def channel_page(channel_id):
 
 
 def standup():
-    """One line per agent, per channel, for the most recent run (French)."""
+    """One line per agent, per channel, for the most recent run."""
     with db_connect() as conn:
         last = conn.execute("SELECT run_id FROM reports ORDER BY timestamp DESC, id DESC LIMIT 1").fetchone()
         if last is None:
@@ -192,10 +192,10 @@ def standup():
     for report in reports:
         if report["channel"] != "global" and report["agent"] == "agent009":
             continue  # agent009 runs once per cycle: shown once, on its global line
-        sentence = (f"{report['agent']} · {AGENT_JOBS.get(report['agent'], report['agent'])} : "
+        sentence = (f"{report['agent']} · {AGENT_JOBS.get(report['agent'], report['agent'])}: "
                     f"{STATUS_PHRASES.get(report['status'], report['status'])}")
         if report["status"] not in ("not_run", "skipped") and report["duration_sec"] is not None:
-            sentence += f", en {report['duration_sec']:.1f} s"
+            sentence += f", in {report['duration_sec']:.1f} s"
         groups.setdefault(report["channel"], []).append(
             {"agent": report["agent"], "status": report["status"], "text": sentence, "error": report["error"]})
     names = {r["channel_id"]: r["name"] for r in routes()}

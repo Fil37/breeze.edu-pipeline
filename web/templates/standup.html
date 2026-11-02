@@ -4,14 +4,14 @@
 <section class="hero">
   <div>
     <h1>Standup</h1>
-    {% if run_id %}<p class="muted">Dernier run <code>{{ run_id }}</code> : ce que chaque agent a fait, chaîne par chaîne.</p>{% endif %}
+    {% if run_id %}<p class="muted">Last run <code>{{ run_id }}</code>: what each agent did, channel by channel.</p>{% endif %}
   </div>
 </section>
 {% if run_id %}
 <div class="standup">
   {% for g in groups %}
   <section class="panel" style="--ch: {{ g.theme.accent }}">
-    <h2>{{ g.name }}</h2>
+    <h2 lang="fr">{{ g.name }}</h2>
     <ul>
       {% for line in g.lines %}
       <li class="step st-{{ line.status }}"><span class="dot"></span><span>{{ line.text }}
@@ -22,6 +22,6 @@
   {% endfor %}
 </div>
 {% else %}
-<p class="panel muted">Aucun run pour l'instant. Lancez-en un avec <code>./run</code>.</p>
+<p class="panel muted">No run yet. Start one with <code>./run</code>.</p>
 {% endif %}
 {% endblock %}

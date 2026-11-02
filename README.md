@@ -55,7 +55,7 @@ python app/agent/agent000_breeze.py --channel "breeze_(electronics)" --skip-agen
 python app/agent/agent000_breeze.py --channel "breeze_(physics)" --topic "Les saisons et l'inclinaison terrestre à 23,5°" --skip-agents agent008,agent009
 ```
 
-**The web interface** (`python web/app.py`, read-only, in French) has three pages. The dashboard
+**The web interface** (`python web/app.py`, read-only) is in English; what the channels produce (names, topics, titles, scenes, QA notes) stays in French. It has three pages. The dashboard
 shows each channel's last video (it plays, muted, under the mouse), its QA scores and the state of
 each agent at the last run. A channel's page has the video player with its plan: click a scene to jump
 to it, and the scene being played is lit. It also shows the QA's verdict and issues, the last 10 runs,

@@ -51,12 +51,44 @@
       "ai_generated": false,
       "query": "bureau de pôle emploi",
       "fetched_at": "2026-11-02T14:33:17Z"
+    },
+    "pixabay:7215": {
+      "source": "pixabay",
+      "id": 7215,
+      "file": "pixabay_7215_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-7215/",
+      "user": "quimuns",
+      "tags": "lune, nuit, ténèbres, ciel de nuit, pleine lune",
+      "duration": 39,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "lune ciel nuit",
+      "fetched_at": "2026-11-02T16:25:07Z"
+    },
+    "pixabay:133898": {
+      "source": "pixabay",
+      "id": 133898,
+      "file": "pixabay_133898_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-133898/",
+      "user": "Amorn_mimi",
+      "tags": "médical, médicament, santé, femme, la technologie, la science, soins de santé, professionnelle, hôpital, docteur, se soucier, virus, covid-19, rechercher, personnes, laboratoire, l'ordinateur, traitement, test, médecin, femelle, quarantaine, patient, domicile, coronavirus",
+      "duration": 9,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "patient résultat test",
+      "fetched_at": "2026-11-02T16:39:34Z"
     }
   },
   "queries": {
     "ciel bleu nuages": "pixabay:2142",
     "interrupteur et lampe": "pixabay:11186",
     "lune dans le ciel": "pixabay:161332",
-    "bureau de pôle emploi": "pixabay:232538"
-  }
+    "bureau de pôle emploi": "pixabay:232538",
+    "lune ciel nuit": "pixabay:7215",
+    "patient résultat test": "pixabay:133898"
+  },
+  "checked": [
+    "lune ciel nuit",
+    "patient résultat test"
+  ]
 }

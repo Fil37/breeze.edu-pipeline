@@ -9,7 +9,7 @@ as their packages ship them.
 | Component | Version | Where | License |
 |---|---|---|---|
 | [KaTeX](https://katex.org) (JS, CSS and its fonts) | 0.16.11 (npm `katex`) | `assets/katex/` | MIT |
-| [Lucide](https://lucide.dev) icons | 0.460.0 (npm `lucide-static`) | `assets/icons/*.svg`, but `cannon.svg` and `elevator.svg` (breeze's own drawings) | ISC |
+| [Lucide](https://lucide.dev) icons | 0.460.0 (npm `lucide-static`) | `assets/icons/*.svg`, but `cannon.svg`, `elevator.svg` and `spring.svg` (breeze's own drawings) | ISC |
 | [Inter](https://github.com/rsms/inter) | 5.3.0 (npm `@fontsource/inter`) | `assets/fonts/inter-*.woff2` | SIL OFL 1.1 |
 | [Fira Code](https://github.com/tonsky/FiraCode) | 5.3.0 (npm `@fontsource/fira-code`) | `assets/fonts/fira-code-*.woff2` | SIL OFL 1.1 |
 | [Space Grotesk](https://github.com/floriankarsten/space-grotesk) | 5.3.0 (npm `@fontsource/space-grotesk`) | `assets/fonts/space-grotesk-*.woff2` | SIL OFL 1.1 |

@@ -129,7 +129,8 @@ def case_agent003():
     without = run_agent003(None)
     problems = [f"the prompt lacks {part!r}" for part in ("Corrections demandées par le QA (révision 1)", "previous script",
                                                            issue, "Réécrire la scène 4.", agent003.DRAWABLE) if part not in with_feedback]
-    if "Corrections demandées par le QA" in without or without != agent003.PROMPT.format(outline={"beats": ["La gravité agit en orbite."]}):
+    if "Corrections demandées par le QA" in without or without != agent003.PROMPT.format(outline={"beats": ["La gravité agit en orbite."]}, pace=agent003.WORDS_PER_SEC,
+                                                                                least=agent003.MIN_WORDS, most=agent003.MAX_WORDS):
         problems.append("without feedback, the prompt changed")
     return report("4. agent003 gets the QA's feedback, with what the animation can show", problems)
 

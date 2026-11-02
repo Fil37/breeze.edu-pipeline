@@ -57,8 +57,8 @@ from app.layout_solver import annotation_targets, target_first_timing
 from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
-from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
-                                        OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, move_problem, narration_words, scene_point)
+from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
+                                        DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
 KNOWN_RENDERERS = ("html", "skip")       # "html": agent010 draws it (default); "manim" is read as "html" (retired)
@@ -119,6 +119,13 @@ STATES = {
                               f'"speed": 0.1, "unit": "mm/s", "icon": "atom"}}, {{"label": "Signal", "speed": 200000, '
                               f'"unit": "km/s", "icon": "zap"}}]}}; 2 or 3 runners, "unit" one of {list(RACE_SPEED_UNITS)}, '
                               '"icon" an OBJECT icon; the real speeds: the race is drawn to scale',
+    ComponentType.POPULATION: '{"show": "<group id>"} colours that group in (a group never shown is coloured from '
+                              'the start), {"focus": ["<group id>", ...]} dims all the other dots, {"focus": []} brings '
+                              'them back; initial_state {"total": 1000, "per": 10, "unit": "personnes", "groups": '
+                              '[{"id": "sick", "label": "Malades", "count": 10, "color": "#DC2626"}, {"id": "false_alarm", '
+                              '"label": "Faux positifs", "count": 10, "color": "#F59E0B"}], "rest": "Bien portants"}; '
+                              f'"total" dots ({POPULATION_DOTS[0]} to {POPULATION_DOTS[1]}), each standing for "per" '
+                              f'people; {POPULATION_GROUPS[0]} to {POPULATION_GROUPS[1]} groups of whole dots, filled in order',
     ComponentType.LANES: '{"active": true|false} (false stops the lanes, true sets them off again); initial_state '
                          '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
                          f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
@@ -188,9 +195,10 @@ STRICT RULES:
     with "icon" one of {object_icons}, and its "label". It is drawn like the icon types, ports
     included. Never borrow another type's icon for it: CART is a shopping cart, never an elevator
     (that is OBJECT "elevator"); BANK is a bank, never a building in general (OBJECT "building").
-    An icon means what it shows: "zap" is electricity, never a cannon (that is "cannon"). When no
-    icon in the list is the thing, use a BODY (a plain disc) with its label rather than an icon
-    that shows something else.
+    An icon means what it shows: "zap" is electricity, never a cannon (that is "cannon"); people
+    ("users") are never animals ("paw-print" for animals in general, "dog", "bird", "fish"), a
+    battery is a BATTERY, never a "zap". When no icon in the list is the thing, use a BODY (a plain
+    disc) with its label rather than an icon that shows something else.
   * Queues side by side (lanes at a toll, checkouts in a shop, counters: the analogy of parallel
     branches, of a flow that splits between ways): ONE LANES, never cars or people moved one by one.
     It draws the lanes delimited, each with its label, its vehicles rolling through the gate at its
@@ -308,6 +316,13 @@ STRICT RULES:
     they set off together on one track, to one scale, so the viewer sees the gap (the slow one does
     not move while the fast one arrives), then each one's real time and how many times faster;
     never two icons with "lent" / "rapide" badges.
+  * shares of a population (a rare disease and a test's false alarms, "sur 10 000 personnes", a
+    vote, a risk in %): ONE POPULATION, a grid of dots to scale (1000 dots of 10 people each for
+    10 000 people), each group coloured as the narrator names it (set_state {{"show": ...}}), then
+    {{"focus": [...]}} on the groups the question is about ("parmi les positifs"); never GAUGE
+    icons standing for groups of people. A conditional probability read both ways ("chien sachant
+    animal" against "animal sachant chien", "malade sachant positif"): ONE POPULATION of the whole
+    (100 animaux, the dogs one group), then {{"focus"}} on the condition, one way then the other.
   * electrons in a circuit move: start_flow with "carriers": "electrons" (they go from - to +, against
     the conventional current, which is a plain start_flow); never BODY discs standing still on a wire.
   * a curve draws itself, a formula writes itself: spawn them on the words that say them.
@@ -318,6 +333,7 @@ STRICT RULES:
   gives; never a line from 0 to 10 over "temps" and "PIB".
 - A GAUGE SHOWS A VALUE: every GAUGE gets its number with set_value, cued on the words that say it; a
   dial with no number means nothing (for an idea with no number: an OBJECT icon or an ARROW_ANNOTATION).
+  A count of people is not a gauge: groups of a population are a POPULATION.
 - THE SAME VALUES ALL ALONG: a battery, a price, an object keeps the values the narration gives it
   from one scene to the next (a "Pile 6 V" stays "Pile 6 V"); change them only where the narration does.
 - THINGS IN A GRAPH: an OBJECT, a BODY or a VECTOR_ARROW that belongs to a graph (the Earth at the
@@ -445,6 +461,10 @@ STRICT RULES:
   a formula or one key icon; never icons standing for the setting the film already shows.
 - text_overlay: a short title (under 8 words) and an optional one-line subtitle; set
   clear_previous to true unless the scene explicitly continues the previous scene's title.
+- A scene with "announced" was announced on screen in the video's plan by these words: the viewer
+  expects THAT. Its title says the same idea (in other words if you like), and what it names is drawn:
+  "Le ressort bandé transfère son énergie" draws the spring (an OBJECT) giving its energy; if it cannot
+  be drawn, show the idea it stands for, never a different topic under that announcement.
 
 LANGUAGE: The target audience is French. title, subtitle and label MUST be in PERFECT FRENCH.
 Keys, ids, component types, layers, ports, states and action names stay exactly as written above.
@@ -601,9 +621,17 @@ def cue_says(action, stems):
     return said(narration_words(action.get("cue")), stems)
 
 
+PROBABILITY = re.compile(r"(?<![\\A-Za-z])P\s*(?:\\left|\\big[gl]?)?\s*\(")   # "P(A | B)", "P\left(...": maybe a probability
+
+
 def formula_symbol(latex):
-    """The quantity a formula defines: the capital letter on the left of "=" ("U = V_A - V_B" -> U)."""
-    match = re.search(r"(?<![\\A-Za-z])([A-Z])(?![A-Za-z])", str(latex or "").split("=")[0])
+    """The quantity a formula defines: the capital letter on the left of "=" ("U = V_A - V_B" -> U).
+    None for a probability ("P(\\text{chien} \\mid \\text{animal})"): its P is no power nor pressure."""
+    left = str(latex or "").split("=")[0]
+    opened = PROBABILITY.search(left)
+    if opened and re.search(r"\\mid|\||\\cap|\\cup|\\text|\\bar|\\overline|[A-Z]", left[opened.end():]):
+        return None                      # events inside (A, "malade", A | B), not a variable (P(t), a power over time)
+    match = re.search(r"(?<![\\A-Za-z])([A-Z])(?![A-Za-z])", left)
     return match.group(1) if match else None
 
 
@@ -736,15 +764,12 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.POPULATION, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
 
 QUEUE_ICONS = set(LANE_ICONS)
 QUEUE_MOVERS = 3          # this many vehicles or people moved one by one: a queue, drawn by hand
-
-
-UNIT_MARK = re.compile(r"[(%€$°/]|\d|\b(?:années?|ans|mois|jours?|heures?|secondes?|mètres?|km|kg|euros?|dollars?|habitants?|milliards?|millions?)\b")
 
 
 def placeholder_graphs(brief):
@@ -756,7 +781,7 @@ def placeholder_graphs(brief):
         ranges = [state.get(k) or [0, 10] for k in ("x_range", "y_range")]
         default = all(isinstance(r, list) and len(r) >= 2 and r[:2] == [0, 10] for r in ranges)
         names = [str(state.get(k) or "") for k in ("x_label", "y_label")]
-        if default and not any(len(n.strip()) <= 2 or UNIT_MARK.search(n.lower()) for n in names):
+        if default and not any(n.strip() and measured_axis(n) for n in names):
             errors.append(f"scene {brief.scene_id}: the graph {axes.id} ({names[0]!r}, {names[1]!r}) runs 0 to 10 on both "
                           f"axes with no unit: a line over made-up numbers; give the real ranges and units of the "
                           f"quantity (\"années\" 2015 to 2025, \"PIB (milliards d'€)\"), with the narration's values on the curve")
@@ -800,6 +825,105 @@ def gauges_without_value(brief):
     return [f"scene {brief.scene_id}: the GAUGE {e.id} ({e.initial_state.get('label')!r}) never shows a value: give it "
             f"its number with set_value, cued on the words that say it, or show the idea by an OBJECT icon or an "
             f"ARROW_ANNOTATION" for e in brief.entities if e.type == ComponentType.GAUGE and e.id not in valued]
+
+
+PEOPLE_UNIT = re.compile(r"^(?:pers\.?|personnes?|gens|habitants?|patients?|malades?|individus?|votants?|électeurs?)$", re.IGNORECASE)
+PEOPLE_GAUGES = 2         # this many GAUGEs counting people: groups of a population, drawn as dials
+
+
+# What an icon shows, for the kinds a label cannot be drawn as another of (a person is never drawn
+# as an animal, a fire never as water): icon -> kind, and the French words naming each kind (stems).
+ICON_KINDS = {
+    "person": ("user", "users", "person-standing", "baby"),
+    "animal": ("dog", "bird", "fish", "paw-print"),
+    "vehicle": ("car", "bus", "truck", "train-front", "plane", "ship", "bike", "rocket"),
+    "building": ("house", "building", "building-2", "factory", "school", "hospital", "store", "warehouse"),
+    "fire": ("flame",),
+    "water": ("droplet", "waves", "cloud-rain"),
+    "plant": ("tree-pine", "leaf", "apple"),
+    "sky": ("sun", "moon", "earth", "globe", "orbit", "satellite"),
+}
+KIND_OF_ICON = {icon: kind for kind, icons in ICON_KINDS.items() for icon in icons}
+KIND_WORDS = {
+    "person": ("personne", "gens", "habitant", "patient", "malade", "élève", "étudiant", "client", "consommateur",
+               "travailleu", "salarié", "chômeu", "homme", "femme", "enfant", "bébé", "citoyen", "électeur", "votant",
+               "foule", "individu", "adulte", "médecin", "vendeu", "acheteu", "employé", "population"),
+    "animal": ("animal", "animaux", "chien", "chat", "oiseau", "poisson", "bête", "vache", "cheval", "mouton",
+               "insecte", "lapin", "souris"),
+    "vehicle": ("voiture", "véhicule", "camion", "bus", "train", "avion", "bateau", "navire", "vélo", "fusée", "auto"),
+    "building": ("maison", "immeuble", "bâtiment", "usine", "école", "hôpital", "magasin", "entrepôt", "logement"),
+    "fire": ("feu", "feux", "incendie", "flamme", "combustion", "brûl"),
+    "water": ("eau", "pluie", "rivière", "fleuve", "mer", "océan", "goutte", "liquide"),
+    "plant": ("arbre", "forêt", "plante", "feuille", "fruit", "pomme"),
+    "sky": ("soleil", "lune", "terre", "planète", "étoile", "orbite", "satellite"),
+}
+# A thing with a component of its own, drawn as an OBJECT icon: the zap labelled "Pile".
+OWN_TYPE_WORDS = {"pile": "BATTERY", "batterie": "BATTERY", "lampe": "LAMP", "ampoule": "LAMP",
+                  "interrupteur": "SWITCH", "ampèremètre": "AMMETER", "voltmètre": "VOLTMETER_PROBES"}
+
+
+def label_kinds(label):
+    """The kinds of thing a label names, from its words' beginnings ("Animaux" -> {"animal"})."""
+    words = re.findall(r"[^\W\d_]+", str(label or "").lower())
+    return {kind for kind, stems in KIND_WORDS.items() if any(w.startswith(stems) for w in words)}
+
+
+def drawn_labels(brief):
+    """(where, label, icon) of every icon drawn with a label of the LLM's: OBJECTs, a race's runners,
+    LANES."""
+    found = []
+    for e in brief.entities:
+        state = e.initial_state
+        if e.type == ComponentType.OBJECT:
+            found.append((e.id, state.get("label"), state.get("icon", DEFAULT_OBJECT_ICON)))
+        elif e.type == ComponentType.SPEED_RACE:
+            found += [(f"{e.id} ({r.get('label')})", r.get("label"), r.get("icon", DEFAULT_OBJECT_ICON))
+                      for r in state.get("runners") or [] if isinstance(r, dict)]
+        elif e.type == ComponentType.LANES:
+            found.append((e.id, state.get("label"), state.get("icon", "car")))
+        elif e.type in SVG_TYPES and e.type != ComponentType.GAUGE:   # coins, a bank: a thing, never someone
+            found.append((e.id, state.get("label"), e.type.value))   # (a dial may give a share of people)
+    return found
+
+
+def icons_against_labels(brief):
+    """An icon in total contradiction with what its label names: people for "Animaux", a car for
+    "Maison", a flame for "Pluie" (the label names one kind, the icon shows another, and the label
+    does not name the icon's kind too); or a thing that has its own component drawn as an icon
+    ("Pile" as a zap)."""
+    errors = []
+    for where, label, icon in drawn_labels(brief):
+        named, shown = label_kinds(label), KIND_OF_ICON.get(icon)
+        if icon in {t.value for t in SVG_TYPES} and named and named <= {"person", "animal"}:
+            errors.append(f"scene {brief.scene_id}: {where} is a {icon} labelled {label!r}, which names "
+                          f"{' / '.join(sorted(named))}: draw them as an OBJECT with a fitting icon "
+                          f"({sorted(i for kind in named for i in ICON_KINDS[kind])})")
+        if named and shown and shown not in named:
+            fits = sorted({i for kind in named for i in ICON_KINDS[kind]})
+            errors.append(f"scene {brief.scene_id}: {where} shows {icon!r} ({shown}) for {label!r}, which names "
+                          f"{' / '.join(sorted(named))}: an icon shows what it stands for; take one of {fits}, "
+                          f"or a BODY (a plain disc) with its label")
+        words = re.findall(r"[^\W\d_]+", str(label or "").lower())
+        own = next((OWN_TYPE_WORDS[w] for w in words if w in OWN_TYPE_WORDS), None)
+        if own and brief.entities and any(e.id == where for e in brief.entities if e.type == ComponentType.OBJECT):
+            errors.append(f"scene {brief.scene_id}: {where} draws {label!r} as the icon {icon!r}: it has a component of "
+                          f"its own, draw it as a {own}")
+    return errors
+
+
+def people_by_gauges(brief):
+    """GAUGEs counting people ("10 pers.", "9 900 personnes"): a fixed dial per group, its number in the
+    column; the shares are never seen. A POPULATION draws them."""
+    if any(e.type == ComponentType.POPULATION for e in brief.entities):
+        return []
+    types = {e.id: e.type for e in brief.entities}
+    counted = sorted({a.get("target") for a in brief.actions if a.get("action") == "set_value"
+                      and types.get(a.get("target")) == ComponentType.GAUGE and PEOPLE_UNIT.match(str(a.get("unit") or "").strip())})
+    if len(counted) < PEOPLE_GAUGES:
+        return []
+    return [f"scene {brief.scene_id}: {counted} are GAUGEs counting people: dials say nothing of the shares; draw "
+            f"ONE POPULATION (a grid of dots, each for \"per\" people, its groups coloured with set_state "
+            f"{{\"show\": ...}} on the words that name them) and drop these GAUGEs"]
 
 
 def queues_by_hand(brief):
@@ -901,6 +1025,8 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += tiny_curves(brief, graphs)
     errors += idle_discs(brief, graphs)
     errors += queues_by_hand(brief)
+    errors += people_by_gauges(brief)
+    errors += icons_against_labels(brief)
     errors += gauges_without_value(brief)
     errors += speeds_by_badges(brief, narration)
     errors += placeholder_graphs(brief)
@@ -1407,6 +1533,15 @@ def parse_storyboard(text, durations, narrations):
     return {brief.scene_id: brief for brief in briefs}, layouts
 
 
+def announce(scenes_for_prompt, plan):
+    """Give each scene the words the plan (shown after the hook) announced it by: "announced", what
+    the viewer expects of it (the prompt asks for its title to say it and what it names drawn)."""
+    announced = {str(p.get("scene_id")): p.get("text") for p in (plan or {}).get("parts") or [] if isinstance(p, dict)}
+    for scene in scenes_for_prompt:
+        if announced.get(scene["scene_id"]):
+            scene["announced"] = announced[scene["scene_id"]]
+
+
 def qa_feedback_section():
     """The prompt section with the QA's corrections, from LBREEZE_QA_FEEDBACK (app/qa_feedback.py; the
     only channel: this agent never reads qa.json). Returns (section, summary for the logs); ("", None)
@@ -1487,6 +1622,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                           "narration_text": scene_field(s, "narration_text", "narration"),
                           "key_visual_moment": scene_field(s, "key_visual_moment", "visual_intent")}
                          for s in script["scenes"]]
+    announce(scenes_for_prompt, script.get("plan"))
     def measure(order, briefs, templates, titles, durations):
         try:
             from app.agent.agent010_html_renderer import channel_style    # the channel's theme: its sizes and fonts

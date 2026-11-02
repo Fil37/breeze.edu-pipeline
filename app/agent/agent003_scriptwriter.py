@@ -12,7 +12,10 @@ NOTES:  Narration only, aiming at 90-180 s. Also the plan announced after the ho
         animation can show: never reads qa.json itself.
         An acronym ("BIT", "PIB") is said in full the first time it is spoken (hook, plan, then the
         scenes), in the same sentence or scene: a narration using one before is sent back once.
-HEALTH: not_healthy if total_duration_sec > 200 or < 60, or an acronym is still used before it is said in full;
+        The narrator speaks about WORDS_PER_SEC words a second: scenes with fewer than MIN_WORDS words in
+        all (a video under 90 s) are sent back once, with the acronyms if any.
+HEALTH: not_healthy if total_duration_sec > 200 or < 60, the scenes still have fewer than MIN_WORDS words,
+        or an acronym is still used before it is said in full;
         critical if outline.json is missing, llm_call fails, or scenes[] is empty.
 """
 
@@ -29,6 +32,9 @@ from app.qa_feedback import feedback_section
 
 AGENT = "agent003"
 MIN_SCENE_WORDS = 15      # below this a scene's audio is too short for its animations
+WORDS_PER_SEC = 3.1       # the narrator's pace (ElevenLabs at speed 1.12: 3.0 to 3.3 measured on the run of 2026-11-02)
+MIN_WORDS = 280           # in all the scenes: under this the video is shorter than 90 s at that pace
+MAX_WORDS = 520           # ... and over this, longer than about 170 s
 # What the animation can show, for a rewrite after the QA found the narration asked for the impossible.
 DRAWABLE = ("Write narration whose key visual moments the animation can show: electric circuits, graphs and "
             "curves (orbits and circles too), force and velocity arrows, formulas, counters, icons of everyday "
@@ -40,7 +46,8 @@ Learning outline: {outline}
 Rules:
 - One scene = one visual. If a scene cannot be drawn as ONE visual, split it into two scenes.
 - Narration only. Never mention software, renderers or templates.
-- Speaking pace is about 2.5 words per second; set duration_sec accordingly.
+- Speaking pace is about {pace} words per second; set duration_sec accordingly. All the scenes
+  together have {least} to {most} words: explain, give the example, do not rush.
 - Each scene must have a narration of at least 15-20 words to ensure the audio track lasts at least
   6-8 seconds. Do not write very short sentences.
 - The last scene CLOSES the video: it answers the hook's question in one clear sentence (the "aha"),
@@ -92,9 +99,11 @@ ROMAN = re.compile(r"[IVXLCDM]+")
 LINK_WORDS = {"de", "du", "des", "la", "le", "les", "l", "d", "et", "en", "à", "a", "au", "aux", "pour", "sur", "un", "une"}
 RETRY_NOTE = """
 
-Your previous answer used acronyms before saying them in full; rewrite it with each said in full
-the first time it is spoken (same JSON shape):
+Your previous answer has these problems; rewrite it without them (same JSON shape):
 {problems}"""
+SHORT_NOTE = ("the scenes have {words} words in all: at about {pace} words per second the video lasts under "
+              "90 seconds; write at least {least} words (more explanation and the example worked through in "
+              "each scene, not more scenes)")
 
 
 def said_in_full(acronym, text):
@@ -123,6 +132,16 @@ def undefined_acronyms(scenes, plan):
     return problems
 
 
+def word_count(scenes):
+    return sum(len(str(s.get("narration_text", "")).split()) for s in scenes)
+
+
+def script_problems(answer):
+    """(acronyms used before being said in full, the scenes' word count): what a retry is asked to fix."""
+    scenes = answer.get("scenes") or []
+    return undefined_acronyms(scenes, answer.get("plan")), word_count(scenes)
+
+
 def run(channel_id: str, settings: dict, routes: list) -> dict:
     folder = channel_dir(channel_id)
     output_path = os.path.join(folder, "script.json")
@@ -136,15 +155,18 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         if qa_feedback:
             print(f"--- {AGENT}: QA feedback (revision {qa_feedback['revision']}): {qa_feedback['blocking_issues']} "
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
-        prompt = PROMPT.format(outline=outline).replace("\nAnswer with JSON only", qa_section + "\nAnswer with JSON only", 1)
+        prompt = PROMPT.format(outline=outline, pace=WORDS_PER_SEC, least=MIN_WORDS, most=MAX_WORDS).replace(
+            "\nAnswer with JSON only", qa_section + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))
-        acronyms = undefined_acronyms(answer.get("scenes") or [], answer.get("plan"))
-        if acronyms:                  # once more, told which: a viewer must never be lost on a word
-            print(f"--- {AGENT}: acronyms not said in full, asked again: {acronyms}", file=sys.stderr, flush=True)
-            again = parse_llm_json(llm_call(prompt + RETRY_NOTE.format(problems="\n".join(acronyms))))
-            left = undefined_acronyms(again.get("scenes") or [], again.get("plan"))
-            if again.get("scenes") and len(left) < len(acronyms):
-                answer, acronyms = again, left
+        acronyms, words = script_problems(answer)
+        if acronyms or words < MIN_WORDS:   # once more, told what: a viewer never lost on a word, nor rushed
+            notes = acronyms + ([SHORT_NOTE.format(words=words, pace=WORDS_PER_SEC, least=MIN_WORDS)] if words < MIN_WORDS else [])
+            print(f"--- {AGENT}: asked again: {notes}", file=sys.stderr, flush=True)
+            again = parse_llm_json(llm_call(prompt + RETRY_NOTE.format(problems="\n".join(notes))))
+            left, more = script_problems(again)
+            shortfall = lambda n: max(0, MIN_WORDS - n)
+            if again.get("scenes") and len(left) <= len(acronyms) and (len(left), shortfall(more)) < (len(acronyms), shortfall(words)):
+                answer, acronyms, words = again, left, more
     except (RuntimeError, ValueError) as exc:
         return finish(channel_id, AGENT, "script", "critical", output_path, error=str(exc))
 
@@ -157,12 +179,12 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         "scenes": scenes,
         "plan": checked_plan(answer.get("plan"), scenes),
         "total_duration_sec": sum(float(s.get("duration_sec", 0)) for s in scenes),
-        "word_count": sum(len(str(s.get("narration_text", "")).split()) for s in scenes),
+        "word_count": word_count(scenes),
     }
     save_json(output_path, script)
     provenance.register_artifact(run_id, channel_id, "script.json", AGENT)
 
-    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 and not acronyms else "not_healthy"
+    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 and not acronyms and words >= MIN_WORDS else "not_healthy"
     short = [s.get("scene_id") for s in scenes if len(str(s.get("narration_text", "")).split()) < MIN_SCENE_WORDS]
     return finish(channel_id, AGENT, "script", status, output_path,
                   data={"scenes": len(scenes), "total_duration_sec": script["total_duration_sec"],

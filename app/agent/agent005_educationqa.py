@@ -82,11 +82,12 @@ DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "ma
 
 ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
            "emphasize")
-STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go")
+STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go",
+              "show", "focus")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
                                    "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
-                                   "distance", "distance_unit", "runners")
+                                   "distance", "distance_unit", "runners", "total", "per", "groups", "rest")
 VOCABULARY = "\n".join(f"  * {t.value}: ports {list(p) if p else 'none'}" for t, p in COMPONENT_PORTS.items())
 
 PROMPT = """ROLE: You are the lead pedagogical QA judge of an educational animation studio. You review a
@@ -97,6 +98,7 @@ DOMAIN RULES TO ENFORCE:
 
 RESEARCH (the facts the video must respect): {research}
 SCRIPT (narration, one entry per scene): {script}
+PLAN (shown on screen after the hook: what each later scene was announced to show): {plan}
 STORYBOARD (one visual brief per scene, drawn by a deterministic renderer): {storyboard}
 ("footage_behind" on a scene: a real film clip of these words plays full-frame behind it, darkened;
 the drawing over it is kept short on purpose. It is not part of the brief: never patch it.)
@@ -157,7 +159,10 @@ TASK:
    that becomes "9 V" without the narration saying so is a factual issue: fix the label by patch, or the
    script if the narration changes it); and the last scene closes the video (answers the hook's
    question, sums up the idea, ends on a closing sentence). A video ending on a question, on a new
-   example left unexplained or mid-thought is unfinished: set reject_to "agent003".
+   example left unexplained or mid-thought is unfinished: set reject_to "agent003". Each scene shows
+   what the PLAN announced for it: a part announced ("Le ressort bandé transfère son énergie") that its
+   scene never draws (no spring, another topic under its title) is a factual issue: fix the title or a
+   label by patch when that is enough, else set reject_to "agent004".
 5. If the SCRIPT itself is wrong, set reject_to "agent003"; if the visuals are wrong in a way
    patches cannot fix, set reject_to "agent004"; otherwise null.
 
@@ -620,6 +625,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     prompt = PROMPT.format(rules="\n\n".join(DOMAIN_RULES[d] for d in domains),
                            research=json.dumps(research, ensure_ascii=False),
                            script=json.dumps(script.get("scenes"), ensure_ascii=False),
+                           plan=json.dumps([{"scene_id": p.get("scene_id"), "text": p.get("text")}
+                                            for p in (script.get("plan") or {}).get("parts") or []], ensure_ascii=False),
                            storyboard=json.dumps([{**briefs[str(scene["visual_brief"]["scene_id"])],
                                                    **({"footage_behind": scene["footage"].get("query")} if scene.get("footage") else {})}
                                                   for scene in storyboard["scenes"]], ensure_ascii=False),

@@ -52,6 +52,7 @@ class ComponentType(str, Enum):
     SEESAW = "SEESAW"                        # a beam on a pivot with a load at each end: weights, the weighted mean
     LANES = "LANES"                          # queues side by side (a toll, checkouts): delimited lanes, things rolling through a gate
     SPEED_RACE = "SPEED_RACE"                # speeds compared on one track, to one scale: who arrives, how long the others would take
+    POPULATION = "POPULATION"                # a population as a grid of dots, its groups coloured: shares of people seen at a glance
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
 
@@ -86,25 +87,26 @@ COMPONENT_PORTS = {
     ComponentType.LANES: (),
     ComponentType.SEESAW: (),
     ComponentType.SPEED_RACE: (),
+    ComponentType.POPULATION: (),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
 # OBJECT: a concrete thing that has no component type of its own (an elevator, a rocket, a person,
 # the Sun...), drawn like the icon types, from one of these icons ("icon"; default "box"), with its
 # label. A closed list: the schema can check it, and only these names are ever fetched (Lucide,
-# pinned version, cached in assets/icons; "elevator" and "cannon" are drawn by hand there, Lucide has
-# neither).
+# pinned version, cached in assets/icons; "elevator", "cannon" and "spring" are drawn by hand there,
+# Lucide has none of them).
 OBJECT_ICONS = {
     "things": ("box", "package", "weight", "dumbbell", "anvil", "hammer", "wrench", "key", "lock", "magnet",
                "lightbulb", "smartphone", "laptop", "cpu", "clock", "hourglass", "thermometer", "ruler",
-               "flask-conical", "microscope", "telescope", "atom", "cannon"),
+               "flask-conical", "microscope", "telescope", "atom", "cannon", "spring"),
     "buildings": ("house", "building", "building-2", "factory", "school", "hospital", "store", "warehouse",
                   "elevator", "door-closed", "radio-tower"),
     "transport": ("car", "bus", "truck", "train-front", "plane", "rocket", "satellite", "ship", "bike"),
     "people": ("user", "users", "person-standing", "baby"),
     "nature and sky": ("sun", "moon", "earth", "globe", "cloud", "cloud-rain", "droplet", "flame", "zap", "wind",
                        "waves", "mountain", "tree-pine", "leaf", "apple"),
-    "living": ("heart", "brain", "eye", "hand", "fish", "bird", "dog"),
+    "living": ("heart", "brain", "eye", "hand", "fish", "bird", "dog", "paw-print"),
     "money": ("banknote", "wallet", "piggy-bank", "receipt", "briefcase", "shopping-bag"),
     "other": ("orbit", "trophy", "flag", "book-open", "graduation-cap"),
 }
@@ -168,6 +170,59 @@ RACE_SPEED_UNITS = {"mm/h": 1e-3 / 3600, "mm/s": 1e-3, "cm/s": 1e-2, "m/s": 1.0,
 RACE_DISTANCE_UNITS = {"mm": 1e-3, "cm": 1e-2, "m": 1.0, "km": 1e3}
 RACE_RUNNERS = (2, 3)
 RACE_LABEL_MAX = 24
+
+
+# POPULATION: a population drawn as a grid of dots (an icon array), each dot standing for "per" people
+# (or things): its groups' shares seen at a glance (a rare disease and a test's false alarms, a vote).
+#   initial_state {"total": 1000, "per": 10, "unit": "personnes",
+#                  "groups": [{"id": "sick", "label": "Malades", "count": 10, "color": "#DC2626"},
+#                             {"id": "false_alarm", "label": "Faux positifs", "count": 10, "color": "#F59E0B"}],
+#                  "rest": "Bien portants"}
+# "total" dots (POPULATION_DOTS), the groups' dots first, in order, the others grey ("rest" names
+# them). set_state {"show": "<group id>"} colours that group in (a group never shown is coloured from
+# the start); {"focus": ["<group id>", ...]} dims every other dot (among the positives only: who is
+# ill?), {"focus": []} brings them back. The legend gives each group's count of people (count x per).
+POPULATION_DOTS = (10, 1000)
+POPULATION_GROUPS = (1, 4)
+POPULATION_LABEL_MAX = 28
+HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+GROUP_ID = re.compile(r"[A-Za-z0-9_-]{1,24}")
+
+
+def population_problem(state):
+    """Why a POPULATION initial_state is wrong (see above), or None."""
+    total, per = state.get("total"), state.get("per", 1)
+    if not isinstance(total, int) or isinstance(total, bool) or not POPULATION_DOTS[0] <= total <= POPULATION_DOTS[1]:
+        return (f'POPULATION needs "total": the number of dots, a whole number from {POPULATION_DOTS[0]} to '
+                f'{POPULATION_DOTS[1]} (10 000 people: 1000 dots with "per": 10); got {total!r}')
+    if not is_number(per) or per < 1 or per != int(per):
+        return f'"per" is how many people one dot stands for, a whole number from 1; got {per!r}'
+    if not isinstance(state.get("unit", "personnes"), str) or len(state.get("unit", "personnes")) > 16:
+        return f'"unit" is what is counted, a short word ("personnes", "votants"); got {state.get("unit")!r}'
+    groups = state.get("groups")
+    if not isinstance(groups, list) or not POPULATION_GROUPS[0] <= len(groups) <= POPULATION_GROUPS[1]:
+        return (f'POPULATION needs "groups": {POPULATION_GROUPS[0]} to {POPULATION_GROUPS[1]} of {{"id": "sick", '
+                f'"label": "Malades", "count": <dots>, "color": "#RRGGBB"}}; got {groups!r}'[:300])
+    ids = []
+    for group in groups:
+        if not isinstance(group, dict) or set(group) - {"id", "label", "count", "color"}:
+            return f'a group is {{"id", "label", "count", "color"}}, got {group!r}'[:300]
+        if not isinstance(group.get("id"), str) or not GROUP_ID.fullmatch(group["id"]) or group["id"] in ids:
+            return f'a group\'s "id" is a short name of its own (letters, digits, _ and -), got {group.get("id")!r}'
+        ids.append(group["id"])
+        if not isinstance(group.get("label"), str) or not group["label"].strip() or len(group["label"]) > POPULATION_LABEL_MAX:
+            return f"a group's label is a short text (at most {POPULATION_LABEL_MAX} characters), got {group.get('label')!r}"
+        if not isinstance(group.get("count"), int) or isinstance(group["count"], bool) or group["count"] < 1:
+            return (f'a group\'s "count" is its number of dots, a whole number from 1 (a group under one dot: '
+                    f'make "per" smaller); got {group.get("count")!r}')
+        if "color" in group and not (isinstance(group["color"], str) and HEX_COLOR.fullmatch(group["color"])):
+            return f'a group\'s "color" is "#RRGGBB", got {group.get("color")!r}'
+    if sum(g["count"] for g in groups) > total:
+        return f'the groups have {sum(g["count"] for g in groups)} dots in all, more than "total" ({total})'
+    rest = state.get("rest", "")
+    if not isinstance(rest, str) or len(rest) > POPULATION_LABEL_MAX:
+        return f'"rest" names the grey dots, a short text (at most {POPULATION_LABEL_MAX} characters); got {rest!r}'
+    return None
 
 
 def race_problem(state):
@@ -264,6 +319,18 @@ def direction_problem(value, anchored=False):
             return None if any(numbers) else "direction [0, 0] has no angle"
     return (f'direction must be "UP", "DOWN", "LEFT", "RIGHT" or a vector [x, y] of two numbers '
             f"(e.g. [0.4, 0.9] for an axis tilted 23.5° from the vertical), got {value!r}")
+
+
+# An axis name that carries a measure: a unit or a number in it ("PIB (milliards d'€)", "temps (s)",
+# "années"), or a maths variable of its own ("x", "t"). Without one ("orbite", "hauteur"), the axes
+# are a sketch: numbers along them would be made up.
+UNIT_MARK = re.compile(r"[(%€$°/]|\d|\b(?:années?|ans|mois|jours?|heures?|secondes?|mètres?|km|kg|euros?|dollars?|habitants?|milliards?|millions?)\b")
+
+
+def measured_axis(name):
+    """Does an axis named so carry numbers? (see UNIT_MARK; an unnamed axis does, as before)"""
+    name = str(name or "").strip()
+    return not name or len(name) <= 2 or bool(UNIT_MARK.search(name.lower()))
 
 
 def is_number(value):
@@ -593,6 +660,8 @@ class VisualEntity(StrictModel):
             raise ValueError(f"{self.id}: {lanes_problem(self.initial_state)}")
         if self.type == ComponentType.SPEED_RACE and race_problem(self.initial_state):
             raise ValueError(f"{self.id}: {race_problem(self.initial_state)}")
+        if self.type == ComponentType.POPULATION and population_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {population_problem(self.initial_state)}")
         if self.type == ComponentType.TEX_FORMULA:
             latex = self.initial_state.get("latex")
             if not isinstance(latex, str) or not latex.strip() or len(latex) > 200:

@@ -134,7 +134,8 @@ Keys for each provider, in `.env`: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
 ## How a video is made
 
 1. **agent003** writes the narration, scene by scene (at least 15–20 words per scene, so the
-   voice lasts long enough for the animations).
+   voice lasts long enough for the animations; 280 to 520 words in all, the narrator speaking about
+   3.1 words a second: a script under 280 words is asked again once, `MIN_WORDS`).
 2. **agent004** turns each scene into a **visual brief** (`models/visual_brief_schema.py`):
    components on stage, wires between their named ports, timed actions, a text overlay. The LLM's
    JSON is validated with Pydantic plus topology checks (real ports, known ids, no shared
@@ -179,6 +180,7 @@ fixed HTML/JavaScript code.
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
 | Speeds | `SPEED_RACE` | — | `distance`, `distance_unit`, `runners` (`{"label", "speed", "unit", "icon"}`, 2 or 3); `go` |
+| Shares of people | `POPULATION` | — | `total` (10 to 1000 dots), `per` (people a dot stands for), `unit`, `groups` (1 to 4 `{"id", "label", "count", "color"}`), `rest`; `show` (a group's id), `focus` (ids) |
 | Weights | `SEESAW` | — | `left`, `right` (`{"label", "weight", "value"}`), `unit`; `left` / `right` (drop a load), `balanced` |
 | Queues | `LANES` | — | `lanes` (2 to 4 `{"label", "rate"}`), `icon` (car, bus, truck, bike, user, users, person-standing, shopping-bag), `label`; `active` (false stops them) |
 | | `TEX_FORMULA` | — | `latex` (MathTex if LaTeX is installed, else readable text: `E=mc^2` → `E=mc²`) |
@@ -207,10 +209,10 @@ without an anchor. agent005 can anchor a floating vector by patch. Check: `pytho
 
 An `OBJECT` is any concrete thing that has no type of its own (an elevator, a rocket, a person, the
 Sun, a house...), drawn like the icon types, ports included, from its `icon`: one of a closed list of
-80 (`OBJECT_ICONS` in `models/visual_brief_schema.py`, by theme: things, buildings, transport,
+81 (`OBJECT_ICONS` in `models/visual_brief_schema.py`, by theme: things, buildings, transport,
 people, nature and sky, living, money, other). The list keeps the vocabulary checkable (the schema
 refuses another name) and is all on disk in `assets/icons` (Lucide, pinned version), so it draws
-offline; `elevator` and `cannon` are breeze's own drawings, Lucide has neither. agent004's prompt lists the icons and
+offline; `elevator`, `cannon` and `spring` are breeze's own drawings, Lucide has none of them. agent004's prompt lists the icons and
 forbids borrowing another type's (a CART is a shopping cart, never an elevator); agent005 can change
 an OBJECT's icon by patch. Check: `python tests/test_object_component.py`.
 
@@ -521,6 +523,32 @@ scaled down. agent003 has each acronym said in full the first time it is spoken 
 scenes: "le Bureau international du travail, le BIT"); a script using one before is asked again once
 (`undefined_acronyms`), and agent003 is `not_healthy` if one is still left.
 Check: `python tests/test_run_fixes.py`.
+
+**Fixes from the evaluation of 2026-11-02 (16:05).** The videos had come out short (82 to 116 s): the
+narrator speaks faster since ElevenLabs runs at speed 1.12 (3.0 to 3.3 words a second), so agent003
+counts 3.1 and asks again once for a script under 280 words (see above). A probability
+"P(chien | animal)" is no longer taken for a power or a pressure P (`formula_symbol`). agent004 gives
+each scene the words the plan announced it by (`"announced"`, `announce`): its title says the same
+idea and what it names is drawn (a spring: the new `spring` icon); agent005 gets the plan too and
+treats an announced part its scene never shows as a factual issue. Axes named with no measure
+("orbite", "hauteur": `measured_axis`) are a sketch, drawn without ticks nor numbers. POPULATION
+(`initial_state {"total": 1000, "per": 10, "unit": "personnes", "groups": [{"id": "sick", "label":
+"Malades", "count": 10, "color": "#DC2626"}, ...], "rest": "Bien portants"}`) draws a population as
+a grid of dots to scale (10 000 people: 1000 dots of 10), each group coloured in, dot after dot, at
+`set_state {"show": "<id>"}` (a group never shown is coloured from the start), `{"focus": [ids]}`
+dimming every other dot ("parmi les positifs") and `{"focus": []}` bringing them back; the legend
+gives each group's people (count x per). agent004 sends back GAUGEs counting people
+(`people_by_gauges`: a fixed dial per group, the shares never seen). On a comparison page, what is
+in a panel stays under its title (two dials stacked went over it), and a badge with a diagonal
+direction also tries the four straight sides (it lay over a formula). agent004 sends back an icon in
+total contradiction with its label (`icons_against_labels`): the label names a kind of thing
+(`KIND_WORDS`: people, animals, vehicles, buildings, fire, water, plants, the sky) and the icon shows
+another (`ICON_KINDS`: "Animaux" drawn as people), coins or a bank labelled with people, or a thing
+with a component of its own drawn as an icon ("Pile" as a zap: a BATTERY). Animals in general have
+the `paw-print` icon, and a conditional probability read both ways ("chien sachant animal") is asked
+as a POPULATION.
+Check: `python tests/test_population_fixes.py`.
+
 A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's sign
 on the drawing, not at the battery as a whole (`batteryTerminal`); no badge's arrow runs through
 another badge. A number line's graduations are 1, 2 or 5 times a power of ten (0 to 10 000: every 1 000), never "-0", and a number
@@ -582,7 +610,7 @@ agent010 draws each scene as a web page:
 - **Wires:** right-angle paths, routed after layout, around the components and their labels.
   Each side of a component carries at most one wire; crossings and wires running side by side are
   avoided when another path exists.
-- **Graphs:** `AXES_GRAPH` draws SVG axes (70 % of the frame's width, 60 % of its height) with numbered ticks; `CURVE_PLOT` points are computed in Python
+- **Graphs:** `AXES_GRAPH` draws SVG axes (70 % of the frame's width, 60 % of its height) with numbered ticks (none along an axis named with no measure); `CURVE_PLOT` points are computed in Python
   (expression checked by `check_function_expression`, evaluated with numpy, no builtins), with
   gaps where the function leaves the y range (e.g. 1/x at 0), a color and a legend per curve;
   `VECTOR_ARROW` grows from its start point.

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- breeze: a coil spring between two plates (Lucide has none), drawn in Lucide's style: 24x24, 2px strokes -->
+  <path d="M6 3h12" />
+  <path d="M12 3v2l5 1.75-10 3.5 10 3.5-10 3.5 5 1.75v2" />
+  <path d="M6 21h12" />
+</svg>

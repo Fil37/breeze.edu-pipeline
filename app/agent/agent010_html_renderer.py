@@ -71,7 +71,7 @@ from app.layout_solver import annotation_targets, target_first_timing
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
                                         check_curve, check_function_expression, find_cue,
-                                        is_number, is_parametric, is_status_annotation, narration_words, parameter_range,
+                                        is_number, is_parametric, is_status_annotation, measured_axis, narration_words, parameter_range,
                                         scene_point, unit_direction)
 from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
                               ffmpeg, make_error_visual, mux_scene, scene_field)
@@ -328,6 +328,22 @@ def race_data(state, ink):
                      f"fois plus rapide"}
 
 
+POPULATION_COLORS = ("#DC2626", "#F59E0B", "#2563EB", "#10B981")   # a group's colour when the brief gives none
+
+
+def population_data(state):
+    """POPULATION: its dots, each group's (in order, then the rest), and the counts of people the
+    legend gives: "Malades : 100 personnes" (count x per)."""
+    total, per, unit = int(state["total"]), int(state.get("per", 1)), str(state.get("unit") or "personnes")[:16]
+    people = lambda dots: f"{french_big(dots * per)} {unit}"
+    groups = [{"id": g["id"], "label": plain_math(g["label"]), "count": int(g["count"]), "people": people(int(g["count"])),
+               "color": g.get("color") or POPULATION_COLORS[i % len(POPULATION_COLORS)]} for i, g in enumerate(state["groups"])]
+    rest = total - sum(g["count"] for g in groups)
+    return {"total": total, "groups": groups,
+            "rest": {"id": "rest", "label": plain_math(state.get("rest") or ""), "people": people(rest)} if rest > 0 else None,
+            "head": people(total) + (f" · 1 point = {people(1)}" if per > 1 else "")}
+
+
 def plain_math(text):
     if not isinstance(text, str):
         return text
@@ -369,6 +385,8 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["icon"] = icon_data_uri(state.get("icon", "car"), ink)
     if entity["type"] == "SPEED_RACE":            # speeds on one track, to one scale
         data["race"] = race_data(state, ink)
+    if entity["type"] == "POPULATION":            # a grid of dots, its groups coloured
+        data["population"] = population_data(state)
     if entity["type"] == "ARROW_ANNOTATION":     # a pill badge; the position is where its short arrow points
         direction = vector_direction(state.get("direction", "DOWN"), "DOWN")
         data["annotation"] = {"direction": direction, "angle": direction_degrees(direction),
@@ -378,7 +396,9 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["graph"] = {"x_range": number_range(state.get("x_range"), DEFAULT_X_RANGE),
                          "y_range": number_range(state.get("y_range"), DEFAULT_Y_RANGE),
                          "x_label": plain_math(state.get("x_label")), "y_label": plain_math(state.get("y_label")),
-                         "line": is_number_line(entity, entities_by_id)}
+                         "line": is_number_line(entity, entities_by_id),
+                         # an axis named with no measure ("orbite", "hauteur"): a sketch, no numbers along it
+                         "numbered": [measured_axis(state.get("x_label")), measured_axis(state.get("y_label"))]}
     if entity["type"] == "CURVE_PLOT":
         axes = entities_by_id.get(state.get("axes"))
         axes_state = (axes.get("initial_state") or {}) if axes and axes["type"] == "AXES_GRAPH" else {}
@@ -863,6 +883,13 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .race-ratio { position:absolute; left:230px; width:900px; text-align:center; }
   .race-ratio span { display:inline-block; padding:8px 20px; border-radius:9999px; background:var(--accent); color:#FFFFFF;
                      font-size:30px; font-weight:700; }
+  /* POPULATION: how many people on top, the grid of dots, the legend (a swatch, a group, its count). */
+  .population { position:relative; width:700px; }
+  .pop-head { height:44px; line-height:44px; text-align:center; font-size:26px; font-weight:600; color:var(--muted); }
+  .pop-grid { display:block; }
+  .pop-legend { display:flex; flex-wrap:wrap; justify-content:center; gap:6px 24px; margin-top:12px; }
+  .pop-key { display:flex; align-items:center; gap:8px; font-size:24px; font-weight:600; color:var(--text); }
+  .pop-swatch { width:18px; height:18px; border-radius:50%; flex:none; }
   /* SEESAW: a beam on a pivot, a load on each end, the balance point's value under the pivot. */
   .seesaw { position:relative; width:1100px; height:470px; }
   .seesaw .beam { position:absolute; height:16px; border-radius:8px; background:var(--ink); transform-origin:0 50%; }
@@ -1044,18 +1071,19 @@ function buildAxes(g, holder) {
   sv("polygon", {points: `${cx},${dy - 22} ${cx - 11},${dy} ${cx + 11},${dy}`, stroke: "none"}, axes);
   const step = (lo, hi) => { const r = hi - lo; return r <= 12 ? 1 : r <= 30 ? 5 : r <= 120 ? 10 : niceStep(r); };
   const tick = v => frenchNumber(v, Number.isInteger(v) ? 0 : 1);
-  const sx = step(x0, x1), sy = step(y0, y1);
-  for (let i = Math.ceil(x0 / sx); i * sx <= x1 + 1e-9; i++) {
+  const sx = step(x0, x1), sy = step(y0, y1), [xNumbered, yNumbered] = g.numbered || [true, true];
+  // An axis named with no measure ("orbite", "hauteur") is a sketch: no ticks nor numbers along it.
+  for (let i = Math.ceil(x0 / sx); xNumbered && i * sx <= x1 + 1e-9; i++) {
     const x = i * sx, [px] = map(x, oy);
     sv("line", {x1: px, y1: ay - 9, x2: px, y2: ay + 9, "stroke-width": 3}, axes);
     if (x !== 0) sv("text", {x: px, y: ay + 40, "text-anchor": "middle", class: "tick-label"}, s).textContent = tick(x);
   }
-  for (let i = Math.ceil(y0 / sy); i * sy <= y1 + 1e-9; i++) {
+  for (let i = Math.ceil(y0 / sy); yNumbered && i * sy <= y1 + 1e-9; i++) {
     const y = i * sy, [, py] = map(ox, y);
     sv("line", {x1: cx - 9, y1: py, x2: cx + 9, y2: py, "stroke-width": 3}, axes);
     if (y !== 0) sv("text", {x: cx - 18, y: py + 9, "text-anchor": "end", class: "tick-label"}, s).textContent = tick(y);
   }
-  if (x0 <= 0 && 0 <= x1 && y0 <= 0 && 0 <= y1) {
+  if ((xNumbered || yNumbered) && x0 <= 0 && 0 <= x1 && y0 <= 0 && 0 <= y1) {
     const [px, py] = map(0, 0); sv("circle", {cx: px, cy: py, r: 6, stroke: "none"}, axes);
     sv("text", {x: px - 16, y: py + 40, "text-anchor": "end", class: "tick-label"}, s).textContent = "0";
   }
@@ -1216,6 +1244,55 @@ function seekRace(e, t) {
     r.time.style.opacity = clamp((run - shown) / 0.4, 0, 1);
   }
   e.data.raceRatio.style.opacity = clamp((run - RACE_SEC - 1.4) / 0.4, 0, 1);
+}
+// POPULATION: "total" dots in a grid, each standing for "per" people; the groups' dots first, in order,
+// the others grey. A group is coloured in, dot after dot (POP_SHOW), at its set_state {"show": id},
+// or at the pop if never shown; its key in the legend with it. set_state {"focus": [ids]} dims every
+// other dot (and key), {"focus": []} brings them back.
+const POP_W = 700, POP_GRID_H = 380, POP_SHOW = 0.9, POP_DIM = 0.12;
+const POP_REST = "color-mix(in srgb, var(--muted) 30%, transparent)";
+function buildPopulation(ent) {
+  const z = ent.population, shape = el("div", "population"), n = z.total;
+  const cols = Math.ceil(Math.sqrt(n * POP_W / POP_GRID_H)), rows = Math.ceil(n / cols);
+  const cell = Math.min(POP_W / cols, POP_GRID_H / rows), x0 = (POP_W - cols * cell) / 2;
+  const svg = sv("svg", {width: POP_W, height: rows * cell, viewBox: `0 0 ${POP_W} ${rows * cell}`, class: "pop-grid"});
+  const keys = [...z.groups, ...(z.rest ? [z.rest] : [])];
+  for (const g of z.groups) if (!/^#[0-9A-Fa-f]{6}$/.test(g.color)) g.color = "#DC2626";   // a "#RRGGBB" only
+  const owner = z.groups.flatMap(g => Array.from({length: g.count}, (_, k) => [g, k]));
+  ent.popDots = Array.from({length: n}, (_, i) => {
+    const [g, k] = owner[i] || [z.rest, 0];
+    const dot = sv("circle", {cx: x0 + (i % cols + 0.5) * cell, cy: (Math.floor(i / cols) + 0.5) * cell, r: cell * 0.36}, svg);
+    dot.style.fill = POP_REST;
+    return {dot, group: g, k};
+  });
+  const legend = el("div", "pop-legend");
+  ent.popKeys = keys.map(g => {
+    const key = el("div", "pop-key"), swatch = el("span", "pop-swatch");
+    swatch.style.background = g.color || POP_REST;
+    key.append(swatch, el("span", "", g.label ? `${g.label} : ${g.people}` : g.people));   // LLM text: textContent only
+    legend.append(key);
+    return {key, group: g};
+  });
+  shape.append(el("div", "pop-head", z.head), svg, legend);
+  return shape;
+}
+function seekPopulation(e, t) {
+  const shown = g => { if (!g || g.id === "rest") return -Infinity;
+    const s = e.states.find(s => s.at >= 0 && s.state && s.state.show === g.id);
+    return s ? s.at : (e.spawn || 0); };
+  // the focus now, the one before it, and how far the dimming has gone from one to the other
+  const focus = e.states.filter(s => s.at >= 0 && s.at <= t && s.state && Array.isArray(s.state.focus));
+  const dimIn = list => g => list && list.length && !list.includes(g ? g.id : "rest") ? 1 : 0;
+  const now = focus.length ? focus[focus.length - 1] : null, before = focus.length > 1 ? focus[focus.length - 2] : null;
+  const p = now ? clamp((t - now.at) / 0.4, 0, 1) : 1;
+  const dim = g => dimIn(before && before.state.focus)(g) * (1 - p) + dimIn(now && now.state.focus)(g) * p;
+  for (const d of e.data.popDots) {
+    const at = shown(d.group) + (d.group && d.group.id !== "rest" ? POP_SHOW * d.k / d.group.count : 0);
+    d.dot.style.fill = d.group && d.group.color && t >= at ? d.group.color : POP_REST;
+    d.dot.style.opacity = 1 - (1 - POP_DIM) * dim(d.group);
+  }
+  for (const k of e.data.popKeys)
+    k.key.style.opacity = (t >= shown(k.group) ? 1 : 0) * (1 - (1 - POP_DIM) * dim(k.group));
 }
 // SEESAW: a beam on a pivot, a load on each end ("left", "right": a label and a weight; a "value" at
 // each end makes the beam a scale from one value to the other). Each load drops onto its end (set_state
@@ -1494,6 +1571,7 @@ for (const ent of D.entities) {
   else if (ent.lanes) shape = buildLanes(ent);
   else if (ent.seesaw) shape = buildSeesaw(ent);
   else if (ent.race) shape = buildRace(ent);
+  else if (ent.population) shape = buildPopulation(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1825,10 +1903,12 @@ function route(a, b, ends, placed) {
 // ordinary components move half each. Everything stays inside the stage, below the titles.
 const GAP = 20;
 function place(e, x, y) {
-  const w = e.box.offsetWidth, h = e.box.offsetHeight, top = below(D.subtitle ? 200 : 150) + h / 2;
+  const w = e.box.offsetWidth, h = e.box.offsetHeight, top = below(D.subtitle ? 200 : 150) + h / 2 + (PANELS ? 12 : 0);
   const [left, right] = PANELS && e.panel !== undefined ? PANELS[e.panel]     // its panel, the backdrop, or the main area
     : LAYOUT === "analogy_fullscreen" ? [40, D.width - 40] : [0, MAIN_RIGHT];
-  e.data.xy = [clamp(x, left + w / 2 + 20, right - w / 2 - 20), clamp(y, Math.min(top, FLOOR / 2), FLOOR - h / 2 - 20)];
+  // Under the titles (and a comparison's row and panel titles) while it fits; taller than the room, centred.
+  const lowest = FLOOR - h / 2 - 20;
+  e.data.xy = [clamp(x, left + w / 2 + 20, right - w / 2 - 20), clamp(y, top <= lowest ? top : Math.min(top, FLOOR / 2), lowest)];
   e.box.style.left = e.data.xy[0] + "px"; e.box.style.top = e.data.xy[1] + "px";
 }
 function layoutZones() {           // outside "circuit": where the diagram starts, under the titles and the row
@@ -1857,7 +1937,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes || e.data.race) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -2523,7 +2603,11 @@ function placeAnnotations() {
     const onCurves = Object.values(E).filter(o => o.box && o.data.axes).flatMap(curvePointsOn);   // every curve drawn
     if (!aim.solid && !aim.point && !aim.spots) e.pointsAtNothing = true;
     const w = e.box.offsetWidth, h = e.box.offsetHeight;
-    for (const spot of aim.spots || [aim.point]) [d0, [-d0[0], -d0[1]], [d0[1], d0[0]], [-d0[1], -d0[0]]].forEach((d, i) => ARROW_LENGTHS.forEach((arrow, k) => {
+    // The brief's side, the opposite one, the two across; a diagonal ([-0.5, -0.5]) has no other two
+    // ([dy, dx] is itself): the four straight sides then.
+    const sides = [d0, [-d0[0], -d0[1]], [d0[1], d0[0]], [-d0[1], -d0[0]], [0, 1], [0, -1], [1, 0], [-1, 0]]
+      .filter((d, i, all) => all.findIndex(o => Math.abs(o[0] - d[0]) < 1e-6 && Math.abs(o[1] - d[1]) < 1e-6) === i);
+    for (const spot of aim.spots || [aim.point]) sides.forEach((d, i) => ARROW_LENGTHS.forEach((arrow, k) => {
       let tip = tip0;
       if (spot) tip = [spot[0] - d[0] * TIP_GAP, spot[1] - d[1] * TIP_GAP];
       else if (target) {
@@ -2915,6 +2999,8 @@ window.seek = function (t) {
       seekSeesaw(e, t);
     } else if (e.data.race) {
       seekRace(e, t);
+    } else if (e.data.population) {
+      seekPopulation(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {

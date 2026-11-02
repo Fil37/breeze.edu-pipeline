@@ -64,6 +64,7 @@ from app import provenance
 from app.curve_math import anchor_geometry, curve_at, curve_centre
 from app.tts_manager import generate_voice, normalize_text_for_tts, voice_report   # the voice: ElevenLabs, else edge-tts
 from app.render.asset_resolver import BASE_DIR, AssetResolver
+from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.layout_solver import annotation_targets, target_first_timing
@@ -71,7 +72,7 @@ from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_T
                                         is_parametric, is_status_annotation, narration_words, parameter_range,
                                         scene_point, unit_direction)
 from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
-                              make_error_visual, mux_scene, scene_field)
+                              ffmpeg, make_error_visual, mux_scene, scene_field)
 from app.tts_manager import media_duration
 
 AGENT = "agent010"
@@ -508,6 +509,38 @@ def vector_symbols(entities):
         vector["symbol"], vector["legend"] = symbol, label
 
 
+# A light, a ray or a curve named by its colour ("Bleu diffusé", "Lumière rouge") is drawn in that
+# colour, whatever the brief says: a blue ray drawn red teaches the opposite. The first colour word
+# of the label wins ("Rouge-orange direct": red). Vectors that share a legend line take one colour.
+NAMED_COLOURS = [(re.compile(r"\bbleu(?:e|s|es)?\b"), "#3B82F6"), (re.compile(r"\brouges?\b"), "#EF4444"),
+                 (re.compile(r"\bvert(?:e|s|es)?\b"), "#10B981"), (re.compile(r"\boranges?\b"), "#F97316"),
+                 (re.compile(r"\bjaunes?\b"), "#EAB308"), (re.compile(r"\bviolet(?:te|s|tes)?\b"), "#8B5CF6")]
+
+
+def named_colour(label):
+    """The colour a label names, by its first colour word, else None."""
+    text = str(label or "").lower()
+    found = [(match.start(), colour) for pattern, colour in NAMED_COLOURS for match in [pattern.search(text)] if match]
+    return min(found)[1] if found else None
+
+
+def colour_by_name(entities):
+    """Vectors and curves named by a colour take it; then each legend line ("B : Bleu diffusé") one
+    colour for all its arrows (the first one's)."""
+    for data in entities:
+        drawn = data.get("vector") or data.get("curve")
+        colour = named_colour(data.get("label")) if drawn is not None else None
+        if colour:
+            drawn["color"] = colour
+    shared = {}
+    for data in entities:
+        vector = data.get("vector")
+        if vector and vector.get("legend"):
+            key = (vector.get("symbol"), vector["legend"])
+            shared.setdefault(key, vector.get("color"))
+            vector["color"] = shared[key] or vector.get("color")
+
+
 CONTENT_BAND = (240, HEIGHT - 140)     # px: under the titles, above the legend
 CONTENT_SIDES = (140, WIDTH - 140)     # px: left and right, the badges and labels need room past the centres
 SIDE_COLUMN_LEFT = round(WIDTH * 0.75) - 100   # with a side column (instruments, counters), the drawing ends here
@@ -571,6 +604,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
         for i, vector in enumerate(v for v in vectors if not v.get("color")):
             vector["color"], vector["label_color"] = RIDER_COLORS[i % len(RIDER_COLORS)], True
     vector_symbols(entities)
+    colour_by_name(entities)
     if layout in ("circuit", "comparison") and not any(a.get("action") == "move" for a in brief.get("actions", [])):
         centre_content(entities, brief, layout == "circuit")   # (a straight move keeps its scene positions: its end is one)
     targets = annotation_targets(brief)       # what each badge points at (as the layout solver sees it)
@@ -795,7 +829,12 @@ PAGE_TEMPLATE = r"""<!doctype html>
   #subs { position:absolute; left:50%; bottom:22px; transform:translateX(-50%); width:max-content; max-width:1560px; box-sizing:border-box;
           padding:10px 28px; border-radius:14px; background:rgba(15, 23, 42, .82); color:#F8FAFC; font-size:38px; font-weight:600;
           line-height:1.3; text-align:center; z-index:40; opacity:0; }
-  .with-subs .comparison-panel { bottom:118px; }   /* the panels end above the subtitles */
+  .with-subs .comparison-panel { bottom:118px; }
+  /* Film behind the scene (D.footage): its frames full-frame over the theme's background, darkened so
+     the titles (white, shadowed) and the drawing read over it. */
+  #footage { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #footage-shade { position:absolute; inset:0; background:linear-gradient(180deg, rgba(2, 6, 23, .62) 0%, rgba(2, 6, 23, .2) 40%, rgba(2, 6, 23, .2) 70%, rgba(2, 6, 23, .5) 100%); }
+  .on-footage #title, .on-footage #subtitle { color:#F8FAFC; text-shadow:0 2px 18px rgba(0, 0, 0, .7); }   /* the panels end above the subtitles */
   #fade { position:absolute; inset:0; z-index:50; background:var(--bg); opacity:0; pointer-events:none; }
   #progress { position:absolute; top:34px; right:40px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
   #progress .count { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:22px; font-weight:600; color:var(--muted); letter-spacing:1px; }
@@ -859,11 +898,11 @@ document.documentElement.style.setProperty("--spring", springEasing());
 const ownAxes = ent => ent.type === "CURVE_PLOT" && !(ent.curve.axes && D.entities.some(o => o.id === ent.curve.axes));
 const graphCount = D.entities.filter(e => e.type === "AXES_GRAPH" || ownAxes(e)).length;
 // A graph takes 70 % x 60 % of the frame when it is alone with what sits in it; with other things
-// beside it (icons, formulas, bodies not anchored in it), 55 % x 48 %, so they find room around it
-// instead of being pushed onto its axes or into the titles.
+// beside it (icons, formulas, bodies not anchored in it), 55 % x 48 % (three or more: 48 % x 42 %),
+// so they find room around it instead of being pushed onto its axes or into the titles.
 const besideGraph = D.entities.filter(e => !["AXES_GRAPH", "CURVE_PLOT", "VECTOR_ARROW", "ARROW_ANNOTATION"].includes(e.type)
                                            && !e.instrument && !(e.initial || {}).anchor).length;
-const GRAPH_SHARE = besideGraph ? [0.55, 0.48] : [0.7, 0.6];
+const GRAPH_SHARE = besideGraph >= 3 ? [0.48, 0.42] : besideGraph ? [0.55, 0.48] : [0.7, 0.6];
 const GRAPH_W = Math.round(D.width * GRAPH_SHARE[0] / Math.max(1, graphCount)), GRAPH_H = Math.round(D.height * GRAPH_SHARE[1]), PAD = 70;
 const NUMBER_LINE_H = 2 * PAD + 60;   // a number line's height: its line, ticks and numbers, the dots' labels
 function buildAxes(g, holder) {
@@ -900,11 +939,13 @@ function buildAxes(g, holder) {
     const [px, py] = map(0, 0); sv("circle", {cx: px, cy: py, r: 6, stroke: "none"}, axes);
     sv("text", {x: px - 16, y: py + 40, "text-anchor": "end", class: "tick-label"}, s).textContent = "0";
   }
-  const labels = [];                // the axis titles: a badge must not cover them
-  if (g.x_label) { const t = sv("text", {x: bx, y: ay - 24, "text-anchor": "end", class: "axis-label"}, s); t.textContent = g.x_label; labels.push(t); }
-  if (g.y_label) { const t = sv("text", {x: cx + 26, y: dy + 6, class: "axis-label"}, s); t.textContent = g.y_label; labels.push(t); }
+  // The axis titles over the curves (drawn after their group), outlined in the background colour: a
+  // curve passing under one never hides it. A badge must not cover them (placeAnnotations).
+  const curves = sv("g", {}, s), labels = [];
+  if (g.x_label) { const t = sv("text", {x: bx, y: ay - 24, "text-anchor": "end", class: "axis-label halo"}, s); t.textContent = g.x_label; labels.push(t); }
+  if (g.y_label) { const t = sv("text", {x: cx + 26, y: dy + 6, class: "axis-label halo"}, s); t.textContent = g.y_label; labels.push(t); }
   holder.append(s);
-  return {svg: s, map, curves: sv("g", {}, s), labels, lines: [[ax, ay, bx, ay], [cx, cy, cx, dy]]};   // lines: the two axes
+  return {svg: s, map, curves, labels, lines: [[ax, ay, bx, ay], [cx, cy, cx, dy]]};   // lines: the two axes
 }
 // A number line (is_number_line in Python): one graduated line across, no vertical axis; y in [-1, 1]
 // spans its small height, so points anchored at y = 0 sit on the line.
@@ -924,10 +965,10 @@ function buildNumberLine(g, holder) {
     sv("line", {x1: px, y1: mid - (whole ? 14 : 8), x2: px, y2: mid + (whole ? 14 : 8), "stroke-width": whole ? 4 : 2}, axes);
     if (whole || r <= 2) sv("text", {x: px, y: mid + 48, "text-anchor": "middle", class: "tick-label"}, s).textContent = frenchNumber(x, whole ? 0 : 1);
   }
-  const labels = [];
-  if (g.x_label) { const t = sv("text", {x: bx, y: mid - 30, "text-anchor": "end", class: "axis-label"}, s); t.textContent = g.x_label; labels.push(t); }
+  const curves = sv("g", {}, s), labels = [];
+  if (g.x_label) { const t = sv("text", {x: bx, y: mid - 30, "text-anchor": "end", class: "axis-label halo"}, s); t.textContent = g.x_label; labels.push(t); }
   holder.append(s);
-  return {svg: s, map, curves: sv("g", {}, s), labels, lines: [[ax - 30, mid, bx, mid]], line: true};
+  return {svg: s, map, curves, labels, lines: [[ax - 30, mid, bx, mid]], line: true};
 }
 function curvePath(points, map, closed) {   // gaps (null y) split the curve into separate segments
   const parts = []; let current = [];
@@ -1091,6 +1132,19 @@ if (BGK === "stars") {
   }
 }
 if (STYLE.mode === "dark") BG.append(el("div", "vignette"));
+// Film behind the scene: one JPEG per frame, cut by agent010 next to this page (D.footage.dir, a folder
+// name it chose); seek shows the frame for t and waits until it is decoded.
+let FOOTAGE = null;
+if (D.footage && D.footage.count > 0) {
+  FOOTAGE = el("img"); FOOTAGE.id = "footage"; BG.append(FOOTAGE, el("div")); BG.lastChild.id = "footage-shade";
+  stage.classList.add("on-footage");
+}
+function seekFootage(t) {
+  const n = clamp(Math.floor(t * D.footage.fps + 1e-6), 0, D.footage.count - 1) + 1;
+  const src = `${D.footage.dir}/${String(n).padStart(5, "0")}.jpg`;
+  if (FOOTAGE.getAttribute("src") !== src) FOOTAGE.setAttribute("src", src);
+  return FOOTAGE.decode().catch(() => {});
+}
 function seekBackground(t) {
   GLOWS.forEach((g, i) => {
     const a = g.phase + t * (0.10 + 0.04 * i);
@@ -2140,6 +2194,8 @@ function placeAnnotations() {
   const header = below(D.subtitle ? 200 : 150);
   const placed = Object.values(E).filter(o => o.vector && o.vector.labelBox).map(o => o.vector.labelBox);   // badges avoid vector labels
   const solids = Object.values(E).filter(o => o.box && !o.inSide && !o.data.annotation);
+  const axisTitles = solids.filter(o => o.data.axes).flatMap(h => { const p = plotOf(h);   // every graph's: SVG units are stage pixels
+    return h.data.axes.labels.map(t => { const b = t.getBBox(); return {l: p.l + b.x, t: p.t + b.y, r: p.l + b.x + b.width, b: p.t + b.y + b.height}; }); });
   const wireRects = W.flatMap(w => w.pts.slice(1).map((q, i) => { const p = w.pts[i];
     return grow({l: Math.min(p[0], q[0]), t: Math.min(p[1], q[1]), r: Math.max(p[0], q[0]), b: Math.max(p[1], q[1])}, 6); }));
   const overlaps = (p, q) => Math.min(p.r, q.r) > Math.max(p.l, q.l) && Math.min(p.b, q.b) > Math.max(p.t, q.t);
@@ -2195,18 +2251,17 @@ function placeAnnotations() {
       if (r.t < header) cost += soft ? 300 : 10000;
       for (const o of solids) {
         if (o === aim.host) continue;              // pointing at a curve: inside its graph is fine...
-        if (overlaps(grow(r, 10), boxOf(o))) cost += 1000;
+        // over another graph's empty plot is bad; over a formula, an icon, a component (what they
+        // show is lost) worse still
+        if (overlaps(grow(r, 10), boxOf(o))) cost += o.data.axes ? 1000 : 2500;
         if (o !== target && segmentHits(tail, tip, boxOf(o))) cost += 1000;
       }
       cost += 200 * onCurves.filter(p => p[0] > r.l - 10 && p[0] < r.r + 10 && p[1] > r.t - 10 && p[1] < r.b + 10).length;
-      if (aim.host) {                              // ...but not on its legend nor on its axis titles
-        const legend = aim.host.data.legend, plot = plotOf(aim.host);
+      if (aim.host) {                              // ...but not on its legend
+        const legend = aim.host.data.legend;
         if (legend && legend.offsetHeight && overlaps(grow(r, 10), rectIn(aim.host, legend))) cost += 1000;
-        for (const label of aim.host.data.axes.labels) {   // SVG units are stage pixels (viewBox 1:1)
-          const b = label.getBBox();
-          if (overlaps(grow(r, 10), {l: plot.l + b.x, t: plot.t + b.y, r: plot.l + b.x + b.width, b: plot.t + b.y + b.height})) cost += 1000;
-        }
       }
+      for (const title of axisTitles) if (overlaps(grow(r, 10), title)) cost += 1000;   // nor on any graph's axis titles
       if (aim.avoid && overlaps(grow(r, 10), aim.avoid)) cost += 1000;   // a vector's own label
       for (const [p, q, id] of shafts) if (id !== e.data.annotation.target && segmentHits(p, q, grow(r, 8))) cost += 800;
       for (const q of placed) if (overlaps(grow(r, 10), q)) cost += 1000;
@@ -2473,6 +2528,7 @@ window.seek = function (t) {
     p.row.style.opacity = k; p.row.style.transform = `translateX(${(1 - k) * -40}px)`;
     p.row.classList.toggle("now", t >= p.at && !(PLAN[i + 1] && t >= PLAN[i + 1].at));
   });
+  const footageReady = FOOTAGE ? seekFootage(t) : null;
   seekMotion(t);
   seekBackground(t);
   for (const entry of Object.values(VLEGEND))         // a legend line shows with the first of its arrows
@@ -2557,6 +2613,7 @@ window.seek = function (t) {
       dot.style.opacity = Math.min(1, (t - f.start) / 0.3);
     });
   }
+  return footageReady;               // the renderer's evaluate waits for the film's frame (null without one)
 };
 // Layout needs the real size of every box, KaTeX formulas included: wait for the fonts.
 // Feasibility check on the real boxes, once everything is placed: what still overlaps, sits in the
@@ -2564,7 +2621,9 @@ window.seek = function (t) {
 function layoutConflicts() {
   const found = [], header = below(D.subtitle ? 200 : 150);
   const items = Object.values(E).filter(e => e.box && !e.inSide && !e.placedForMotion).map(e => ({id: e.data.id, r: boxOf(e),
-    origin: e.ann ? e.ann.tip : (e.anchorHost ? e.data.xy : null), rides: e.data.rides}));   // an anchored body or object sits in its graph on purpose
+    origin: e.ann ? e.ann.tip : (e.anchorHost ? e.data.xy : null), rides: e.data.rides, badge: !!e.ann,
+    // a graph's drawn part: its axes and curves, without the empty margins around them (a badge may sit there)
+    plot: e.data.axes ? (p => ({l: p.l + PAD / 2, t: p.t + PAD / 2, r: p.r - PAD / 2, b: p.b - PAD / 2}))(plotOf(e)) : null}));   // an anchored body or object sits in its graph on purpose
   for (const e of Object.values(E)) if (e.vector && e.vector.labelBox) items.push({id: `${e.data.id} (label)`, r: e.vector.labelBox, origin: e.data.xy});
   for (const e of Object.values(E)) if (e.pointsAtNothing) found.push(`${e.data.id} points at nothing`);
   for (const {id, r} of items) {
@@ -2576,7 +2635,8 @@ function layoutConflicts() {
     const holds = (x, p) => p && p[0] >= x.r.l - 40 && p[0] <= x.r.r + 40 && p[1] >= x.r.t - 40 && p[1] <= x.r.b + 40;
     if (holds(a, b.origin) || holds(b, a.origin)) continue;      // an arrow's label next to what it points at
     if (a.rides === b.id || b.rides === a.id) continue;          // a passenger beside its host, on purpose (placePassengers)
-    if (Math.min(a.r.r, b.r.r) > Math.max(a.r.l, b.r.l) + 1 && Math.min(a.r.b, b.r.b) > Math.max(a.r.t, b.r.t) + 1)
+    const ra = a.plot && b.badge ? a.plot : a.r, rb = b.plot && a.badge ? b.plot : b.r;
+    if (Math.min(ra.r, rb.r) > Math.max(ra.l, rb.l) + 1 && Math.min(ra.b, rb.b) > Math.max(ra.t, rb.t) + 1)
       found.push(`${a.id} overlaps ${b.id}`);
   }
   return found;
@@ -2806,6 +2866,20 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                                                "status": "ok", "error": None}})
         total_chapters = len(storyboard["scenes"])
         jobs[-1]["total"] += END_HOLD      # the video ends: its last picture held, then a fade, not a cut
+        # Real film behind a scene (agent004's "footage", the hook): found (app/render/footage.py) and cut
+        # into the scene's frames here, before the browser starts. No clip: the scene is drawn without one.
+        for job in jobs:
+            wanted = (job.get("scene") or {}).get("footage")
+            if not wanted:
+                continue
+            try:
+                clip = film.find_clip((wanted or {}).get("query"))
+                folder_name = job["name"] + "_footage"
+                count = film.cut_frames(clip["file"], job["total"], os.path.join(temp_dir, folder_name), FPS, WIDTH, HEIGHT, ffmpeg)
+                job["footage"] = {"dir": folder_name, "count": count, "fps": FPS}
+                job["entry"]["footage"] = film.credit(clip)
+            except Exception as exc:       # no clip found, network, ffmpeg: the scene keeps its drawing alone
+                warnings.append(f"{job['name']}: no footage for {wanted!r}: {exc}")
         # 2. Pictures: one page per scene, one screenshot per frame.
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -2832,6 +2906,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                                      layout, job["scene"].get("panel_titles"), style, number)
                     if burn_subtitles:
                         data["subtitles"] = job["subtitles"]
+                    if job.get("footage"):
+                        data["footage"] = job["footage"]
                     if job is jobs[-1]:
                         data["ending"] = {"at": round(job["total"] - END_FADE, 2), "length": END_FADE}
                     if plan and number > PLAN_AFTER:       # where this scene is in the plan

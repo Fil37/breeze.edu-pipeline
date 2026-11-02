@@ -54,6 +54,8 @@ from app import provenance
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
+from app.render.footage import clean_query, query_problem
+from app.render.layout_check import measured_conflicts
 from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
                                         OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, move_problem, narration_words, scene_point)
 
@@ -63,6 +65,7 @@ MAX_ATTEMPTS = 3          # 1 call + 2 retries; each attempt is one LLM call
 MAX_ERROR_CHARS = 2000    # errors sent back to the LLM on a retry
 MAX_ENTITIES = 8          # per scene, instruments included: more does not fit in one readable frame
 MAX_FORMULAS = 2          # TEX_FORMULA per scene: equations only, never notes
+MAX_OVER_FOOTAGE = 3      # things drawn over the hook's film (app/render/footage.py)
 LAYOUT_TEMPLATES = ("circuit", "comparison", "analogy_fullscreen")   # agent010's pages (scene "layout_template")
 BRIEFS = TypeAdapter(list[SceneVisualBrief])
 
@@ -278,6 +281,10 @@ STRICT RULES:
   curve or a number line. Never a disc standing for an idea, a price or a quantity ("Prix du pain"):
   show a thing by its icon (OBJECT with an icon, CART, COINS...), a value by a GAUGE or a graph, an
   idea by an ARROW_ANNOTATION. A planet, a moon, the Sun: an OBJECT with the icon "earth", "moon" or "sun".
+- A LIGHT OR A RAY NAMED BY ITS COLOUR IS DRAWN IN IT: "Bleu diffusé" is blue (#3B82F6), "Rouge direct"
+  red (#EF4444), green #10B981, orange #F97316, yellow #EAB308, violet #8B5CF6; never a blue ray in red.
+- A GAUGE SHOWS A VALUE: every GAUGE gets its number with set_value, cued on the words that say it; a
+  dial with no number means nothing (for an idea with no number: an OBJECT icon or an ARROW_ANNOTATION).
 - THE SAME VALUES ALL ALONG: a battery, a price, an object keeps the values the narration gives it
   from one scene to the next (a "Pile 6 V" stays "Pile 6 V"); change them only where the narration does.
 - THINGS IN A GRAPH: an OBJECT, a BODY or a VECTOR_ARROW that belongs to a graph (the Earth at the
@@ -392,6 +399,13 @@ STRICT RULES:
   "analogy_fullscreen" when a scene makes an analogy, at least one "comparison" when a scene opposes
   two notions; never the same template in two consecutive scenes. What this script allows, per scene:
 {layout_eligibility}
+- FILM BEHIND THE HOOK: the first scene (the hook) may have a real film clip behind it, full-frame and
+  darkened: "footage": {{"query": "<1 to 4 French words of what to film>"}} next to its "scene_id" (outside
+  the visual brief). Use it when a real sight opens the question better than icons: the sky to ask
+  why it is blue, a motorway toll, a market, rain on a window, power lines, a city at night. The query
+  names landscapes, sky, water, streets, machines, objects: never people ("enfant", "foule", "élèves"...).
+  Over the film draw at most {max_over_footage} things: the question as an ARROW_ANNOTATION status badge,
+  a formula or one key icon; never icons standing for the setting the film already shows.
 - text_overlay: a short title (under 8 words) and an optional one-line subtitle; set
   clear_previous to true unless the scene explicitly continues the previous scene's title.
 
@@ -405,7 +419,7 @@ SCENES:
 {scenes}
 
 Answer with JSON only: {{"scenes": [ ...one SceneVisualBrief per scene, scene_id as a string, plus its
-"layout_template" (and "panel_titles" for a comparison)... ]}}"""
+"layout_template" (and "panel_titles" for a comparison, "footage" on the hook when it has one)... ]}}"""
 
 RETRY_NOTE = """
 
@@ -691,6 +705,14 @@ QUEUE_ICONS = set(LANE_ICONS)
 QUEUE_MOVERS = 3          # this many vehicles or people moved one by one: a queue, drawn by hand
 
 
+def gauges_without_value(brief):
+    """GAUGEs that never get a number (no set_value on them): a dial standing for nothing."""
+    valued = {a.get("target") for a in brief.actions if a.get("action") == "set_value"}
+    return [f"scene {brief.scene_id}: the GAUGE {e.id} ({e.initial_state.get('label')!r}) never shows a value: give it "
+            f"its number with set_value, cued on the words that say it, or show the idea by an OBJECT icon or an "
+            f"ARROW_ANNOTATION" for e in brief.entities if e.type == ComponentType.GAUGE and e.id not in valued]
+
+
 def queues_by_hand(brief):
     """Vehicles or people (OBJECTs) moved one by one to show queues: they pile up and leave the frame;
     LANES draws the lanes, the flow and the counts."""
@@ -790,6 +812,7 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += tiny_curves(brief, graphs)
     errors += idle_discs(brief, graphs)
     errors += queues_by_hand(brief)
+    errors += gauges_without_value(brief)
     errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
@@ -1134,6 +1157,32 @@ def force_layouts(order, proposed, eligible, locked, briefs):
     return templates, forced
 
 
+def footage_problems(order, briefs, layouts):
+    """A film asked for on another scene than the hook, a query that is not a few words, or too much
+    drawn over the film."""
+    errors = []
+    for scene_id in order:
+        wanted = (layouts.get(scene_id) or {}).get("footage")
+        if wanted is None:
+            continue
+        if scene_id != order[0]:
+            errors.append(f"scene {scene_id}: \"footage\" is for the first scene (the hook) only: drop it here")
+        elif query_problem(wanted):
+            errors.append(f"scene {scene_id}: {query_problem(wanted)}")
+        elif len(briefs[scene_id].entities) > MAX_OVER_FOOTAGE:
+            errors.append(f"scene {scene_id}: {len(briefs[scene_id].entities)} things drawn over the film: keep at most "
+                          f"{MAX_OVER_FOOTAGE} (the question as a status badge, a formula, one key icon); the film shows the setting")
+    return errors
+
+
+def scene_footage(scene_id, order, layout):
+    """The storyboard scene's "footage" field: the hook's, when its query is valid."""
+    wanted = (layout or {}).get("footage")
+    if scene_id != order[0] or query_problem(wanted):
+        return {}
+    return {"footage": {"query": clean_query(wanted["query"])}}
+
+
 def panel_titles(layout, template):
     """The comparison's two panel titles, when the LLM gave them (short text, kept as is)."""
     titles = (layout or {}).get("panel_titles")
@@ -1177,7 +1226,8 @@ def parse_storyboard(text, durations, narrations):
     if not isinstance(raw_scenes, list):
         raise ValueError('the answer must be {"scenes": [...]}')
     layouts = {str(scene.get("scene_id")): {"layout_template": scene.pop("layout_template", None),
-                                            "panel_titles": scene.pop("panel_titles", None)}
+                                            "panel_titles": scene.pop("panel_titles", None),
+                                            "footage": scene.pop("footage", None)}
                for scene in raw_scenes if isinstance(scene, dict)}
     try:
         briefs = BRIEFS.validate_python(sanitize(raw_scenes))
@@ -1199,13 +1249,15 @@ def qa_feedback_section():
     return feedback_section(AGENT, "storyboard")
 
 
-def ask_for_storyboard(scenes_for_prompt, qa_section=""):
+def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None):
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
         answer with any is never used;
-      - advisory: coherence with the narration (coherence_problems) and the layout templates
-        (layout_problems): an answer with some is kept if no better one comes.
+      - advisory: coherence with the narration (coherence_problems), the layout templates
+        (layout_problems) and, given `measure` (run: app/render/layout_check.py), what the
+        renderer's page would still find overlapping or out of the frame: an answer with some is
+        kept if no better one comes.
     Returns ({scene_id: brief}, {scene_id: layout fields}, attempts, coherence problems left, layout
     problems left), from the usable answer with the fewest advisory problems. Raises RuntimeError
     if llm_call fails (no point retrying a quota or network error) or if no answer is usable."""
@@ -1214,7 +1266,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section=""):
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
     prompt = PROMPT.format(object_icons=", ".join(OBJECT_ICON_NAMES), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=COMPONENTS_FOR_PROMPT, positions=", ".join(SEMANTIC_POSITIONS),
-                           max_entities=MAX_ENTITIES, max_formulas=MAX_FORMULAS, max_circuit=circuit_cap(len(order)),
+                           max_entities=MAX_ENTITIES, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
                            scenes=json.dumps(scenes_for_prompt, ensure_ascii=False))
@@ -1231,6 +1283,11 @@ def ask_for_storyboard(scenes_for_prompt, qa_section=""):
                      for e in coherence_problems(brief, narrations.get(brief.scene_id, ""), durations.get(brief.scene_id))]
         proposed = {i: (layouts.get(i) or {}).get("layout_template") for i in order}
         layout = layout_problems(order, proposed, eligible, needs_circuit(briefs)) + empty_panels(briefs, proposed)
+        coherence += footage_problems(order, briefs, layouts)
+        if measure:                     # laid out as the renderer will, with the templates it will get
+            templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
+            titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
+            coherence += measure(order, briefs, templates, titles, durations)
         if best is None or len(coherence) + len(layout) < len(best[3]) + len(best[4]):
             best = (briefs, layouts, attempt, coherence, layout)
         if not coherence and not layout:
@@ -1265,8 +1322,18 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                           "narration_text": scene_field(s, "narration_text", "narration"),
                           "key_visual_moment": scene_field(s, "key_visual_moment", "visual_intent")}
                          for s in script["scenes"]]
+    def measure(order, briefs, templates, titles, durations):
+        try:
+            from app.agent.agent010_html_renderer import channel_style    # the channel's theme: its sizes and fonts
+            return measured_conflicts(order, briefs, templates, titles, durations, channel_style(channel_id),
+                                      settings.get("burn_subtitles", True))
+        except Exception as exc:        # no Chromium here: agent010 will say so; the storyboard is still checked
+            print(f"--- {AGENT}: layout not measured ({type(exc).__name__}: {str(exc)[:120]})", file=sys.stderr, flush=True)
+            return []
+
     try:
-        briefs, layouts, attempts, coherence_left, layout_left = ask_for_storyboard(scenes_for_prompt, qa_section)
+        briefs, layouts, attempts, coherence_left, layout_left = ask_for_storyboard(
+            scenes_for_prompt, qa_section, None if renderer == "skip" else measure)
     except RuntimeError as exc:
         return finish(channel_id, AGENT, "storyboard", "critical", output_path, error=str(exc))
     order = [s["scene_id"] for s in scenes_for_prompt]
@@ -1290,6 +1357,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                                            scene_field(scene, "duration_sec", "duration_seconds"), sync_fixes),
             "layout_template": templates[str(scene["scene_id"])],
             **panel_titles(layouts.get(str(scene["scene_id"])), templates[str(scene["scene_id"])]),
+            **scene_footage(str(scene["scene_id"]), order, layouts.get(str(scene["scene_id"]))),
             "aspect_ratio": "16:9",  # YouTube landscape; the only platform enabled at launch
             "transition_in": "fade",
             "transition_out": "cut",

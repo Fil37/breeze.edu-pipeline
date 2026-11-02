@@ -97,6 +97,8 @@ DOMAIN RULES TO ENFORCE:
 RESEARCH (the facts the video must respect): {research}
 SCRIPT (narration, one entry per scene): {script}
 STORYBOARD (one visual brief per scene, drawn by a deterministic renderer): {storyboard}
+("footage_behind" on a scene: a real film clip of these words plays full-frame behind it, darkened;
+the drawing over it is kept short on purpose. It is not part of the brief: never patch it.)
 
 THE RENDERER CAN ONLY DRAW THESE COMPONENT TYPES:
 {vocabulary}
@@ -617,7 +619,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     prompt = PROMPT.format(rules="\n\n".join(DOMAIN_RULES[d] for d in domains),
                            research=json.dumps(research, ensure_ascii=False),
                            script=json.dumps(script.get("scenes"), ensure_ascii=False),
-                           storyboard=json.dumps(list(briefs.values()), ensure_ascii=False),
+                           storyboard=json.dumps([{**briefs[str(scene["visual_brief"]["scene_id"])],
+                                                   **({"footage_behind": scene["footage"].get("query")} if scene.get("footage") else {})}
+                                                  for scene in storyboard["scenes"]], ensure_ascii=False),
                            vocabulary=VOCABULARY, initial_keys=", ".join(INITIAL_STATE_KEYS), actions=", ".join(ACTIONS))
     try:
         answer = parse_llm_json(llm_call(prompt))

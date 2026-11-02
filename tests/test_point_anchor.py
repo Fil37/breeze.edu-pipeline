@@ -136,7 +136,7 @@ def case_no_push():
 
 def case_colours():
     data = {e["id"]: e for e in renderer.page_data(scene([AXES, ORBIT, ISS, GRAVITY, SPEED, {**SPEED, "id": "red",
-            "initial_state": {**SPEED["initial_state"], "color": "#000000"}}]), 6.0, 6)["entities"]}
+            "initial_state": {**SPEED["initial_state"], "color": "#000000", "label": "Poussée"}}]), 6.0, 6)["entities"]}   # its own legend line
     colours = {i: data[i]["vector"]["color"] for i in ("grav", "vel", "red")}
     problems = []
     if colours["grav"] == colours["vel"] or not data["grav"]["vector"].get("label_color"):

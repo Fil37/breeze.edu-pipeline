@@ -39,6 +39,18 @@ def timestamp(seconds):
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
+def film_credits(rendered):
+    """One line per Pixabay clip the video shows (render_manifest.json, "footage"): its author and page."""
+    lines = []
+    for entry in rendered or []:
+        clip = entry.get("footage") or {}
+        if clip.get("source") == "pixabay" and clip.get("page_url"):
+            line = f"Images : {clip.get('user') or 'auteur inconnu'} sur Pixabay ({clip['page_url']})"
+            if line not in lines:
+                lines.append(line)
+    return lines
+
+
 def build_chapters(scenes, titles, rendered=None):
     """YouTube chapters ("0:00 Title"). With the render manifest's scenes (`rendered`), their real start
     times, the plan agent010 adds after the hook included; else start times from the script's durations."""
@@ -84,7 +96,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
 
     rendered = load_json(os.path.join(folder, "render_manifest.json")).get("scenes")
     chapters = build_chapters(script["scenes"], answer.get("chapter_titles", []), rendered)
-    description = str(answer.get("description", "")) + "\n\n" + "\n".join(chapters)
+    credits = film_credits(rendered)
+    description = str(answer.get("description", "")) + "\n\n" + "\n".join(chapters) + ("\n\n" + "\n".join(credits) if credits else "")
     metadata = {
         "title": str(answer.get("title", ""))[:MAX_TITLE].strip(),
         "description": description[:MAX_DESCRIPTION],

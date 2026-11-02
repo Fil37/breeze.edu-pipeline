@@ -22,6 +22,13 @@ and are not part of this repository. Voices (ElevenLabs, edge-tts) and LLM answe
 time under the terms of those services and are not stored in the repository (`instance/` and `media/`
 are git-ignored).
 
+Film clips behind a video's hook come from [Pixabay](https://pixabay.com) under the Pixabay Content
+License (or are put in `assets/footage/local/` by hand, under their own terms). They are downloaded
+into `assets/footage/` (git-ignored) and only ever shown reworked: darkened behind a scene, under its
+titles, voice and subtitles, never on their own. `app/render/footage.py` takes no clip whose tags name
+people or a brand. `assets/footage/index.json` keeps each clip's Pixabay id, page, author, the query
+and the day it was fetched; the YouTube description credits the author and the page.
+
 ## KaTeX — MIT License
 
 ```text

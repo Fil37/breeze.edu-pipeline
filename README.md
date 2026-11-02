@@ -128,7 +128,7 @@ system cron, e.g. `0 9 * * * /path/to/L_breeze/run`.
 
 Keys for each provider, in `.env`: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` +
 `AWS_DEFAULT_REGION` (bedrock), `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`,
-`GEMINI_API_KEY`, `OPENROUTER_API_KEY` (and `ELEVENLABS_API_KEY` for the voice, optional). Ollama needs none. A missing key makes the agent
+`GEMINI_API_KEY`, `OPENROUTER_API_KEY` (and `ELEVENLABS_API_KEY` for the voice, `PIXABAY_API_KEY` for the hook's film, both optional). Ollama needs none. A missing key makes the agent
 `critical`; there is no automatic fallback to another provider.
 
 ## How a video is made
@@ -469,6 +469,33 @@ sentence; never end on a question or an example left unexplained) and to keep on
 all along (a 6 V battery stays 6 V); agent005 checks both on the whole video and sends an unfinished
 ending back to agent003. agent004 reports a BODY that neither moves nor sits on a graph (a disc
 standing for "Prix du pain"). Check: `python tests/test_plan.py`.
+
+**Fixes from the evaluation of 2026-11-02.** A vector or a curve named by its colour ("Bleu diffusé",
+"Lumière rouge") is drawn in that colour whatever the brief says, and the arrows of one legend line
+share one colour (`colour_by_name`). agent004 sends back a GAUGE that never gets a value
+(`gauges_without_value`), and measures each scene's page before keeping a storyboard
+(`app/render/layout_check.py`): the page is built and laid out by Chromium as agent010 will (theme,
+subtitles' room), and what still overlaps, leaves the frame or enters the title zone goes back to the
+LLM with the other advisory problems (about 2 s a video; without Chromium the check is skipped and
+logged). A badge in a graph's empty margin is not a conflict. The axis titles are drawn over the
+curves, outlined in the background colour, and every badge keeps off every graph's axis titles; a
+badge over a formula or an icon costs more than one over a graph's empty plot. A graph with three
+or more things beside it takes 48 % x 42 % of the frame. Check: `python tests/test_eval_fixes.py`.
+
+**Film behind the hook.** agent004 may give the first scene a real film clip: `"footage": {"query":
+"ciel bleu nuages"}` on the storyboard scene (1 to 4 French words, letters only; never people), with at
+most 3 things drawn over it. agent010 finds the clip (`app/render/footage.py`): a clip of
+`assets/footage/local/` whose file name shares a word with the query first, then one already fetched
+for that query (`assets/footage/index.json`), then Pixabay's video search (`PIXABAY_API_KEY`; only the
+query is sent). A Pixabay clip is taken only if rated for everyone, not low quality, at least 6 s long,
+on Pixabay's CDN, and with no person or brand in its tags; it is downloaded once (at most 80 MB,
+1920 wide when there is one) and indexed with its id, page, author, query and date. ffmpeg cuts it into
+the scene's frames (looped if short, cropped to fill 1920 x 1080), which the page shows full-frame
+behind the scene, darkened, the titles in white; `seek` waits until each frame is decoded.
+`render_manifest.json` records the clip of each scene (`footage`), agent007 credits each Pixabay clip in
+the description ("Images : <author> sur Pixabay (<page>)"), agent005 is told a film plays behind the
+scene. No clip found (no match, no key, network): the scene is drawn without one, agent010
+`not_healthy`. The clips are git-ignored, `index.json` is kept. Check: `python tests/test_footage.py`.
 
 **Subtitles.** Each scene's narration (the plan's too) is cut into short lines (`app/render/subtitles.py`:
 at most about 62 characters, cut at a sentence's end or a comma, a long sentence into lines of even

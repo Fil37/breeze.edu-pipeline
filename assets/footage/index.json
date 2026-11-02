@@ -1,0 +1,20 @@
+{
+  "clips": {
+    "pixabay:2142": {
+      "source": "pixabay",
+      "id": 2142,
+      "file": "pixabay_2142_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-2142/",
+      "user": "FindingFootage",
+      "tags": "nuage, laps de temps, nuages ciel, bleu, paysage, brillant, ciel, ciel de nuages, blanche, duveteux, nuages de ciel bleu, ciel bleu, conditions météorologiques, nature, journée",
+      "duration": 36,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "ciel bleu nuages",
+      "fetched_at": "2026-11-02T11:21:47Z"
+    }
+  },
+  "queries": {
+    "ciel bleu nuages": "pixabay:2142"
+  }
+}

@@ -8,3 +8,8 @@ instance/
 media/
 schemas/reports.json
 schemas/rows.json
+
+# Film clips (assets/footage/): large, fetched again from Pixabay or put by hand; index.json (their sources) is kept
+assets/footage/*.mp4
+assets/footage/*.part
+assets/footage/local/

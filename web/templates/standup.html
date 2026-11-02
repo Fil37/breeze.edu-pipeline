@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Standup{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>Standup</h1>
+    {% if run_id %}<p class="muted">Dernier run <code>{{ run_id }}</code> : ce que chaque agent a fait, chaîne par chaîne.</p>{% endif %}
+  </div>
+</section>
+{% if run_id %}
+<div class="standup">
+  {% for g in groups %}
+  <section class="panel" style="--ch: {{ g.theme.accent }}">
+    <h2>{{ g.name }}</h2>
+    <ul>
+      {% for line in g.lines %}
+      <li class="step st-{{ line.status }}"><span class="dot"></span><span>{{ line.text }}
+        {% if line.error %}<span class="error">{{ line.error }}</span>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="panel muted">Aucun run pour l'instant. Lancez-en un avec <code>./run</code>.</p>
+{% endif %}
+{% endblock %}

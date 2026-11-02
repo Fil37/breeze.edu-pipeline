@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord{% endblock %}
+{% block content %}
+{% set ready = channels | selectattr("latest.video") | list %}
+<section class="hero">
+  <div>
+    <h1>Tableau de bord</h1>
+    <p class="muted">Les {{ channels | length }} chaînes, leur dernière vidéo et l'état de chaque agent au dernier run.</p>
+  </div>
+  <ul class="kpis">
+    <li><b>{{ channels | length }}</b><span>chaînes</span></li>
+    <li><b>{{ ready | length }}</b><span>vidéos prêtes</span></li>
+    <li><b>{{ channels | selectattr("overall", "equalto", "critical") | list | length }}</b><span>en échec</span></li>
+  </ul>
+</section>
+<div class="grid">
+  {% for c in channels %}{% include "partials/channel_card.html" %}{% endfor %}
+</div>
+<p class="legend">
+  {% for s in ["healthy", "not_healthy", "revision_needed", "critical", "not_run", "skipped"] %}
+  <span class="step st-{{ s }}"><span class="dot"></span>{{ s | status }}</span>
+  {% endfor %}
+</p>
+{% endblock %}

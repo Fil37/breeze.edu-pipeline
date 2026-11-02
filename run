@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+cd "$(dirname "$0")" && python app/agent/agent000_breeze.py

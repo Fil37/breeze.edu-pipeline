@@ -1,0 +1,20 @@
+{
+  "llm_provider": "deepseek",
+  "llm_model": "deepseek-flash",
+  "ollama_model": "llama3.1:8b",
+  "ollama_base_url": "http://localhost:11434/v1",
+  "render_backend_by_channel": {
+    "breeze_(electronics)": "html",
+    "breeze_(physics)": "html",
+    "breeze_(math)": "html",
+    "breeze_(economics)": "html"
+  },
+  "publisher": "direct",
+  "youtube_quota_limit": 10000,
+  "enabled_platforms": [
+    "youtube"
+  ],
+  "dry_run": false,
+  "qa_strict_mode": true,
+  "max_revisions": 3
+}

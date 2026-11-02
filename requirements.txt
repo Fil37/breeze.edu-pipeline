@@ -1,0 +1,20 @@
+# LLM providers (agents 001-005, 007): openai also serves ollama, deepseek, gemini and openrouter
+openai>=1.0
+anthropic>=0.40
+boto3                 # not imported directly: the Anthropic Bedrock client needs it
+python-dotenv
+
+# Visual brief schema and validation (agents 004-006, render engine)
+pydantic>=2.0
+
+# Rendering (agent010, the HTML renderer: a browser draws each frame), French voice-over;
+# ffmpeg/ffprobe come from the system. (The Manim renderer is retired: archive/manim/README.md.)
+numpy
+edge-tts>=7.0
+playwright>=1.40        # then: playwright install chromium
+
+# Publishing and analytics (agents 008, 009)
+requests
+
+# Dashboard (web/)
+flask

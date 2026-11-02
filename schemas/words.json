@@ -1,0 +1,8 @@
+{
+  "banned_clickbait": ["you won't believe", "shocking", "insane"],
+  "required_terms": {
+    "electronics": ["diode", "transistor", "pcb", "circuit"],
+    "physics_math": ["force", "energy", "derivative", "integral"],
+    "economics": ["supply", "demand", "inflation", "gdp"]
+  }
+}

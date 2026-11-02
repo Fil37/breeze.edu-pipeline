@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>breeze · Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/breeze_master.css') }}">
+</head>
+<body>
+  <nav><strong>breeze</strong><a href="/">Dashboard</a><a href="/standup">Standup</a></nav>
+  <main>
+    <h1>Channels</h1>
+    <div class="grid">
+      {% for c in channels %}
+      <article class="panel">
+        {% with card = c %}{% include "card/breeze_card.html" %}{% endwith %}
+        <dl class="data">
+          <dt>Last run</dt><dd>{{ c.last_run_at or "never" }}</dd>
+          <dt>Next run</dt><dd>{{ c.next_run if c.enabled else "disabled" }}</dd>
+        </dl>
+        {% if c.agents %}
+        <ul class="badges">
+          {% for a in c.agents %}<li class="badge badge-{{ a.status }}" title="{{ a.status }}">{{ a.agent[-3:] }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <a href="/channel/{{ c.channel_id | quote }}">Details →</a>
+      </article>
+      {% endfor %}
+    </div>
+    <p class="legend">
+      <span class="badge badge-healthy">healthy</span>
+      <span class="badge badge-not_healthy">warning</span>
+      <span class="badge badge-revision_needed">revision</span>
+      <span class="badge badge-critical">critical</span>
+      <span class="badge badge-not_run">not run</span>
+      <span class="badge badge-skipped">skipped</span>
+    </p>
+  </main>
+</body>
+</html>

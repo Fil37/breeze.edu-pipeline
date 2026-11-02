@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>breeze · Standup</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/breeze_master.css') }}">
+</head>
+<body>
+  <nav><strong>breeze</strong><a href="/">Dashboard</a><a href="/standup">Standup</a></nav>
+  <main>
+    <h1>Standup</h1>
+    {% if run_id %}
+      <p>Last run <code>{{ run_id }}</code></p>
+      <ul class="standup">
+        {% for line in lines %}
+        <li><span class="badge badge-{{ line.status }}">{{ line.status }}</span> {{ line.text }}
+          {% if line.error %}<div class="error">{{ line.error }}</div>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No run yet. Start one with <code>./run</code>.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

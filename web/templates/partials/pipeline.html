@@ -1,0 +1,8 @@
+{# The agents of a run, in pipeline order. Expects `agents`: [{agent, name, status}]. #}
+<ol class="pipeline">
+  {% for a in agents %}
+  <li class="step st-{{ a.status }}" title="{{ a.agent }} · {{ a.status | status }}">
+    <span class="dot" aria-hidden="true"></span><span class="step-name">{{ a.name }}</span>
+  </li>
+  {% endfor %}
+</ol>

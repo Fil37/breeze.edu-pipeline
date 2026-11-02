@@ -1,0 +1,11 @@
+{# Reusable channel card. Expects `card` with: channel_id, name, overall, last_topic, last_video_url. #}
+<section class="card">
+  <header>
+    <h2>{{ card.name }}</h2>
+    <span class="badge badge-{{ card.overall }}">{{ card.overall }}</span>
+  </header>
+  <p class="data">{{ card.channel_id }}</p>
+  <p><span class="muted">Last topic:</span> {{ card.last_topic or "—" }}</p>
+  <p><span class="muted">Last video:</span>
+    {% if card.last_video_url %}<a href="{{ card.last_video_url }}">{{ card.last_video_url }}</a>{% else %}—{% endif %}</p>
+</section>

@@ -1,0 +1,36 @@
+{# A channel on the dashboard. Expects `c` (page.dashboard()). #}
+<article class="card" style="--ch: {{ c.theme.accent }}">
+  <a class="thumb" href="/channel/{{ c.channel_id | quote }}" aria-label="Voir {{ c.name }}">
+    {% if c.latest.video %}
+    <video src="/video/{{ c.channel_id | quote }}#t=4" preload="metadata" muted playsinline></video>
+    <span class="duration">{{ c.latest.duration | clock }}</span>
+    {% else %}
+    <span class="no-video">Pas encore de vidéo</span>
+    {% endif %}
+  </a>
+  <div class="card-body">
+    <header class="card-head">
+      <div>
+        <p class="eyebrow">{{ c.channel_id }} · thème {{ c.theme.name }}</p>
+        <h2>{{ c.name }}</h2>
+      </div>
+      <span class="badge b-{{ c.overall }}">{{ c.overall | status }}</span>
+    </header>
+    <p class="topic">{{ c.latest.title or c.latest.concept or c.last_topic or "Aucun sujet pour l'instant" }}</p>
+    {% if c.latest.qa and c.latest.qa.scores %}
+    <ul class="scores">
+      {% for key, label in [("accuracy", "Exactitude"), ("simplicity", "Simplicité"), ("clarity", "Clarté")] %}
+      {% set v = c.latest.qa.scores.get(key) %}
+      <li><span>{{ label }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if c.agents %}{% with agents = c.agents %}{% include "partials/pipeline.html" %}{% endwith %}{% endif %}
+    <dl class="facts">
+      <div><dt>Dernier run</dt><dd>{{ c.last_run_at or "jamais" }}</dd></div>
+      <div><dt>Prochain</dt><dd>{{ c.next_run if c.enabled else "désactivée" }}</dd></div>
+      <div><dt>Scènes</dt><dd>{{ c.latest.scenes | length or "—" }}</dd></div>
+    </dl>
+    <a class="more" href="/channel/{{ c.channel_id | quote }}">Ouvrir la chaîne →</a>
+  </div>
+</article>

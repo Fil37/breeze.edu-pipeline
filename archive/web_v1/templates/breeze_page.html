@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>breeze · {{ route.channel_id }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/breeze_master.css') }}">
+</head>
+<body>
+  <nav><strong>breeze</strong><a href="/">Dashboard</a><a href="/standup">Standup</a></nav>
+  <main>
+    <h1>{{ route.name }} <code>{{ route.channel_id }}</code></h1>
+    <p>Audience {{ route.target_age_band }} · {{ route.persona }} · platforms: {{ route.publish_platforms | join(", ") }}</p>
+
+    <h2>Last 10 runs</h2>
+    {% if runs %}
+    <div class="table-wrap"><table>
+      <tr><th>Run</th><th>Status</th><th>Topic</th><th>QA revisions</th><th>Duration (s)</th></tr>
+      {% for r in runs %}
+      <tr><td>{{ r.run_id }}</td><td><span class="badge badge-{{ r.overall_status }}">{{ r.overall_status }}</span></td>
+          <td class="prose">{{ r.topic or "—" }}</td><td>{{ r.revisions }}</td><td>{{ r.duration_sec }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="muted">No run yet.</p>{% endif %}
+
+    <h2>Topics</h2>
+    {% if topics %}<ul>{% for t in topics %}<li>{{ t }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">No topic researched yet.</p>{% endif %}
+
+    <h2>Published videos</h2>
+    {% if videos %}
+    <div class="table-wrap"><table>
+      <tr><th>Published</th><th>Platform</th><th>Link</th></tr>
+      {% for v in videos %}
+      <tr><td>{{ v.data.publish_timestamp }}</td><td>{{ v.data.platform }}</td><td><a href="{{ v.data.url }}">{{ v.data.url }}</a></td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="muted">Nothing published yet.</p>{% endif %}
+
+    <h2>QA rejections (agent005)</h2>
+    {% if rejections %}
+    <div class="table-wrap"><table>
+      <tr><th>Run</th><th>Scores (acc/simp/clar)</th><th>Sent back to</th><th>Reason</th></tr>
+      {% for r in rejections %}
+      <tr><td>{{ r.run_id }}</td>
+          <td>{{ r.data.scores.accuracy }} / {{ r.data.scores.simplicity }} / {{ r.data.scores.clarity }}</td>
+          <td>{{ r.data.reject_to }}</td><td class="prose">{{ r.data.rejection_notes }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="muted">No rejection.</p>{% endif %}
+  </main>
+</body>
+</html>

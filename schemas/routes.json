@@ -1,0 +1,6 @@
+[
+  {"channel_id": "breeze_(electronics)", "name": "Électronique simple", "domain": "electronics", "target_age_band": "12-16", "persona": "curious beginner", "publish_platforms": ["youtube"], "schedule_cron": "0 9 * * *", "enabled": true},
+  {"channel_id": "breeze_(physics)", "name": "Physique visuelle", "domain": "physics_math", "target_age_band": "14-18", "persona": "lycéen curieux", "publish_platforms": ["youtube"], "schedule_cron": "0 10 * * *", "enabled": true},
+  {"channel_id": "breeze_(math)", "name": "Maths sans peur", "domain": "math", "target_age_band": "14-18", "persona": "lycéen qui décroche", "publish_platforms": ["youtube"], "schedule_cron": "0 11 * * *", "enabled": true},
+  {"channel_id": "breeze_(economics)", "name": "Économie expliquée", "domain": "economics", "target_age_band": "15-19", "persona": "citoyen débutant", "publish_platforms": ["youtube"], "schedule_cron": "0 12 * * *", "enabled": true}
+]

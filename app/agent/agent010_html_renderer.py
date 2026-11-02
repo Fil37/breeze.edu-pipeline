@@ -1115,9 +1115,9 @@ function seekLanes(e, t) {
 }
 // SEESAW: a beam on a pivot, a load on each end ("left", "right": a label and a weight; a "value" at
 // each end makes the beam a scale from one value to the other). Each load drops onto its end (set_state
-// {"left": true} / {"right": true}; both there from the start when neither is set) and the beam tips
+// {"left": true} / {"right": true}; a side never set is there from the start) and the beam tips
 // towards the heavier side on a damped spring (it overshoots, then settles). set_state
-// {"balanced": true}: the beam slides on the pivot until the loads balance; the pivot then stands at
+// {"balanced": true}: the pivot slides under the beam until the loads balance; it then stands at
 // the weighted mean of the two values, shown under it. All worked out from t (seekSeesaw).
 const SEESAW_W = 1100, SEESAW_BEAM = 820, SEESAW_PIVOT_Y = 330, SEESAW_TILT = 15, LOAD_INSET = 120, LOAD_FALL = 0.5;
 function buildSeesaw(ent) {
@@ -1136,7 +1136,7 @@ function buildSeesaw(ent) {
     return {load, end, weight: s.weight, value: s.value};
   };
   const mean = el("div", "mean"); shape.append(mean);
-  Object.assign(ent, {seesawParts: {beam, pivot, left: side(z.left), right: side(z.right), mean}});
+  Object.assign(ent, {seesawParts: {beam, pivot, base, left: side(z.left), right: side(z.right), mean}});
   return shape;
 }
 function stateTime(e, key) {        // when a set_state first made `key` true, else null
@@ -1146,8 +1146,8 @@ function stateTime(e, key) {        // when a set_state first made `key` true, e
 const CURVE_DRAW = 2.2;             // s: a curve draws itself (as a pen would, at the voice's pace)
 const easeOutElastic = p => p <= 0 ? 0 : p >= 1 ? 1 : Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
 function seekSeesaw(e, t) {
-  const z = e.data.seesawParts, given = ["left", "right"].some(k => stateTime(e, k) !== null);
-  const drop = k => given ? stateTime(e, k) : e.spawn + 0.3;   // when each load starts falling (null: never)
+  const z = e.data.seesawParts;
+  const drop = k => stateTime(e, k) ?? e.spawn + 0.3;   // when each load starts falling
   const landed = (k, at) => drop(k) !== null && at >= drop(k) + LOAD_FALL;
   const balance = stateTime(e, "balanced"), wl = z.left.weight, wr = z.right.weight;
   const share = wr / (wl + wr);        // where the pivot balances the loads, from the left end (0 to 1)
@@ -1162,7 +1162,8 @@ function seekSeesaw(e, t) {
     speed += (-55 * (angle - target(at)) - 6 * speed) * dt;
     angle += speed * dt;
   }
-  const p = pivotAt(t), a = angle * Math.PI / 180, cx = SEESAW_W / 2, cy = SEESAW_PIVOT_Y;
+  const p = pivotAt(t), a = angle * Math.PI / 180, cx = SEESAW_W / 2 + (p - 0.5) * SEESAW_BEAM, cy = SEESAW_PIVOT_Y;
+  z.pivot.style.left = `${cx - 48}px`; z.base.style.left = `${cx - 160}px`;
   const along = d => [cx + d * Math.cos(a), cy + d * Math.sin(a)];   // a point of the beam, d px from the pivot
   const [lx, ly] = along(-p * SEESAW_BEAM);
   Object.assign(z.beam.style, {left: `${lx}px`, top: `${ly - 8}px`, transform: `rotate(${angle}deg)`});
@@ -1738,6 +1739,30 @@ function layoutZones() {           // outside "circuit": where the diagram start
   if (backdrop) Object.assign(backdrop.style, {top: `${CONTENT_TOP - 20}px`, height: `${D.height - CONTENT_TOP - 4}px`});
   if (PANELS) for (const e of Object.values(E)) if (e.box && !e.inSide) e.panel = e.data.xy[0] < D.width / 2 ? 0 : 1;
 }
+// What is wider than its room (a panel, the main area, the backdrop) is made smaller, not left to
+// spill out: a formula by its font size, a fixed-size drawing (a seesaw, toll lanes) scaled down
+// inside a wrapper of its new size, so every measure after this sees the size shown.
+function fitToRoom() {
+  for (const e of Object.values(E)) {
+    if (!e.box || e.inSide || !e.shape) continue;
+    const [left, right] = PANELS && e.panel !== undefined ? PANELS[e.panel]
+      : LAYOUT === "analogy_fullscreen" ? [40, D.width - 40] : [0, MAIN_RIGHT];
+    const room = right - left - 40;
+    for (let i = 0; i < 3 && e.box.offsetWidth > room; i++) {
+      const s = room / e.box.offsetWidth;
+      if (e.shape.classList.contains("formula")) {
+        e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
+      } else if (e.data.seesaw || e.data.lanes) {
+        const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
+        Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
+        e.shape.replaceWith(wrap); wrap.append(e.shape);
+        Object.assign(e.shape.style, {scale: String(s), transformOrigin: "0 0"});
+        e.shape = wrap;
+        break;
+      } else break;
+    }
+  }
+}
 function locateSideItems() {      // the column lays itself out (flex): read where its items ended up
   for (const e of Object.values(E)) if (e.inSide) {
     const [x, y] = offsetIn(e.box, stage);
@@ -1859,6 +1884,11 @@ const graphHost = t => E[t.data.curve.axes] && E[t.data.curve.axes].data.axes ? 
 // of its shaft;
 // axes: their plot, not the legend; a component: its box. Without a target, the box nearest to the
 // brief's tip (NEAR px). {} when there is nothing: the badge then points at nothing (a conflict).
+function batteryTerminal(text) {   // "positive" / "negative" when a text names one terminal (and only one)
+  const t = String(text || "").toLowerCase();
+  const plus = /\+|\bplus\b|positi/.test(t), minus = /[−–-]|\bmoins\b|négati|negati/.test(t);
+  return plus === minus ? null : plus ? "positive" : "negative";
+}
 function aimOf(e, tip0, solids) {
   const t = E[e.data.annotation.target];
   const dist = p => Math.hypot(p[0] - tip0[0], p[1] - tip0[1]);
@@ -1876,6 +1906,10 @@ function aimOf(e, tip0, solids) {
   }
   if (t && t.box && !t.inSide && !t.data.annotation) {
     if (t.data.axes) return {box: plotOf(t), solid: t};
+    // A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's
+    // sign on the drawing, never at the battery as a whole (it could land by the other one).
+    const terminal = t.data.type === "BATTERY" && batteryTerminal(e.data.label);
+    if (terminal) return {box: rectIn(t, t.shape.querySelector(terminal === "positive" ? ".pos" : ".neg")), solid: t};
     // A thing with passengers beside it: the badge points at the group, so it never lands on them.
     const riders = Object.values(E).filter(p => p.data.rides === t.data.id && p.box).map(boxOf);
     const group = riders.length ? [boxOf(t), ...riders].reduce((a, b) => ({l: Math.min(a.l, b.l), t: Math.min(a.t, b.t),
@@ -2425,7 +2459,10 @@ function placeAnnotations() {
       for (const title of axisTitles) if (overlaps(grow(r, 10), title)) cost += 1000;   // nor on any graph's axis titles
       if (aim.avoid && overlaps(grow(r, 10), aim.avoid)) cost += 1000;   // a vector's own label
       for (const [p, q, id] of shafts) if (id !== e.data.annotation.target && segmentHits(p, q, grow(r, 8))) cost += 800;
-      for (const q of placed) if (overlaps(grow(r, 10), q)) cost += 1000;
+      for (const q of placed) {             // nor on a badge already placed, nor its arrow through one
+        if (overlaps(grow(r, 10), q)) cost += 1000;
+        if (segmentHits(tail, tip, grow(q, 4))) cost += 1000;
+      }
       for (const q of wireRects) cost += (overlaps(r, q) ? 500 : 0) + (segmentHits(tail, tip, q) ? 300 : 0);
       out.push({key: `${aim.spots ? aim.spots.indexOf(spot) : 0}/${i}/${k}`, cost, c, tip, tail, r, d});
     }));
@@ -2829,7 +2866,7 @@ function layoutConflicts() {
   return found;
 }
 document.fonts.ready.then(() => {
-  locateSideItems(); layoutZones(); spreadOut(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
+  locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
   window.layoutConflicts = layoutConflicts();
   window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });

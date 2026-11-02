@@ -54,6 +54,7 @@ from app import provenance
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
+from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
 from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
@@ -428,7 +429,8 @@ STRICT RULES:
   the visual brief): the real sight the question starts from, instead of icons: the sky to ask why it
   is blue, a motorway toll, a market, rain on a window, power lines, a city at night, a phone charging.
   Only a topic of pure mathematics with nothing to film goes without one. The query
-  names landscapes, sky, water, streets, machines, objects: never people ("enfant", "foule", "élèves"...).
+  names what to film: landscapes, sky, water, streets, machines, objects, people at work or in a crowd
+  (a face in close-up is never taken).
   Over the film draw at most {max_over_footage} things: the question as an ARROW_ANNOTATION status badge,
   a formula or one key icon; never icons standing for the setting the film already shows.
 - text_overlay: a short title (under 8 words) and an optional one-line subtitle; set
@@ -1239,6 +1241,76 @@ def footage_problems(order, briefs, layouts, expected=False):
     return errors
 
 
+FOOTAGE_CHOICE = """You pick the real film shown behind the opening of a French educational video, behind its
+question. What the narration says over it:
+{narration}
+
+Pixabay's clips for the search {query!r}, each by its tags (what the clip shows) and length:
+{candidates}
+
+Answer with JSON only: {{"choice": <the number of the clip that shows the narration's real subject, as it is>}},
+or {{"choice": null}} when none does. A clip that shows something else, or the subject's look-alike, is
+misleading and must not be picked: an oil lamp for an electric lamp, another planet or moon for the Moon,
+a keyboard for a job centre. People may be in it, far off or from behind, never a face in the foreground
+(a portrait, a close-up). Better no film than a wrong one."""
+
+
+def clip_chooser(narration):
+    """footage.find_clip's chooser: the LLM reads the candidates' tags against the hook's narration.
+    Its answer is a number checked against the list; anything else picks nothing."""
+    def choose(query, candidates):
+        listed = "\n".join(f"{n}. tags: {c['tags']}; {c['duration']} s" for n, c in enumerate(candidates, start=1))
+        try:
+            answer = parse_llm_json(llm_call(FOOTAGE_CHOICE.format(narration=narration[:1200], query=query, candidates=listed)))
+        except Exception as exc:      # no answer, no JSON: no film rather than an unchecked one
+            print(f"--- {AGENT}: film not chosen ({type(exc).__name__})", file=sys.stderr, flush=True)
+            return None
+        pick = answer.get("choice") if isinstance(answer, dict) else None
+        return pick - 1 if type(pick) is int and 1 <= pick <= len(candidates) else None
+    return choose
+
+
+def checked_footage(order, layouts, narrations, find=None):
+    """The hook's film, found now and chosen for its narration (cached in assets/footage/index.json,
+    where agent010 finds it); none fits, or none can be found: the hook is drawn without one.
+    Returns what happened, for the report ({} without a film asked for)."""
+    hook = order[0] if order else None
+    wanted = (layouts.get(hook) or {}).get("footage")
+    if hook is None or wanted is None or query_problem(wanted):
+        return {}
+    query = clean_query(wanted["query"])
+    try:
+        clip = (find or film.find_clip)(query, clip_chooser(narrations.get(hook, "")))
+        return {"query": query, "clip": film.credit(clip)}
+    except film.FootageError as exc:
+        layouts[hook] = {k: v for k, v in layouts[hook].items() if k != "footage"}
+        print(f"--- {AGENT}: the hook has no film: {exc}", file=sys.stderr, flush=True)
+        return {"query": query, "dropped": str(exc)[:200]}
+
+
+CHANGES = ("set_state", "start_flow", "set_value", "measure", "move_along", "move")   # actions that show something happen
+DRAWN_IN = (ComponentType.TEX_FORMULA, ComponentType.AXES_GRAPH)   # written or traced before the eyes: not still
+STILL_MIN_SEC = 8
+
+
+def still_scenes(order, briefs, layouts, durations):
+    """Scenes where nothing happens but things appearing and being highlighted: icons named one after
+    the other, the idea never shown at work. A hook over a film, or a scene writing a formula or
+    tracing a graph, is not still."""
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        if brief is None or not brief.entities or float(durations.get(scene_id) or 0) < STILL_MIN_SEC:
+            continue
+        if (scene_id == order[0] and (layouts.get(scene_id) or {}).get("footage")) \
+                or any(e.type in DRAWN_IN for e in brief.entities) or any(a.get("action") in CHANGES for a in brief.actions):
+            continue
+        errors.append(f"scene {scene_id}: nothing happens on screen but things appearing and being highlighted: show the "
+                      f"narration's idea at work (move what it moves in or out, set_state / set_value what changes, "
+                      f"start_flow what flows), cued on the words that say it")
+    return errors
+
+
 def scene_footage(scene_id, order, layout):
     """The storyboard scene's "footage" field: the hook's, when its query is valid."""
     wanted = (layout or {}).get("footage")
@@ -1347,7 +1419,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
                      for e in coherence_problems(brief, narrations.get(brief.scene_id, ""), durations.get(brief.scene_id))]
         proposed = {i: (layouts.get(i) or {}).get("layout_template") for i in order}
         layout = layout_problems(order, proposed, eligible, needs_circuit(briefs)) + empty_panels(briefs, proposed)
-        coherence += footage_problems(order, briefs, layouts, footage_expected)
+        coherence += footage_problems(order, briefs, layouts, footage_expected) + still_scenes(order, briefs, layouts, durations)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
@@ -1408,6 +1480,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     layout_report = {"allowed": {i: eligible[i] for i in order}, "proposed": proposed, "final": templates,
                      "forced": forced, "problems_left": layout_problems(order, templates, eligible, needs_circuit(briefs))}
     log_layouts(layout_report, layout_left)
+    footage_report = {} if renderer == "skip" else checked_footage(
+        order, layouts, {s["scene_id"]: s["narration_text"] or "" for s in scenes_for_prompt})
     for problem in coherence_left:
         print(f"--- {AGENT}: kept despite (narration coherence, after {MAX_ATTEMPTS} attempts): {problem}",
               file=sys.stderr, flush=True)
@@ -1436,7 +1510,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                   data={"renderer": renderer, "scenes": len(storyboard["scenes"]), "attempts": attempts,
                         "actions": sum(len(b.actions) for b in briefs.values()), "open_circuits": not_closed,
                         "sync_fixes": sync_fixes, "layout_templates": layout_report, "qa_feedback": qa_feedback,
-                        "coherence_left": coherence_left})
+                        "coherence_left": coherence_left, "footage": footage_report})
 
 
 if __name__ == "__main__":

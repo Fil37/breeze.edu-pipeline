@@ -26,7 +26,7 @@ Film clips behind a video's hook come from [Pixabay](https://pixabay.com) under 
 License (or are put in `assets/footage/local/` by hand, under their own terms). They are downloaded
 into `assets/footage/` (git-ignored) and only ever shown reworked: darkened behind a scene, under its
 titles, voice and subtitles, never on their own. `app/render/footage.py` takes no clip whose tags name
-people or a brand. `assets/footage/index.json` keeps each clip's Pixabay id, page, author, the query
+a face in the foreground (portrait, close-up, selfie) or a brand, and no AI-generated one. `assets/footage/index.json` keeps each clip's Pixabay id, page, author, the query
 and the day it was fetched; the YouTube description credits the author and the page.
 
 ## KaTeX — MIT License

@@ -12,9 +12,51 @@
       "ai_generated": false,
       "query": "ciel bleu nuages",
       "fetched_at": "2026-11-02T11:21:47Z"
+    },
+    "pixabay:11186": {
+      "source": "pixabay",
+      "id": 11186,
+      "file": "pixabay_11186_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-11186/",
+      "user": "klimkin",
+      "tags": "lampe, kérosène, lampe de poche, incendie, vieille, antiquités",
+      "duration": 11,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "interrupteur et lampe",
+      "fetched_at": "2026-11-02T13:48:12Z"
+    },
+    "pixabay:161332": {
+      "source": "pixabay",
+      "id": 161332,
+      "file": "pixabay_161332_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-161332/",
+      "user": "UniverseUnique",
+      "tags": "exoplanètes, surface, atmosphère, titane, lune de titan, titan de saturne lune, ciel rouge, exo planète dans l'espace, espace, univers",
+      "duration": 10,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "lune dans le ciel",
+      "fetched_at": "2026-11-02T14:03:58Z"
+    },
+    "pixabay:232538": {
+      "source": "pixabay",
+      "id": 232538,
+      "file": "pixabay_232538_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-232538/",
+      "user": "Darioguzben",
+      "tags": "clavier, l'écriture, numérique, la technologie, bureau, matériel, travail, électronique, l'informatique",
+      "duration": 12,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "bureau de pôle emploi",
+      "fetched_at": "2026-11-02T14:33:17Z"
     }
   },
   "queries": {
-    "ciel bleu nuages": "pixabay:2142"
+    "ciel bleu nuages": "pixabay:2142",
+    "interrupteur et lampe": "pixabay:11186",
+    "lune dans le ciel": "pixabay:161332",
+    "bureau de pôle emploi": "pixabay:232538"
   }
 }

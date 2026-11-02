@@ -12,6 +12,8 @@ offline but for the browser:
   5. electrons ("carriers": "electrons") go round the other way; a curve draws with a dot at its head,
      a formula writes itself left to right
   6. a number line: no "-0", 5 to 10 graduations over 0 to 10 000, none hidden under a dot's label
+  7. a badge naming a battery's terminal ("borne +", "borne −") points at that terminal's sign, both
+     ways round, and no badge's arrow runs through another badge
 Prints PASS or FAIL per case. Cases 3 to 6 need Playwright + Chromium (as agent010).
 
   .venv/bin/python tests/test_reactive.py
@@ -250,6 +252,43 @@ def case_number_line():
     return report("6. number line: no -0, enough graduations, none under a dot's label", problems, [f"shown {found['shown']}"])
 
 
+def case_terminals():
+    problems = []
+    pages = {}
+    for name, (plus_dir, minus_dir) in {"facing": ("DOWN", "UP"), "swapped": ("UP", "DOWN")}.items():
+        brief = {"scene_id": "1", "text_overlay": {"title": "Pile, fil et courant"}, "actions": [],
+                 "entities": [{"id": "b", "type": "BATTERY", "position": [-4, 0, 0], "initial_state": {"label": "Pile 6 V"}},
+                              {"id": "l", "type": "LAMP", "position": [3, 0, 0], "initial_state": {"label": "Lampe"}},
+                              {"id": "p", "type": "ARROW_ANNOTATION", "position": [-4, 0.6, 0], "initial_state": {"text": "borne +", "direction": plus_dir, "target": "b"}},
+                              {"id": "m", "type": "ARROW_ANNOTATION", "position": [-4, -0.6, 0], "initial_state": {"text": "borne −", "direction": minus_dir, "target": "b"}},
+                              {"id": "c", "type": "ARROW_ANNOTATION", "position": [3, -0.6, 0], "initial_state": {"text": "Courant conventionnel", "direction": "UP", "target": "l"}},
+                              {"id": "e", "type": "ARROW_ANNOTATION", "position": [3, -0.7, 0], "initial_state": {"text": "Électrons (négatifs)", "direction": "UP", "target": "l"}}],
+                 "connections": [{"source_id": "b", "source_port": "positive", "target_id": "l", "target_port": "left_terminal"},
+                                 {"source_id": "l", "source_port": "right_terminal", "target_id": "b", "target_port": "negative"}]}
+        pages[name] = renderer.page_data(brief, 6, None)
+    found = open_pages(pages, """() => {
+      window.seek(5);
+      const r = n => { const b = n.getBoundingClientRect(); return {l: b.left, t: b.top, r: b.right, b: b.bottom}; };
+      const sign = cls => r(document.querySelector('.battery ' + cls));
+      const tips = [...document.querySelectorAll('#overlay line')].map(l => [l.x2.baseVal.value, l.y2.baseVal.value, l.x1.baseVal.value, l.y1.baseVal.value]);
+      const pills = [...document.querySelectorAll('.pill')].map(p => ({text: p.textContent, box: r(p)}));
+      return {pos: sign('.pos'), neg: sign('.neg'), tips, pills};
+    }""")
+    for name, shown in found.items():
+        near = lambda box, tip: ((max(box["l"] - tip[0], 0, tip[0] - box["r"]) ** 2 + max(box["t"] - tip[1], 0, tip[1] - box["b"]) ** 2) ** 0.5)
+        for text, sign in (("borne +", shown["pos"]), ("borne −", shown["neg"])):
+            index = [p["text"] for p in shown["pills"]].index(text)
+            if near(sign, shown["tips"][index][:2]) > 30:
+                problems.append(f"{name}: {text!r} points {near(sign, shown['tips'][index][:2]):.0f} px from its sign")
+        for i, (x2, y2, x1, y1) in enumerate(shown["tips"]):
+            for j, pill in enumerate(shown["pills"]):
+                b = pill["box"]
+                if i != j and any(b["l"] < x1 + (x2 - x1) * k / 20 < b["r"] and b["t"] < y1 + (y2 - y1) * k / 20 < b["b"] for k in range(21)):
+                    problems.append(f"{name}: the arrow of {shown['pills'][i]['text']!r} runs through {pill['text']!r}")
+    return report("7. terminal badges point at their sign; no arrow through another badge", problems)
+
+
 if __name__ == "__main__":
-    results = [case_comparison_arbiter(), case_agent004(), case_vectors(), case_seesaw(), case_flow_curve_formula(), case_number_line()]
+    results = [case_comparison_arbiter(), case_agent004(), case_vectors(), case_seesaw(), case_flow_curve_formula(), case_number_line(),
+               case_terminals()]
     sys.exit(0 if all(results) else 1)

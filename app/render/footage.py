@@ -9,9 +9,14 @@ Where a clip comes from, in this order:
   2. a clip already fetched for the same query (assets/footage/index.json);
   3. Pixabay's video search (PIXABAY_API_KEY in .env): only the query's words are sent. A clip is
      taken only if it is rated for everyone (isGRated), not marked low quality, at least MIN_SECONDS
-     long, and its tags name no person and no brand (the Pixabay licence: no recognisable people
-     used in a misleading way, no logos for commercial use). It is downloaded once from Pixabay's
-     CDN (https://cdn.pixabay.com, at most MAX_BYTES), never hot-linked.
+     long, and its tags name no face in the foreground (a portrait, a close-up, a selfie: people far
+     off or from behind are fine; the Pixabay licence: no recognisable people used in a misleading
+     way) and no brand (no logos for commercial use), nor a made-up picture (AI-generated,
+     3D render, animation, science fiction: a science video shows the real thing). When a chooser
+     is given (agent004: the LLM reads the candidates' tags against the hook's narration), it picks
+     the clip that shows the subject, or none (an oil lamp for an electric one, Titan for the Moon).
+     It is downloaded once from Pixabay's CDN (https://cdn.pixabay.com, at most MAX_BYTES), never
+     hot-linked.
 index.json keeps, for every clip used, where it comes from (Pixabay id, page, author, tags, the
 query, the day it was fetched): the licence's trace. Nothing is ever deleted here.
 """
@@ -42,11 +47,13 @@ QUERY = re.compile(r"[a-zà-öø-ÿ' -]+")
 QUERY_WORDS = (1, 4)
 QUERY_MAX_CHARS = 40
 # Tags (French, as Pixabay gives them with lang=fr, and English) that rule a clip out.
-PEOPLE = {"personne", "personnes", "gens", "homme", "hommes", "femme", "femmes", "fille", "filles", "garçon", "garçons",
-          "enfant", "enfants", "bébé", "visage", "portrait", "famille", "foule", "couple", "humain", "humains", "selfie",
-          "mannequin", "modèle", "adulte", "jeune", "touriste", "people", "person", "man", "woman", "girl", "boy", "child",
-          "children", "baby", "face", "family", "crowd", "human"}
+FACES = {"visage", "visages", "portrait", "portraits", "selfie", "mannequin", "modèle", "sourire", "souriant", "souriante",
+         "yeux", "regard", "face", "faces", "smile", "model", "headshot", "closeup"}
+CLOSE_UP = re.compile(r"\bgros plan\b|\bclose[- ]up\b")
 BRANDS = {"logo", "logos", "marque", "marques", "brand", "publicité", "advertising"}
+FICTION = {"exoplanète", "exoplanètes", "exoplanet", "fiction", "fantaisie", "fantastique", "fantasy", "animation", "animé",
+           "rendu", "render", "cgi", "illustration", "dessin", "cartoon", "imaginaire", "surréaliste", "surreal"}
+MAX_CANDIDATES = 8         # allowed hits shown to a chooser, most popular first
 
 
 class FootageError(RuntimeError):
@@ -112,10 +119,12 @@ def local_clip(query):
 def allowed(hit):
     """Why a Pixabay hit is ruled out, or None."""
     tags = words(hit.get("tags", ""))
-    if tags & PEOPLE:
-        return f"people in its tags: {sorted(tags & PEOPLE)}"
+    if tags & FACES or CLOSE_UP.search(str(hit.get("tags", "")).lower()):
+        return f"a face in the foreground: {sorted(tags & FACES) or 'gros plan'}"
     if tags & BRANDS:
         return f"a brand in its tags: {sorted(tags & BRANDS)}"
+    if tags & FICTION or re.search(r"\b3d\b", str(hit.get("tags", "")).lower()) or hit.get("isAiGenerated") is True:
+        return "a made-up picture (AI-generated, 3D, animation, fiction)"
     if hit.get("isGRated") is False or hit.get("isLowQuality") is True:
         return "not rated for everyone, or low quality"
     if not isinstance(hit.get("duration"), (int, float)) or hit["duration"] < MIN_SECONDS:
@@ -159,12 +168,18 @@ def download(url, path):
     os.replace(path + ".part", path)
 
 
-def pixabay_clip(query, key, index):
-    """The first allowed hit of Pixabay's search (most popular first), downloaded and indexed."""
+def pixabay_clip(query, key, index, choose=None):
+    """The first allowed hit of Pixabay's search (most popular first), or the one `choose` picks among
+    the first MAX_CANDIDATES (choose(query, [{"tags", "duration"}]) -> their index, or None: none fits),
+    downloaded and indexed."""
     hits = search_pixabay(query, key)
-    for hit in hits:
-        if allowed(hit) is not None:
-            continue
+    candidates = [hit for hit in hits if allowed(hit) is None][:MAX_CANDIDATES]
+    if choose is not None and candidates:
+        pick = choose(query, [{"tags": str(h.get("tags", ""))[:300], "duration": h.get("duration")} for h in candidates])
+        if type(pick) is not int or not 0 <= pick < len(candidates):
+            raise FootageError(f"none of the {len(candidates)} Pixabay clips for {query!r} shows the subject")
+        candidates = [candidates[pick]]
+    for hit in candidates:
         clip_id = f"pixabay:{int(hit['id'])}"
         record = index["clips"].get(clip_id)
         if record is None or not os.path.isfile(os.path.join(FOOTAGE_DIR, record["file"])):
@@ -178,14 +193,17 @@ def pixabay_clip(query, key, index):
                       "query": query, "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
             index["clips"][clip_id] = record
         index["queries"][query] = clip_id
+        if choose is not None and query not in index.setdefault("checked", []):
+            index["checked"].append(query)     # picked for the narration: a later chooser trusts it
         save_index(index)
         return {**record, "file": os.path.join(FOOTAGE_DIR, record["file"])}
-    raise FootageError(f"no allowed Pixabay clip for {query!r} ({len(hits)} found, none without people or brands)")
+    raise FootageError(f"no allowed Pixabay clip for {query!r} ({len(hits)} found, none without a face in the foreground, a brand or a made-up picture)")
 
 
-def find_clip(query):
-    """{"source", "file" (absolute), and for Pixabay "id", "page_url", "user", ...} for a query.
-    Raises FootageError when no clip is found (no local match and no key, nothing allowed, network)."""
+def find_clip(query, choose=None):
+    """{"source", "file" (absolute), and for Pixabay "id", "page_url", "user", ...} for a query; with a
+    chooser (see pixabay_clip), a clip cached without one is searched again.
+    Raises FootageError when no clip is found (no local match and no key, nothing allowed or chosen, network)."""
     query = clean_query(query)
     if query is None:
         raise FootageError("invalid query")
@@ -194,13 +212,14 @@ def find_clip(query):
         return found
     index = load_index()
     cached = index["clips"].get(index["queries"].get(query, ""))
-    if cached and os.path.isfile(os.path.join(FOOTAGE_DIR, cached["file"])):
+    if cached and os.path.isfile(os.path.join(FOOTAGE_DIR, cached["file"])) \
+            and (choose is None or query in index.get("checked", [])):
         return {**cached, "file": os.path.join(FOOTAGE_DIR, cached["file"])}
     key = os.environ.get("PIXABAY_API_KEY", "").strip()
     if not key:
         raise FootageError("no local clip matches and PIXABAY_API_KEY is not set")
     try:
-        return pixabay_clip(query, key, index)
+        return pixabay_clip(query, key, index, choose)
     except FootageError:
         raise
     except Exception as exc:              # network error, unexpected answer

@@ -491,9 +491,10 @@ action the viewer sees happen, in proportion to the numbers said:
 - `set_state {"floating": true}` on an OBJECT or a BODY: it rises slowly (100 px over 3 s) and
   drifts, the vectors starting on it going along;
 - SEESAW (`initial_state {"left": {"label", "weight", "value"}, "right": {...}, "unit"}`): each load
-  drops onto its end (`set_state {"left": true}` / `{"right": true}`), the beam tips towards the
-  heavier side on a damped spring (it overshoots, then settles), and `{"balanced": true}` slides the
-  beam on the pivot until it balances: the pivot then stands at the weighted mean of the two values,
+  drops onto its end (`set_state {"left": true}` / `{"right": true}`; a side never set is there from
+  the start), the beam tips towards the heavier side on a damped spring (it overshoots, then settles),
+  and `{"balanced": true}` slides the pivot under the beam until it balances: it then stands at the
+  weighted mean of the two values,
   shown under it (30 x 15 + 5 x 10 over 35: 14,29 /20);
 - `start_flow` with `"carriers": "electrons"`: discs marked "−" going from − to + (slower than the
   conventional current's dots, the other way round); agent004 sends back BODY discs standing for
@@ -502,19 +503,34 @@ action the viewer sees happen, in proportion to the numbers said:
 agent004 also sends back a graph running 0 to 10 on both axes with no unit (`placeholder_graphs`:
 "temps" / "PIB", a line over made-up numbers) and, on the electronics, physics and economics channels
 (`FOOTAGE_DOMAINS`), a hook without a film. agent005's layout arbiter only squeezes a "circuit" scene
-left of its instrument column, and keeps a comparison's things in their panel. A number line's
-graduations are 1, 2 or 5 times a power of ten (0 to 10 000: every 1 000), never "-0", and a number
+left of its instrument column, and keeps a comparison's things in their panel.
+agent004 also sends back a scene of at least 8 s where nothing happens but things appearing and
+being highlighted (`still_scenes`: no move, set_state, set_value, flow or measure, no formula written
+or graph traced; a hook over a film excepted). On the page, what is wider than its room (its panel,
+the main area) is made smaller (`fitToRoom`): a formula by its font size, a seesaw or toll lanes
+scaled down. agent003 has each acronym said in full the first time it is spoken (hook, plan, then the
+scenes: "le Bureau international du travail, le BIT"); a script using one before is asked again once
+(`undefined_acronyms`), and agent003 is `not_healthy` if one is still left.
+Check: `python tests/test_run_fixes.py`.
+A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's sign
+on the drawing, not at the battery as a whole (`batteryTerminal`); no badge's arrow runs through
+another badge. A number line's graduations are 1, 2 or 5 times a power of ten (0 to 10 000: every 1 000), never "-0", and a number
 under a dot's label, or too close to the previous one, is hidden. Counters roll in 0.8 s.
 Check: `python tests/test_reactive.py`.
 
 **Film behind the hook.** agent004 may give the first scene a real film clip: `"footage": {"query":
-"ciel bleu nuages"}` on the storyboard scene (1 to 4 French words, letters only; never people), with at
+"ciel bleu nuages"}` on the storyboard scene (1 to 4 French words, letters only; people far off, never a face in close-up), with at
 most 3 things drawn over it. agent010 finds the clip (`app/render/footage.py`): a clip of
 `assets/footage/local/` whose file name shares a word with the query first, then one already fetched
 for that query (`assets/footage/index.json`), then Pixabay's video search (`PIXABAY_API_KEY`; only the
 query is sent). A Pixabay clip is taken only if rated for everyone, not low quality, at least 6 s long,
-on Pixabay's CDN, and with no person or brand in its tags; it is downloaded once (at most 80 MB,
-1920 wide when there is one) and indexed with its id, page, author, query and date. ffmpeg cuts it into
+on Pixabay's CDN, with no face in the foreground (portrait, close-up, selfie) or brand in its tags, and not a made-up picture (AI-generated, 3D
+render, animation, exoplanet, fiction). agent004 looks for the hook's clip as soon as the storyboard is
+settled: the LLM reads the tags of the first 8 allowed clips against the hook's narration and picks the
+one that shows the subject, or none (an oil lamp for an electric lamp, Titan for the Moon); none: the
+hook is drawn without a film (agent004's report, `footage`). A clip fetched without that choice is
+searched again. It is downloaded once (at most 80 MB, 1920 wide when there is one) and indexed with its
+id, page, author, query and date, the queries chosen for a narration under `checked`. ffmpeg cuts it into
 the scene's frames (looped if short, cropped to fill 1920 x 1080), which the page shows full-frame
 behind the scene, darkened, the titles in white; `seek` waits until each frame is decoded.
 `render_manifest.json` records the clip of each scene (`footage`), agent007 credits each Pixabay clip in

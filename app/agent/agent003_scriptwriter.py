@@ -10,12 +10,16 @@ NOTES:  Narration only, aiming at 90-180 s. Also the plan announced after the ho
         Redone after a QA reject (reject_to agent003), it gets the QA's feedback in LBREEZE_QA_FEEDBACK
         (app/qa_feedback.py) as a "Corrections demandées par le QA" section of its prompt, with what the
         animation can show: never reads qa.json itself.
-HEALTH: not_healthy if total_duration_sec > 200 or < 60;
+        An acronym ("BIT", "PIB") is said in full the first time it is spoken (hook, plan, then the
+        scenes), in the same sentence or scene: a narration using one before is sent back once.
+HEALTH: not_healthy if total_duration_sec > 200 or < 60, or an acronym is still used before it is said in full;
         critical if outline.json is missing, llm_call fails, or scenes[] is empty.
 """
 
 import os
+import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # standalone runs
 
@@ -47,6 +51,9 @@ Rules:
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.
+- An acronym is said in full the first time it is spoken, so a viewer who does not know it is never
+  lost: "le Bureau international du travail, le BIT", "le produit intérieur brut, ou PIB"; after
+  that, the acronym alone. The hook and the plan are spoken first: define it there if it is used there.
 - Scene 1 is the hook (the question, the surprise). Right after it, the video announces its plan:
   write it in "plan". "narration": 2 or 3 natural spoken sentences (25 to 50 words), as a teacher
   tells the class where the lesson goes, in the order of the scenes; not a list read aloud, never
@@ -80,6 +87,42 @@ def checked_plan(plan, scenes):
     return {"narration": plan["narration"].strip(), "parts": parts}
 
 
+ACRONYM = re.compile(r"(?<![\w'’-])[A-ZÀ-Ý]{2,6}(?![\w'’-])")
+ROMAN = re.compile(r"[IVXLCDM]+")
+LINK_WORDS = {"de", "du", "des", "la", "le", "les", "l", "d", "et", "en", "à", "a", "au", "aux", "pour", "sur", "un", "une"}
+RETRY_NOTE = """
+
+Your previous answer used acronyms before saying them in full; rewrite it with each said in full
+the first time it is spoken (same JSON shape):
+{problems}"""
+
+
+def said_in_full(acronym, text):
+    """Whether `text` says the words the acronym stands for: consecutive words (linking words such as
+    "du", "de la" skipped) whose initials spell it ("Bureau international du travail": BIT)."""
+    initials = "".join(unicodedata.normalize("NFD", w)[0].upper() for w in re.findall(r"[^\W\d_]+", text)
+                       if w.lower() not in LINK_WORDS and w != acronym)
+    return acronym in initials
+
+
+def undefined_acronyms(scenes, plan):
+    """["<where>: \"BIT\" ..."] for each acronym whose first spoken use (hook, plan, then the scenes)
+    is not said in full in the same text."""
+    spoken = [(f"scene {scenes[0].get('scene_id')}", scenes[0].get("narration_text"))] if scenes else []
+    spoken += [("plan", (plan or {}).get("narration"))] + [(f"scene {s.get('scene_id')}", s.get("narration_text")) for s in scenes[1:]]
+    seen, problems = set(), []
+    for where, text in spoken:
+        text = str(text or "")
+        for acronym in ACRONYM.findall(text):
+            if acronym in seen or ROMAN.fullmatch(acronym):
+                continue
+            seen.add(acronym)
+            if not said_in_full(acronym, text):
+                problems.append(f'{where}: "{acronym}" is spoken before it is said in full: say what it stands for '
+                                f'the first time ("le Bureau international du travail, le BIT")')
+    return problems
+
+
 def run(channel_id: str, settings: dict, routes: list) -> dict:
     folder = channel_dir(channel_id)
     output_path = os.path.join(folder, "script.json")
@@ -95,6 +138,13 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
         prompt = PROMPT.format(outline=outline).replace("\nAnswer with JSON only", qa_section + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))
+        acronyms = undefined_acronyms(answer.get("scenes") or [], answer.get("plan"))
+        if acronyms:                  # once more, told which: a viewer must never be lost on a word
+            print(f"--- {AGENT}: acronyms not said in full, asked again: {acronyms}", file=sys.stderr, flush=True)
+            again = parse_llm_json(llm_call(prompt + RETRY_NOTE.format(problems="\n".join(acronyms))))
+            left = undefined_acronyms(again.get("scenes") or [], again.get("plan"))
+            if again.get("scenes") and len(left) < len(acronyms):
+                answer, acronyms = again, left
     except (RuntimeError, ValueError) as exc:
         return finish(channel_id, AGENT, "script", "critical", output_path, error=str(exc))
 
@@ -112,11 +162,11 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     save_json(output_path, script)
     provenance.register_artifact(run_id, channel_id, "script.json", AGENT)
 
-    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 else "not_healthy"
+    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 and not acronyms else "not_healthy"
     short = [s.get("scene_id") for s in scenes if len(str(s.get("narration_text", "")).split()) < MIN_SCENE_WORDS]
     return finish(channel_id, AGENT, "script", status, output_path,
                   data={"scenes": len(scenes), "total_duration_sec": script["total_duration_sec"],
-                        "word_count": script["word_count"], "short_scenes": short})
+                        "word_count": script["word_count"], "short_scenes": short, "acronyms_undefined": acronyms})
 
 
 if __name__ == "__main__":

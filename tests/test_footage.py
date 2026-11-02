@@ -2,8 +2,8 @@
 Check the real film behind the hook (app/render/footage.py), offline (Pixabay replaced by fixed
 answers; the real assets/footage/ is never touched) but for the browser:
   1. a query is 1 to 4 French words, letters only; anything else is refused
-  2. a Pixabay hit with people or a brand in its tags, not rated for everyone, too short, or whose file
-     is not on Pixabay's CDN is ruled out; the 1920-wide file is taken, else the widest below
+  2. a Pixabay hit with a face in the foreground or a brand in its tags, not rated for everyone, too
+     short, or whose file is not on Pixabay's CDN is ruled out (people far off are fine); the 1920-wide file is taken, else the widest below
   3. finding a clip: a local clip whose name matches comes first; else Pixabay's first allowed hit,
      downloaded once and indexed with its source (id, page, author, query); the same query again
      uses the index, no search; no local clip and no key: an error, never something made up
@@ -62,9 +62,10 @@ def case_query():
 
 def case_allowed():
     problems = []
-    if footage.allowed(hit(1, "ciel, nuages, bleu")) is not None:
-        problems.append("a plain sky ruled out")
-    for why, h in (("people", hit(2, "plage, femme, mer")), ("a crowd", hit(3, "ville, foule")),
+    for h in (hit(1, "ciel, nuages, bleu"), hit(2, "plage, femme, mer"), hit(3, "ville, foule")):
+        if footage.allowed(h) is not None:
+            problems.append(f"{h['tags']!r} ruled out: {footage.allowed(h)}")
+    for why, h in (("a portrait", hit(2, "femme, portrait, sourire")), ("a close-up", hit(3, "homme, gros plan, bureau")),
                    ("a brand", hit(4, "voiture, logo")), ("not rated", hit(5, "ciel", rated=False)),
                    ("too short", hit(6, "ciel", duration=3)),
                    ("off the CDN", {**hit(7, "ciel"), "videos": {"large": {"url": "https://evil.example/x.mp4", "width": 1920, "size": 10}}}),
@@ -75,7 +76,7 @@ def case_allowed():
     wide["videos"]["medium"] = {"url": CDN.replace("large", "medium"), "width": 1280, "height": 720, "size": 2_000_000}
     if footage.variant(hit(10, "ciel"))["width"] != 1920 or footage.variant(wide)["width"] != 1280:
         problems.append("the variant chosen")
-    return report("2. people, brands, unrated, short or off-CDN clips are ruled out", problems)
+    return report("2. faces in the foreground, brands, unrated, short or off-CDN clips are ruled out; people far off kept", problems)
 
 
 class Sandbox:
@@ -104,7 +105,7 @@ class Sandbox:
 
 def case_find():
     problems = []
-    with Sandbox([hit(11, "plage, femme"), hit(12, "ciel, nuages, bleu")]) as box:
+    with Sandbox([hit(11, "plage, femme, portrait"), hit(12, "ciel, nuages, bleu")]) as box:
         try:
             footage.find_clip("ciel bleu")
             problems.append("no key and no local clip: a clip was found")
@@ -130,14 +131,14 @@ def case_find():
         if footage.credit(clip) != {"source": "pixabay", "id": 12, "page_url": "https://pixabay.com/videos/id-12/",
                                     "user": "Auteur", "query": "ciel bleu"}:
             problems.append(f"credit {footage.credit(clip)}")
-        box.hits = [hit(13, "femme, plage")]
+        box.hits = [hit(13, "femme, visage, plage")]
         try:
             footage.find_clip("plage")
-            problems.append("a clip with people taken")
+            problems.append("a clip with a face in the foreground taken")
         except footage.FootageError:
             pass
         del os.environ["PIXABAY_API_KEY"]
-    return report("3. local clip first, then Pixabay once and indexed; never a clip with people", problems)
+    return report("3. local clip first, then Pixabay once and indexed; never a face in the foreground", problems)
 
 
 def case_agents():

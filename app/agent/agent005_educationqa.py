@@ -83,7 +83,7 @@ DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "ma
 ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
            "emphasize")
 STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go",
-              "show", "focus")
+              "show", "focus", "points", "forces", "relative", "stretch", "spin", "sun")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
                                    "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
@@ -162,7 +162,10 @@ TASK:
    example left unexplained or mid-thought is unfinished: set reject_to "agent003". Each scene shows
    what the PLAN announced for it: a part announced ("Le ressort bandé transfère son énergie") that its
    scene never draws (no spring, another topic under its title) is a factual issue: fix the title or a
-   label by patch when that is enough, else set reject_to "agent004".
+   label by patch when that is enough, else set reject_to "agent004". A technical word
+   ("bourrelet", "scripturale", "référentiel") the narration uses without explaining it in plain words
+   the first time is a factual issue for agent003 (set reject_to "agent003"); a title using one before
+   the narration explains it is fixed by a set_overlay patch.
 5. If the SCRIPT itself is wrong, set reject_to "agent003"; if the visuals are wrong in a way
    patches cannot fix, set reject_to "agent004"; otherwise null.
 

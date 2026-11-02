@@ -58,7 +58,7 @@ from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
 from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
-                                        DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
+                                        DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, OBJECT_ICONS, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
 KNOWN_RENDERERS = ("html", "skip")       # "html": agent010 draws it (default); "manim" is read as "html" (retired)
@@ -126,6 +126,13 @@ STATES = {
                               '"label": "Faux positifs", "count": 10, "color": "#F59E0B"}], "rest": "Bien portants"}; '
                               f'"total" dots ({POPULATION_DOTS[0]} to {POPULATION_DOTS[1]}), each standing for "per" '
                               f'people; {POPULATION_GROUPS[0]} to {POPULATION_GROUPS[1]} groups of whole dots, filled in order',
+    ComponentType.TIDES: '{"points": true} marks the near point, the centre and the far point; {"forces": true} the '
+                         'Moon\'s pull on each, to scale; {"relative": true} what is left once the centre\'s pull is '
+                         'taken away (the water moves away from the centre on both sides); {"stretch": true} the '
+                         'ocean stretches into two bulges (high tide), low tide between; {"spin": true} the Earth '
+                         'turns with a port: two high tides a day; {"sun": "aligned"} / {"sun": "square"} vives-eaux '
+                         '/ mortes-eaux; initial_state {} (all drawn and labelled; never given a state, it plays '
+                         'points, forces, relative, stretch, spin in turn)',
     ComponentType.LANES: '{"active": true|false} (false stops the lanes, true sets them off again); initial_state '
                          '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
                          f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
@@ -316,6 +323,10 @@ STRICT RULES:
     they set off together on one track, to one scale, so the viewer sees the gap (the slow one does
     not move while the fast one arrives), then each one's real time and how many times faster;
     never two icons with "lent" / "rapide" badges.
+  * tides (the Moon's pull, the two bulges of water, two high tides a day, vives-eaux and
+    mortes-eaux): ONE TIDES, each step set on the words that say it ("point proche" -> points, "plus
+    forte" -> forces, "s'éloigne du centre" -> relative, "deux bourrelets" -> stretch, "la Terre
+    tourne" -> spin); never droplet or wave icons placed around an Earth.
   * shares of a population (a rare disease and a test's false alarms, "sur 10 000 personnes", a
     vote, a risk in %): ONE POPULATION, a grid of dots to scale (1000 dots of 10 people each for
     10 000 people), each group coloured as the narrator names it (set_state {{"show": ...}}), then
@@ -461,6 +472,10 @@ STRICT RULES:
   a formula or one key icon; never icons standing for the setting the film already shows.
 - text_overlay: a short title (under 8 words) and an optional one-line subtitle; set
   clear_previous to true unless the scene explicitly continues the previous scene's title.
+- A title or a subtitle uses only words the viewer already knows at that moment: never a technical
+  word ("bourrelet", "scripturale") the narration has not explained yet (the hook's title above all:
+  "Pourquoi deux marées hautes par jour ?", not "Pourquoi deux bourrelets ?"). Scene 1 with
+  "question": its title is that question, word for word (the video answers it).
 - A scene with "announced" was announced on screen in the video's plan by these words: the viewer
   expects THAT. Its title says the same idea (in other words if you like), and what it names is drawn:
   "Le ressort bandé transfère son énergie" draws the spring (an OBJECT) giving its energy; if it cannot
@@ -567,8 +582,12 @@ def validate_storyboard_topology(briefs, durations) -> list:
 
 def open_circuits(brief) -> list:
     """Batteries whose positive port does not lead back to their negative port. Current enters a
-    component by one port and leaves by its other port, but never passes through a battery."""
+    component by one port and leaves by its other port, but never passes through a battery.
+    A battery alone in its scene (no wire, no other part of a circuit) is shown, not wired: never
+    open (the hook's "Si on ouvrait une pile" draws the battery, not a zap icon standing for it)."""
     types = {entity.id: entity.type for entity in brief.entities}
+    if not brief.connections and [t for t in types.values() if t.value in CIRCUIT_PARTS] == [ComponentType.BATTERY]:
+        return []
     links = {}
     for c in brief.connections:
         a, b = (c.source_id, c.source_port), (c.target_id, c.target_port)
@@ -764,7 +783,7 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.POPULATION, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.POPULATION, ComponentType.TIDES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
 
@@ -834,13 +853,13 @@ PEOPLE_GAUGES = 2         # this many GAUGEs counting people: groups of a popula
 # What an icon shows, for the kinds a label cannot be drawn as another of (a person is never drawn
 # as an animal, a fire never as water): icon -> kind, and the French words naming each kind (stems).
 ICON_KINDS = {
-    "person": ("user", "users", "person-standing", "baby"),
-    "animal": ("dog", "bird", "fish", "paw-print"),
-    "vehicle": ("car", "bus", "truck", "train-front", "plane", "ship", "bike", "rocket"),
+    "person": ("user", "users", "person-standing", "baby", "hard-hat"),
+    "animal": ("dog", "cat", "rabbit", "bird", "fish", "squirrel", "turtle", "snail", "bug", "paw-print"),
+    "vehicle": ("car", "bus", "truck", "train-front", "plane", "ship", "bike", "rocket", "tractor"),
     "building": ("house", "building", "building-2", "factory", "school", "hospital", "store", "warehouse"),
     "fire": ("flame",),
     "water": ("droplet", "waves", "cloud-rain"),
-    "plant": ("tree-pine", "leaf", "apple"),
+    "plant": ("tree-pine", "leaf", "apple", "wheat", "carrot"),
     "sky": ("sun", "moon", "earth", "globe", "orbit", "satellite"),
 }
 KIND_OF_ICON = {icon: kind for kind, icons in ICON_KINDS.items() for icon in icons}
@@ -849,12 +868,12 @@ KIND_WORDS = {
                "travailleu", "salarié", "chômeu", "homme", "femme", "enfant", "bébé", "citoyen", "électeur", "votant",
                "foule", "individu", "adulte", "médecin", "vendeu", "acheteu", "employé", "population"),
     "animal": ("animal", "animaux", "chien", "chat", "oiseau", "poisson", "bête", "vache", "cheval", "mouton",
-               "insecte", "lapin", "souris"),
-    "vehicle": ("voiture", "véhicule", "camion", "bus", "train", "avion", "bateau", "navire", "vélo", "fusée", "auto"),
+               "insecte", "lapin", "souris", "escargot", "tortue", "écureuil", "fourmi", "abeille"),
+    "vehicle": ("voiture", "véhicule", "camion", "bus", "train", "avion", "bateau", "navire", "vélo", "fusée", "auto", "tracteur"),
     "building": ("maison", "immeuble", "bâtiment", "usine", "école", "hôpital", "magasin", "entrepôt", "logement"),
     "fire": ("feu", "feux", "incendie", "flamme", "combustion", "brûl"),
     "water": ("eau", "pluie", "rivière", "fleuve", "mer", "océan", "goutte", "liquide"),
-    "plant": ("arbre", "forêt", "plante", "feuille", "fruit", "pomme"),
+    "plant": ("arbre", "forêt", "plante", "feuille", "fruit", "pomme", "blé", "céréale", "légume"),
     "sky": ("soleil", "lune", "terre", "planète", "étoile", "orbite", "satellite"),
 }
 # A thing with a component of its own, drawn as an OBJECT icon: the zap labelled "Pile".
@@ -894,7 +913,10 @@ def icons_against_labels(brief):
     errors = []
     for where, label, icon in drawn_labels(brief):
         named, shown = label_kinds(label), KIND_OF_ICON.get(icon)
-        if icon in {t.value for t in SVG_TYPES} and named and named <= {"person", "animal"}:
+        # coins or a bank named after someone ("Consommateurs"), not owned by them ("Compte acheteur"):
+        # French puts the head noun first
+        head = label_kinds(next(iter(re.findall(r"[^\W\d_]{3,}", str(label or ""))), ""))
+        if icon in {t.value for t in SVG_TYPES} and head and head <= {"person", "animal"}:
             errors.append(f"scene {brief.scene_id}: {where} is a {icon} labelled {label!r}, which names "
                           f"{' / '.join(sorted(named))}: draw them as an OBJECT with a fitting icon "
                           f"({sorted(i for kind in named for i in ICON_KINDS[kind])})")
@@ -909,6 +931,24 @@ def icons_against_labels(brief):
             errors.append(f"scene {brief.scene_id}: {where} draws {label!r} as the icon {icon!r}: it has a component of "
                           f"its own, draw it as a {own}")
     return errors
+
+
+TIDE_WORDS = re.compile(r"\b(?:marées?|bourrelets?|vives?-eaux|mortes?-eaux)\b", re.IGNORECASE)
+WATER_ICONS = ("droplet", "waves")
+
+
+def tides_by_icons(brief, narration):
+    """A narration about tides drawn with droplets or waves around an Earth: icons beside a planet show
+    no bulge of water; TIDES draws the ocean stretching, the pull at three points, the Earth turning."""
+    if not TIDE_WORDS.search(str(narration or "")) or any(e.type == ComponentType.TIDES for e in brief.entities):
+        return []
+    water = [e.id for e in brief.entities if e.type == ComponentType.OBJECT and e.initial_state.get("icon") in WATER_ICONS]
+    earth = any(e.type == ComponentType.OBJECT and e.initial_state.get("icon") in ("earth", "globe") for e in brief.entities)
+    if not (water and earth):
+        return []
+    return [f"scene {brief.scene_id}: the narration speaks of tides, drawn as {water} icons beside an Earth: they show "
+            f"no water rising; draw ONE TIDES (the Earth in its ocean, the Moon) with set_state points / forces / "
+            f"relative / stretch / spin on the words that say them, and drop these icons"]
 
 
 def people_by_gauges(brief):
@@ -1027,6 +1067,7 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += queues_by_hand(brief)
     errors += people_by_gauges(brief)
     errors += icons_against_labels(brief)
+    errors += tides_by_icons(brief, narration)
     errors += gauges_without_value(brief)
     errors += speeds_by_badges(brief, narration)
     errors += placeholder_graphs(brief)
@@ -1542,6 +1583,18 @@ def announce(scenes_for_prompt, plan):
             scene["announced"] = announced[scene["scene_id"]]
 
 
+def ask_the_question(storyboard, question):
+    """The video's question (agent003, everyday words: "La monnaie, ce n'est que des pièces et des
+    billets ?") becomes the hook's title, so the viewer knows from the first second what the video
+    answers; the title the LLM wrote is kept as the subtitle when there is none."""
+    if not question or not storyboard.get("scenes"):
+        return
+    overlay = storyboard["scenes"][0]["visual_brief"].setdefault("text_overlay", {"clear_previous": True})
+    if overlay.get("title") and overlay["title"] != question and not overlay.get("subtitle"):
+        overlay["subtitle"] = overlay["title"]
+    overlay["title"] = question
+
+
 def qa_feedback_section():
     """The prompt section with the QA's corrections, from LBREEZE_QA_FEEDBACK (app/qa_feedback.py; the
     only channel: this agent never reads qa.json). Returns (section, summary for the logs); ("", None)
@@ -1565,7 +1618,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
     narrations = {s["scene_id"]: s["narration_text"] for s in scenes_for_prompt}
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
-    prompt = PROMPT.format(object_icons=", ".join(OBJECT_ICON_NAMES), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=COMPONENTS_FOR_PROMPT, positions=", ".join(SEMANTIC_POSITIONS),
+    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(names)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=COMPONENTS_FOR_PROMPT, positions=", ".join(SEMANTIC_POSITIONS),
                            max_entities=MAX_ENTITIES, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
@@ -1623,6 +1676,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                           "key_visual_moment": scene_field(s, "key_visual_moment", "visual_intent")}
                          for s in script["scenes"]]
     announce(scenes_for_prompt, script.get("plan"))
+    if script.get("question") and scenes_for_prompt:     # the hook's title, written as is (ask_the_question)
+        scenes_for_prompt[0]["question"] = script["question"]
     def measure(order, briefs, templates, titles, durations):
         try:
             from app.agent.agent010_html_renderer import channel_style    # the channel's theme: its sizes and fonts
@@ -1666,6 +1721,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             "transition_in": "fade",
             "transition_out": "cut",
         })
+    ask_the_question(storyboard, script.get("question"))
     save_json(output_path, storyboard)
     provenance.register_artifact(run_id, channel_id, "storyboard.json", AGENT)
 

@@ -77,6 +77,45 @@
       "ai_generated": false,
       "query": "patient résultat test",
       "fetched_at": "2026-11-02T16:39:34Z"
+    },
+    "pixabay:2151": {
+      "source": "pixabay",
+      "id": 2151,
+      "file": "pixabay_2151_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-2151/",
+      "user": "FindingFootage",
+      "tags": "électricité, fils, laps de temps, le coucher du soleil, câbles, industriel, générateur, électrique, danger, haute, énergie, tension, puissance, transmission, compagnie, soleil, système, distribution, mécanisme, moteur, la technologie, industrie, production, impulsion",
+      "duration": 19,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "câbles électriques",
+      "fetched_at": "2026-11-02T21:11:27Z"
+    },
+    "pixabay:365737": {
+      "source": "pixabay",
+      "id": 365737,
+      "file": "pixabay_365737_1280.mp4",
+      "page_url": "https://pixabay.com/videos/id-365737/",
+      "user": "Mario_Krimer",
+      "tags": "le coucher du soleil, océan, vagues, plage, rive, sable, mer, soleil, mousse, côte, paysage marin, horizon, lumière du soleil, d'or, réflexion, le soleil couchant sur la plage, l'eau, ondulations, marée, lever du soleil, crépuscule, serein, calmer, nature, paysage",
+      "duration": 59,
+      "width": 1280,
+      "ai_generated": false,
+      "query": "océan marée",
+      "fetched_at": "2026-11-02T21:33:15Z"
+    },
+    "pixabay:21117": {
+      "source": "pixabay",
+      "id": 21117,
+      "file": "pixabay_21117_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-21117/",
+      "user": "RafterJr72",
+      "tags": "supermarché",
+      "duration": 6,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "supermarché paiement carte",
+      "fetched_at": "2026-11-02T22:59:52Z"
     }
   },
   "queries": {
@@ -85,10 +124,16 @@
     "lune dans le ciel": "pixabay:161332",
     "bureau de pôle emploi": "pixabay:232538",
     "lune ciel nuit": "pixabay:7215",
-    "patient résultat test": "pixabay:133898"
+    "patient résultat test": "pixabay:133898",
+    "câbles électriques": "pixabay:2151",
+    "océan marée": "pixabay:365737",
+    "supermarché paiement carte": "pixabay:21117"
   },
   "checked": [
     "lune ciel nuit",
-    "patient résultat test"
+    "patient résultat test",
+    "câbles électriques",
+    "océan marée",
+    "supermarché paiement carte"
   ]
 }

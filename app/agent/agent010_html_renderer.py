@@ -387,6 +387,8 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["race"] = race_data(state, ink)
     if entity["type"] == "POPULATION":            # a grid of dots, its groups coloured
         data["population"] = population_data(state)
+    if entity["type"] == "TIDES":                 # the Earth in its ocean, the Moon: drawn and labelled by the page
+        data["tides"] = True
     if entity["type"] == "ARROW_ANNOTATION":     # a pill badge; the position is where its short arrow points
         direction = vector_direction(state.get("direction", "DOWN"), "DOWN")
         data["annotation"] = {"direction": direction, "angle": direction_degrees(direction),
@@ -847,6 +849,8 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .dmm-screen { margin:12px 0 14px; padding:8px 18px; border-radius:8px; background:#0F2A1F; color:#4ADE80;
                 font-family:"DejaVu Sans Mono", monospace; font-size:52px; font-weight:700; text-align:right;
                 box-shadow:inset 0 2px 8px rgba(0, 0, 0, .55); }
+  .dmm-pins { min-height:52px; margin-top:10px; font-size:19px; font-weight:600; line-height:1.35; color:var(--muted);
+              text-align:left; white-space:pre-line; }
   .dmm-jacks { display:flex; justify-content:space-around; }
   .jack { width:32px; height:32px; border-radius:50%; border:7px solid; box-sizing:border-box; background:#0F172A; }
   .jack.black { border-color:#334155; } .jack.red { border-color:#EF4444; }
@@ -883,6 +887,10 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .race-ratio { position:absolute; left:230px; width:900px; text-align:center; }
   .race-ratio span { display:inline-block; padding:8px 20px; border-radius:9999px; background:var(--accent); color:#FFFFFF;
                      font-size:30px; font-weight:700; }
+  /* TIDES: the Earth in its ocean on the left, the Moon on the right (sizes in app/layout_solver.py). */
+  .tides { position:relative; width:1300px; height:600px; }
+  .tides text { font-size:24px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:6px; stroke-linejoin:round; }
+  .tides text.tide-note { font-size:22px; font-weight:500; fill:var(--muted); }
   /* POPULATION: how many people on top, the grid of dots, the legend (a swatch, a group, its count). */
   .population { position:relative; width:700px; }
   .pop-head { height:44px; line-height:44px; text-align:center; font-size:26px; font-weight:600; color:var(--muted); }
@@ -1245,6 +1253,107 @@ function seekRace(e, t) {
   }
   e.data.raceRatio.style.opacity = clamp((run - RACE_SEC - 1.4) / 0.4, 0, 1);
 }
+// TIDES: the Earth in its ocean, the Moon on its right. Each step on its set_state (never given any: in
+// turn from the pop): three points on the Earth-Moon line; the Moon's pull on each, to scale (strongest
+// near); what is left once the centre's pull is taken away (both sides move away from the centre);
+// the ocean stretched into two bulges (high tide) with low tide between; the Earth turning with a port
+// that passes under both bulges (TIDE_DAY s a day, its high tides counted); the Sun in line (bigger
+// bulges) or at a right angle (smaller). Every text here is the page's own, in French.
+const TIDE_W = 1300, TIDE_H = 600, TIDE_E = [520, 300], TIDE_R = 150, TIDE_SEA = 185, TIDE_MOON = [1220, 300], TIDE_DAY = 8;
+const TIDE_AUTO = {points: 0.5, forces: 2.5, relative: 5, stretch: 7.5, spin: 10};
+const TIDE_SHAPES = {none: [265, 160], aligned: [295, 148], square: [235, 172]};   // the stretched ocean's half axes
+const TIDE_FORCE = {near: 170, centre: 125, far: 90}, TIDE_REL = 80;
+function tideArrow(g, x1, y1, x2, color) {
+  const dir = Math.sign(x2 - x1) || 1, a = sv("g", {}, g);
+  sv("line", {x1, y1, x2: x2 - dir * 14, y2: y1, stroke: color, "stroke-width": 7, "stroke-linecap": "round"}, a);
+  sv("polygon", {points: `${x2},${y1} ${x2 - dir * 22},${y1 - 12} ${x2 - dir * 22},${y1 + 12}`, fill: color}, a);
+  return a;
+}
+function tideText(g, x, y, text, anchor = "middle", cls = "") {
+  const t = sv("text", {x, y, "text-anchor": anchor, class: cls}, g);
+  t.textContent = text;
+  return t;
+}
+function buildTides(ent) {
+  const shape = el("div", "tides"), [ex, ey] = TIDE_E, [mx, my] = TIDE_MOON, R = TIDE_R;
+  const s = sv("svg", {width: TIDE_W, height: TIDE_H, viewBox: `0 0 ${TIDE_W} ${TIDE_H}`, overflow: "visible"});
+  const id = `tide-${String(ent.id).replace(/[^\w-]/g, "_")}`, defs = sv("defs", {}, s);
+  const grad = sv("radialGradient", {id: `${id}-land`, cx: "35%", cy: "30%", r: "75%"}, defs);
+  [["0%", "#6EE7B7"], ["55%", "#059669"], ["100%", "#064E3B"]].forEach(([o, c]) => sv("stop", {offset: o, "stop-color": c}, grad));
+  const z = {};
+  z.sea = sv("ellipse", {cx: ex, cy: ey, rx: TIDE_SEA, ry: TIDE_SEA, fill: "#3B82F6", "fill-opacity": 0.35, stroke: "#3B82F6", "stroke-width": 3}, s);
+  sv("circle", {cx: ex, cy: ey, r: R, fill: `url(#${id}-land)`}, s);
+  tideText(s, ex - R * 0.42, ey - R * 0.5, "Terre");
+  sv("circle", {cx: mx, cy: my, r: 44, fill: "#CBD5E1", stroke: "#94A3B8", "stroke-width": 3}, s);
+  tideText(s, mx, my + 82, "Lune");
+  z.sun = sv("g", {opacity: 0}, s);
+  z.sunDisc = sv("circle", {r: 40, fill: "#FBBF24"}, z.sun);
+  z.sunName = tideText(z.sun, 0, 74, "Soleil");
+  z.sunTide = tideText(z.sun, 0, 102, "", "middle", "tide-note");
+  // the pull at three points, then what is left once the centre's is taken away
+  const points = [["far", ex - R, "Point opposé"], ["centre", ex, "Centre"], ["near", ex + R, "Point proche"]];
+  z.forces = sv("g", {opacity: 0}, s);
+  for (const [k, x] of points) tideArrow(z.forces, x, ey, x + TIDE_FORCE[k], "#EF4444");
+  tideText(z.forces, ex + R + TIDE_FORCE.near + 16, ey + 8, "attraction de la Lune", "start", "tide-note");
+  z.relative = sv("g", {opacity: 0}, s);
+  tideArrow(z.relative, ex + R, ey, ex + R + TIDE_REL, "#F59E0B");
+  tideArrow(z.relative, ex - R, ey, ex - R - TIDE_REL, "#F59E0B");
+  tideText(z.relative, ex, ey - TIDE_SEA - 60, "Sans l'attraction du centre : l'eau s'éloigne des deux côtés", "middle", "tide-note");
+  z.points = sv("g", {opacity: 0}, s);
+  for (const [k, x, name] of points) {     // the outer two labelled outwards: the three never meet
+    sv("circle", {cx: x, cy: ey, r: 10, fill: "#F8FAFC", stroke: "#0F172A", "stroke-width": 3}, z.points);
+    tideText(z.points, k === "far" ? x - 14 : k === "near" ? x + 14 : x, ey + 44, name, k === "far" ? "end" : k === "near" ? "start" : "middle");
+  }
+  // the bulges: high tide on the Earth-Moon line, low tide between, the word explained
+  z.tide = sv("g", {opacity: 0}, s);
+  z.highNear = tideText(z.tide, 0, ey - 46, "Marée haute", "start");
+  z.highFar = tideText(z.tide, 0, ey - 46, "Marée haute", "end");
+  z.low = tideText(z.tide, ex, 0, "Marée basse");
+  tideText(z.tide, ex, TIDE_H - 6, "Bourrelet : la bosse d'eau, là où c'est marée haute", "middle", "tide-note");
+  // the port, turning with the Earth, and its high tides counted
+  z.spin = sv("g", {opacity: 0}, s);
+  z.port = sv("circle", {r: 11, fill: "#F97316", stroke: "#FFFFFF", "stroke-width": 3}, z.spin);
+  z.portName = tideText(z.spin, 0, 0, "Port");
+  z.count = tideText(z.spin, TIDE_W - 300, TIDE_H - 40, "");
+  shape.append(s);
+  ent.tideParts = z;
+  return shape;
+}
+function seekTides(e, t) {
+  const z = e.data.tideParts, [ex, ey] = TIDE_E, R = TIDE_R;
+  const given = e.states.some(s => s.at >= 0 && s.state && typeof s.state === "object");
+  const at = k => given ? stateTime(e, k) : (e.spawn || 0) + TIDE_AUTO[k];
+  const on = (k, d = 0.5) => { const a = at(k); return a === null ? 0 : clamp((t - a) / d, 0, 1); };
+  z.points.setAttribute("opacity", on("points"));
+  const rel = on("relative");
+  z.forces.setAttribute("opacity", on("forces") * (1 - 0.75 * rel));
+  z.relative.setAttribute("opacity", rel);
+  // the Sun: the last {"sun": ...} given so far
+  const sun = e.states.filter(s => s.at >= 0 && s.at <= t && s.state && typeof s.state.sun === "string").pop();
+  const mode = sun && TIDE_SHAPES[sun.state.sun] ? sun.state.sun : "none", ps = sun ? easeInOut(clamp((t - sun.at) / 1.2, 0, 1)) : 0;
+  z.sun.setAttribute("opacity", sun ? ps : 0);
+  if (sun) {
+    const [sx, sy] = mode === "square" ? [ex + 330, 60] : [40, ey];
+    z.sun.setAttribute("transform", `translate(${sx} ${sy})`);
+    z.sunTide.textContent = mode === "square" ? "mortes-eaux" : mode === "aligned" ? "vives-eaux" : "";
+  }
+  const stretch = Math.max(easeInOut(on("stretch", 1.6)), sun ? 1 : 0);
+  const [rx0, ry0] = TIDE_SHAPES.none, [rx1, ry1] = TIDE_SHAPES[mode];
+  const rx = TIDE_SEA + (rx0 + (rx1 - rx0) * ps - TIDE_SEA) * stretch, ry = TIDE_SEA + (ry0 + (ry1 - ry0) * ps - TIDE_SEA) * stretch;
+  z.sea.setAttribute("rx", rx.toFixed(1)); z.sea.setAttribute("ry", ry.toFixed(1));
+  z.tide.setAttribute("opacity", on("stretch", 1.2));
+  z.highNear.setAttribute("x", ex + rx + 10); z.highFar.setAttribute("x", ex - rx - 10);
+  z.low.setAttribute("y", ey - ry - 16);
+  // the Earth turning: the port starts on top (low tide), a high tide each time it faces a bulge
+  const spun = at("spin");
+  z.spin.setAttribute("opacity", on("spin"));
+  const turn = spun === null ? -90 : -90 + 360 * Math.max(0, t - spun) / TIDE_DAY, a = turn * Math.PI / 180;
+  const [px, py] = [ex + R * Math.cos(a), ey + R * Math.sin(a)];
+  z.port.setAttribute("cx", px.toFixed(1)); z.port.setAttribute("cy", py.toFixed(1));
+  z.portName.setAttribute("x", (ex + (R + 50) * Math.cos(a)).toFixed(1)); z.portName.setAttribute("y", (ey + (R + 50) * Math.sin(a) + 8).toFixed(1));
+  const highs = turn < 0 ? 0 : Math.floor(turn / 180) + 1;
+  z.count.textContent = turn >= 270 ? "En un jour : 2 marées hautes" : `Marées hautes au port : ${highs}`;
+}
 // POPULATION: "total" dots in a grid, each standing for "per" people; the groups' dots first, in order,
 // the others grey. A group is coloured in, dot after dot (POP_SHOW), at its set_state {"show": id},
 // or at the pop if never shown; its key in the legend with it. set_state {"focus": [ids]} dims every
@@ -1554,7 +1663,7 @@ for (const ent of D.entities) {
     const head = el("div", "dmm-head"), jacks = el("div", "dmm-jacks");
     head.append(el("span", "", "V DC"), el("span", "", ent.label || ""));
     jacks.append(el("div", "jack black"), el("div", "jack red"));
-    shape.append(head, el("div", "dmm-screen", "0,00 V"), jacks);
+    shape.append(head, el("div", "dmm-screen", "0,00 V"), jacks, el("div", "dmm-pins", ""));   // where its probes touch
   }
   else if (ent.annotation) shape = el("div", "pill", ent.label || "");   // its arrow is drawn once it is placed
   else if (ent.type === "WIRE_BUS") shape = el("div", "junction");
@@ -1572,6 +1681,7 @@ for (const ent of D.entities) {
   else if (ent.seesaw) shape = buildSeesaw(ent);
   else if (ent.race) shape = buildRace(ent);
   else if (ent.population) shape = buildPopulation(ent);
+  else if (ent.tides) shape = buildTides(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1937,7 +2047,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -2071,7 +2181,8 @@ const graphHost = t => E[t.data.curve.axes] && E[t.data.curve.axes].data.axes ? 
 // brief's tip (NEAR px). {} when there is nothing: the badge then points at nothing (a conflict).
 function batteryTerminal(text) {   // "positive" / "negative" when a text names one terminal (and only one)
   const t = String(text || "").toLowerCase();
-  const plus = /\+|\bplus\b|positi/.test(t), minus = /[−–-]|\bmoins\b|négati|negati/.test(t);
+  // a sign on its own ("borne -", "le −"), never the hyphen inside a word ("Qu'est-ce", "peut-il")
+  const plus = /\+|\bplus\b|positi/.test(t), minus = /(?<!\p{L})[−–-](?!\p{L})|\bmoins\b|négati|negati/u.test(t);
   return plus === minus ? null : plus ? "positive" : "negative";
 }
 function aimOf(e, tip0, solids) {
@@ -2738,12 +2849,18 @@ function buildProbes() {
     const measures = [];
     for (const m of e.measures) {
       const pins = {};
+      const names = {};
       for (const [which, key] of [["a", "target_pin_a"], ["b", "target_pin_b"]]) {
-        const pin = String(m[key] ?? ""), dot = pin.lastIndexOf("."), id = pin.slice(0, dot);
-        const end = dot > 0 && E[id] && E[id].box ? anchor(E[id], pin.slice(dot + 1)) : null;
-        if (end) pins[which] = end.pt;
+        const pin = String(m[key] ?? ""), dot = pin.lastIndexOf("."), id = pin.slice(0, dot), port = pin.slice(dot + 1);
+        const end = dot > 0 && E[id] && E[id].box ? anchor(E[id], port) : null;
+        if (!end) continue;
+        // on a battery terminal, the tip lands on its sign (+ or −), so the viewer sees which one
+        const sign = E[id].data.type === "BATTERY" && (port === "positive" || port === "negative")
+          ? E[id].shape.querySelector(port === "positive" ? ".pos" : ".neg") : null;
+        pins[which] = sign ? (r => [(r.l + r.r) / 2, (r.t + r.b) / 2])(rectIn(E[id], sign)) : end.pt;
+        names[which] = (E[id].data.label || id) + (sign ? (port === "positive" ? " (+)" : " (−)") : "");
       }
-      if (pins.a && pins.b) measures.push({at: m.at, pins, value: Number(m.value) || 0, unit: m.unit || "V",
+      if (pins.a && pins.b) measures.push({at: m.at, pins, names, value: Number(m.value) || 0, unit: m.unit || "V",
                                            decimals: Number.isInteger(m.decimals) ? m.decimals : 2});
     }
     // Cables run under the components and their labels (in the wires layer); probes and rings on top.
@@ -2753,7 +2870,7 @@ function buildProbes() {
       const ring = sv("circle", {r: 16, fill: "none", stroke: "#FBBF24", "stroke-width": 5, filter: "url(#electronGlow)"}, overlay);
       parts[which] = {cable, ring, body: drawProbe(color)};
     }
-    P.push({e, jack, rest, measures, parts, screen: e.shape.querySelector(".dmm-screen")});
+    P.push({e, jack, rest, measures, parts, screen: e.shape.querySelector(".dmm-screen"), pinsText: e.shape.querySelector(".dmm-pins")});
   }
 }
 function tipAt(p, which, t) {      // a probe's tip at time t (resting, moving to a pin, or on it), and its move
@@ -2791,6 +2908,7 @@ function seekProbes(t) {
     const value = current ? before + (current.value - before) * easeInOut(progress(t, current.at + LAG.b + MOVE, 1.0)) : 0;
     p.screen.textContent = `${frenchNumber(value, current ? current.decimals : 2)} ${current ? current.unit : "V"}`;
     p.screen.style.color = current ? "#4ADE80" : "#22C55E80";
+    if (p.pinsText) p.pinsText.textContent = current ? `Rouge : ${current.names.a}\nNoire : ${current.names.b}` : "";   // LLM labels: textContent
     for (const which of ["a", "b"]) {
       const part = p.parts[which], move = tipAt(p, which, t), tip = move.tip, jack = p.jack[which];
       // The probe points away from its tip towards the meter, held from above.
@@ -2972,8 +3090,12 @@ window.seek = function (t) {
     e.pop.style.animationDelay = `${-(t - e.spawn)}s`;
     e.box.style.opacity = (1 - gone) * dim;
     e.box.style.translate = `0 ${-floatOffset(e, t)}px`;
-    if (e.data.type === "TEX_FORMULA" && e.shape.firstElementChild)   // written from left to right as it appears
-      e.shape.firstElementChild.style.clipPath = `inset(-20% ${100 * (1 - easeInOut(progress(t, e.spawn + 0.15, 0.9)))}% -20% 0)`;
+    if (e.data.type === "TEX_FORMULA" && e.shape.firstElementChild) {   // written from left to right as it appears
+      // cut on the right only: a formula on several rows (cases, a matrix) reaches far above and below
+      // its line box, and is left uncut once written
+      const hidden = 100 * (1 - easeInOut(progress(t, e.spawn + 0.15, 0.9)));
+      e.shape.firstElementChild.style.clipPath = hidden > 0 ? `inset(-100vh ${hidden}% -100vh -100vw)` : "none";
+    }
     if (e.ann) {                     // the badge's arrow grows towards its component after the pop
       const p = easeInOut(progress(t, e.spawn + 0.2, 0.4)), {tail, end} = e.ann;
       e.ann.line.setAttribute("x1", tail[0]); e.ann.line.setAttribute("y1", tail[1]);
@@ -3001,6 +3123,8 @@ window.seek = function (t) {
       seekRace(e, t);
     } else if (e.data.population) {
       seekPopulation(e, t);
+    } else if (e.data.tides) {
+      seekTides(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {

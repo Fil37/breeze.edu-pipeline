@@ -180,6 +180,7 @@ fixed HTML/JavaScript code.
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
 | Speeds | `SPEED_RACE` | — | `distance`, `distance_unit`, `runners` (`{"label", "speed", "unit", "icon"}`, 2 or 3); `go` |
+| Tides | `TIDES` | — | nothing to give (all drawn and labelled); `points`, `forces`, `relative`, `stretch`, `spin`, `sun` (`aligned` / `square`) |
 | Shares of people | `POPULATION` | — | `total` (10 to 1000 dots), `per` (people a dot stands for), `unit`, `groups` (1 to 4 `{"id", "label", "count", "color"}`), `rest`; `show` (a group's id), `focus` (ids) |
 | Weights | `SEESAW` | — | `left`, `right` (`{"label", "weight", "value"}`), `unit`; `left` / `right` (drop a load), `balanced` |
 | Queues | `LANES` | — | `lanes` (2 to 4 `{"label", "rate"}`), `icon` (car, bus, truck, bike, user, users, person-standing, shopping-bag), `label`; `active` (false stops them) |
@@ -209,8 +210,9 @@ without an anchor. agent005 can anchor a floating vector by patch. Check: `pytho
 
 An `OBJECT` is any concrete thing that has no type of its own (an elevator, a rocket, a person, the
 Sun, a house...), drawn like the icon types, ports included, from its `icon`: one of a closed list of
-81 (`OBJECT_ICONS` in `models/visual_brief_schema.py`, by theme: things, buildings, transport,
-people, nature and sky, living, money, other). The list keeps the vocabulary checkable (the schema
+118 (`OBJECT_ICONS` in `models/visual_brief_schema.py`, by theme, as agent004's prompt lists them:
+things, energy, buildings, transport, people, nature and sky, living, health, food and farming,
+money and trade, society, other). The list keeps the vocabulary checkable (the schema
 refuses another name) and is all on disk in `assets/icons` (Lucide, pinned version), so it draws
 offline; `elevator`, `cannon` and `spring` are breeze's own drawings, Lucide has none of them. agent004's prompt lists the icons and
 forbids borrowing another type's (a CART is a shopping cart, never an elevator); agent005 can change
@@ -544,10 +546,33 @@ direction also tries the four straight sides (it lay over a formula). agent004 s
 total contradiction with its label (`icons_against_labels`): the label names a kind of thing
 (`KIND_WORDS`: people, animals, vehicles, buildings, fire, water, plants, the sky) and the icon shows
 another (`ICON_KINDS`: "Animaux" drawn as people), coins or a bank labelled with people, or a thing
-with a component of its own drawn as an icon ("Pile" as a zap: a BATTERY). Animals in general have
-the `paw-print` icon, and a conditional probability read both ways ("chien sachant animal") is asked
+with a component of its own drawn as an icon ("Pile" as a zap: a BATTERY); a battery shown alone
+(no wire, no other circuit part) is no longer an open circuit, which had sent the LLM to the zap. A
+badge's hyphen ("Qu'est-ce") is no longer read as the battery's "−" terminal. Animals in general have
+the `paw-print` icon (36 content icons were added from Lucide: cat, snail, turtle, pill, syringe,
+stethoscope, dice, vote, handshake, price tag, shopping basket, plug, fuel, tractor, wheat, milk...;
+no decorative ones: no maths symbols, charts or interface icons, which formulas, graphs and
+components already show), and a conditional probability read both ways ("chien sachant animal") is asked
 as a POPULATION.
 Check: `python tests/test_population_fixes.py`.
+
+**Fixes from the evaluation of 2026-11-02 (21:02).** TIDES draws the Earth in its ocean and the Moon,
+each step on the words that say it: the three points of the Earth-Moon line, labelled ("Point
+proche", "Centre", "Point opposé"); the Moon's pull on each, to scale (strongest near); what is left
+once the centre's pull is taken away (the water moves away from the centre on both sides); the ocean
+stretched into two bulges, high tide, with low tide between and the word explained ("Bourrelet : la
+bosse d'eau"); the Earth turning with a port that passes under both bulges ("En un jour : 2 marées
+hautes"); the Sun in line (bigger bulges, vives-eaux) or at a right angle (mortes-eaux). Never given a
+state, it plays them in turn. agent004 sends back tides drawn as droplets beside an Earth
+(`tides_by_icons`). A technical word is explained in plain words the first time it is spoken
+(agent003's prompt; agent005 sends the script back otherwise), and no title uses one before.
+agent003 writes the video's question in everyday words (`"question"`, `checked_question`: "La
+monnaie, ce n'est que des pièces et des billets ?"), which agent004 makes the hook's title
+(`ask_the_question`, the LLM's title kept as the subtitle). On the voltmeter, a probe on a battery
+terminal touches its sign, and the meter says where each probe is ("Rouge : GND (0 V)", "Noire : Pile
+6 V (−)"). A formula is cut on its right only while it writes itself, then not at all: a formula on
+several rows (cases) was shown with its middle row only.
+Check: `python tests/test_tides_fixes.py`.
 
 A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's sign
 on the drawing, not at the battery as a whole (`batteryTerminal`); no badge's arrow runs through

@@ -53,6 +53,7 @@ class ComponentType(str, Enum):
     LANES = "LANES"                          # queues side by side (a toll, checkouts): delimited lanes, things rolling through a gate
     SPEED_RACE = "SPEED_RACE"                # speeds compared on one track, to one scale: who arrives, how long the others would take
     POPULATION = "POPULATION"                # a population as a grid of dots, its groups coloured: shares of people seen at a glance
+    TIDES = "TIDES"                          # the Earth, its ocean and the Moon: the pull at three points, the ocean stretched, the Earth turning
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
 
@@ -88,6 +89,7 @@ COMPONENT_PORTS = {
     ComponentType.SEESAW: (),
     ComponentType.SPEED_RACE: (),
     ComponentType.POPULATION: (),
+    ComponentType.TIDES: (),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
@@ -99,16 +101,23 @@ COMPONENT_PORTS = {
 OBJECT_ICONS = {
     "things": ("box", "package", "weight", "dumbbell", "anvil", "hammer", "wrench", "key", "lock", "magnet",
                "lightbulb", "smartphone", "laptop", "cpu", "clock", "hourglass", "thermometer", "ruler",
-               "flask-conical", "microscope", "telescope", "atom", "cannon", "spring"),
+               "flask-conical", "test-tube", "microscope", "telescope", "atom", "cannon", "spring", "compass",
+               "timer", "calculator", "dice-5", "anchor"),
+    "energy": ("plug", "fuel", "fan", "radiation"),
     "buildings": ("house", "building", "building-2", "factory", "school", "hospital", "store", "warehouse",
                   "elevator", "door-closed", "radio-tower"),
-    "transport": ("car", "bus", "truck", "train-front", "plane", "rocket", "satellite", "ship", "bike"),
-    "people": ("user", "users", "person-standing", "baby"),
+    "transport": ("car", "bus", "truck", "train-front", "plane", "rocket", "satellite", "ship", "bike", "tractor"),
+    "people": ("user", "users", "person-standing", "baby", "hard-hat"),
     "nature and sky": ("sun", "moon", "earth", "globe", "cloud", "cloud-rain", "droplet", "flame", "zap", "wind",
-                       "waves", "mountain", "tree-pine", "leaf", "apple"),
-    "living": ("heart", "brain", "eye", "hand", "fish", "bird", "dog", "paw-print"),
-    "money": ("banknote", "wallet", "piggy-bank", "receipt", "briefcase", "shopping-bag"),
-    "other": ("orbit", "trophy", "flag", "book-open", "graduation-cap"),
+                       "waves", "snowflake", "mountain", "tree-pine", "leaf", "apple"),
+    "living": ("heart", "brain", "eye", "hand", "paw-print", "dog", "cat", "rabbit",
+               "bird", "fish", "squirrel", "turtle", "snail", "bug"),
+    "health": ("pill", "syringe", "stethoscope", "heart-pulse"),
+    "food and farming": ("wheat", "carrot", "egg", "milk", "croissant", "coffee"),
+    "money and trade": ("banknote", "wallet", "piggy-bank", "receipt", "credit-card", "tag", "ticket",
+                        "shopping-basket", "handshake"),
+    "society": ("vote", "gavel"),
+    "other": ("orbit", "trophy", "flag", "book-open", "graduation-cap", "briefcase", "shopping-bag"),
 }
 OBJECT_ICON_NAMES = tuple(name for names in OBJECT_ICONS.values() for name in names)
 DEFAULT_OBJECT_ICON = "box"
@@ -182,6 +191,18 @@ RACE_LABEL_MAX = 24
 # them). set_state {"show": "<group id>"} colours that group in (a group never shown is coloured from
 # the start); {"focus": ["<group id>", ...]} dims every other dot (among the positives only: who is
 # ill?), {"focus": []} brings them back. The legend gives each group's count of people (count x per).
+# TIDES: the Earth in its ocean, the Moon on its right; everything drawn and labelled by the renderer
+# (initial_state: nothing needed). set_state, each on the words that say it:
+#   {"points": true}    three points on the Earth-Moon line: "Point proche", "Centre", "Point opposé"
+#   {"forces": true}    the Moon's pull on each, to scale: strongest at the near point, weakest opposite
+#   {"relative": true}  what is left once the centre's pull is taken away: the near water pulled
+#                       towards the Moon, the far water left behind: both move away from the centre
+#   {"stretch": true}   the ocean stretches into two bulges ("bourrelets", high tide) on the Earth-Moon
+#                       line, low tide between them
+#   {"spin": true}      the Earth turns with a port on it: it passes under both bulges, two high tides a day
+#   {"sun": "aligned"}  the Sun in line (bigger bulges: vives-eaux), {"sun": "square"} at a right
+#                       angle (smaller: mortes-eaux)
+# Never given any of them, it plays them in that order from its pop (the Sun left out).
 POPULATION_DOTS = (10, 1000)
 POPULATION_GROUPS = (1, 4)
 POPULATION_LABEL_MAX = 28

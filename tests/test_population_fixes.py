@@ -15,7 +15,8 @@ browser:
      finds a free side (it lay over the formula)
   6. agent004 sends back an icon in total contradiction with its label (people for "Animaux", coins
      for "Consommateurs", "Pile" as a zap: a battery is a BATTERY); fitting ones pass ("Chiens" a dog,
-     "Incendies rares" a flame, "Sondages" people, a dial giving a share of patients); the prompt
+     "Incendies rares" a flame, "Sondages" people, a dial giving a share of patients); a battery shown
+     alone is no open circuit (that sent the LLM to the zap); the prompt
      asks for a POPULATION for a conditional probability read both ways
 Prints PASS or FAIL per case. Cases 3 to 5 need Playwright + Chromium (as agent010).
 
@@ -275,9 +276,16 @@ def case_icons():
                  obj("a", "users", "Sondages"), obj("a", "user", "Consommateur final"), obj("a", "factory", "Scierie"),
                  obj("a", "earth", "Terre"), obj("a", "box", "Animaux"),
                  {"id": "a", "type": "GAUGE", "position": [0, 0, 0], "initial_state": {"label": "Malade sachant positif"}},
-                 {"id": "a", "type": "WATER_TANK", "position": [0, 0, 0], "initial_state": {"label": "Eau déjà là"}}):
+                 {"id": "a", "type": "WATER_TANK", "position": [0, 0, 0], "initial_state": {"label": "Eau déjà là"}},
+                 {"id": "a", "type": "BANK", "position": [0, 0, 0], "initial_state": {"label": "Compte acheteur"}}):
         if agent004.icons_against_labels(brief(fine)):
             problems.append(f"sent back: {fine['initial_state']} ({fine['type']}): {agent004.icons_against_labels(brief(fine))}")
+    alone = brief({"id": "b", "type": "BATTERY", "position": [0, 0, 0], "initial_state": {"label": "Pile"}})
+    unwired = brief({"id": "b", "type": "BATTERY", "position": [0, 0, 0], "initial_state": {"label": "Pile"}},
+                    {"id": "l", "type": "LAMP", "position": [3, 0, 0], "initial_state": {"label": "Lampe"}})
+    if agent004.open_circuits(alone) or not agent004.open_circuits(unwired):
+        problems.append("a battery shown alone taken for an open circuit (the LLM then drew a zap), or a battery "
+                        "and a lamp left unwired not")
     if "chien sachant" not in agent004.PROMPT or "paw-print" not in agent004.PROMPT:
         problems.append("the prompt does not ask for a POPULATION of a conditional probability, or lacks the paw")
     return report("6. agent004: an icon contradicting its label is sent back; fitting ones are kept", problems)

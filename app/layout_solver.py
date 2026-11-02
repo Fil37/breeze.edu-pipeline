@@ -70,6 +70,7 @@ LANES_W, LANE_H = 1260, 104                # LANES: labels + road + counts, and 
 SEESAW_SIZE = (1100, 470)                  # SEESAW: the beam swinging, the loads on it, the mean under the pivot
 RACE_W, RACE_ROW, RACE_EXTRA = 1400, 120, 114   # SPEED_RACE: label + track + time; a runner's row; the head and the ratio
 POPULATION_SIZE = (700, 520)               # POPULATION: the head, the grid of dots, its legend under it
+TIDES_SIZE = (1300, 600)                   # TIDES: the Earth in its ocean on the left, the Moon on the right
 GRAPH_W, GRAPH_H = round(SCREEN_W * 0.7), round(SCREEN_H * 0.6) + 49   # + the legend under it (measured)
 FORMULA_EM = 2.2 * 24 * 1.21               # KaTeX glyph size in px: 2.2rem of 24 px, times KaTeX's 1.21
 FORMULA_PADDING, FORMULA_H = 76, 129       # card padding + border; a card's height (measured, with or without \frac)
@@ -134,6 +135,8 @@ def shape_size(entity, graph_count):
         return SEESAW_SIZE
     if kind == "POPULATION":
         return POPULATION_SIZE
+    if kind == "TIDES":
+        return TIDES_SIZE
     if kind == "SPEED_RACE":
         runners = state.get("runners")
         return RACE_W, RACE_EXTRA + RACE_ROW * (len(runners) if isinstance(runners, list) else 2)

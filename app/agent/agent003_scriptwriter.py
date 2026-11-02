@@ -1,7 +1,7 @@
 """
 INPUT:  instance/{channel_id}/outline.json
 OUTPUT: instance/{channel_id}/script.json = {scenes:[{scene_id, narration_text, duration_sec,
-        key_visual_moment}], plan: {narration, parts:[{scene_id, text, cue}]} | null,
+        key_visual_moment}], plan: {narration, parts:[{scene_id, text, cue}]} | null, question | null,
         total_duration_sec, word_count}
 NOTES:  Narration only, aiming at 90-180 s. Also the plan announced after the hook (agent010 shows it):
         its spoken narration and what each later scene shows; null when the LLM's plan does not
@@ -61,6 +61,14 @@ Rules:
 - An acronym is said in full the first time it is spoken, so a viewer who does not know it is never
   lost: "le Bureau international du travail, le BIT", "le produit intérieur brut, ou PIB"; after
   that, the acronym alone. The hook and the plan are spoken first: define it there if it is used there.
+- A technical word (bourrelet, référentiel, monnaie scripturale, fiduciaire, dépôt à vue, nœud
+  d'une orbite...) is explained in plain words the first time it is spoken, so the viewer pictures it:
+  "deux bourrelets, c'est-à-dire deux bosses d'eau", "la monnaie scripturale, l'argent écrit sur les
+  comptes". Before that, say it in everyday words.
+- "question": the question the whole video answers, as a curious viewer would ask it, in everyday
+  words (no technical word), at most 70 characters, ending with "?": "La monnaie, ce n'est que des
+  pièces et des billets ?", "Pourquoi la mer monte deux fois par jour ?". It is written on screen as
+  the video's first title; the last scene answers it.
 - Scene 1 is the hook (the question, the surprise). Right after it, the video announces its plan:
   write it in "plan". "narration": 2 or 3 natural spoken sentences (25 to 50 words), as a teacher
   tells the class where the lesson goes, in the order of the scenes; not a list read aloud, never
@@ -70,9 +78,19 @@ Rules:
   "narration" (2 to 4 words, copied as written) where that part is announced.
 IMPORTANT: The target audience is French. You MUST write all your output (text, explanations, titles, descriptions, tags) in PERFECT FRENCH. The JSON keys must remain in English, but the VALUES must be in French.
 Answer with JSON only:
-{{"scenes": [{{"scene_id": 1, "narration_text": "...", "duration_sec": 15, "key_visual_moment": "..."}}],
+{{"question": "...?", "scenes": [{{"scene_id": 1, "narration_text": "...", "duration_sec": 15, "key_visual_moment": "..."}}],
   "plan": {{"narration": "...", "parts": [{{"scene_id": 2, "text": "...", "cue": "..."}}]}}}}"""
 PLAN_TEXT_MAX = 80        # characters of a part's text on screen
+QUESTION_MAX = 80         # characters of the video's question, its first title
+
+
+def checked_question(question):
+    """The video's question as agent004 writes it as the hook's title, or None: a short line ending
+    with "?"."""
+    if not isinstance(question, str):
+        return None
+    question = " ".join(question.split())
+    return question if question.endswith("?") and 15 <= len(question) <= QUESTION_MAX else None
 
 
 def checked_plan(plan, scenes):
@@ -178,6 +196,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     script = {
         "scenes": scenes,
         "plan": checked_plan(answer.get("plan"), scenes),
+        "question": checked_question(answer.get("question")),
         "total_duration_sec": sum(float(s.get("duration_sec", 0)) for s in scenes),
         "word_count": word_count(scenes),
     }

@@ -226,7 +226,7 @@ def case_flow_curve_formula():
     early, late = found["graph"]["early"], found["graph"]["late"]
     if early[0] != 1 or late[0] != 0:
         problems.append(f"curve tracer while drawing / after: {early[0]}, {late[0]}")
-    if not early[1] or "inset" not in early[1] or late[1] not in ("inset(-20% 0% -20% 0px)", "inset(-20% 0% -20% 0%)"):
+    if not early[1] or "inset" not in early[1] or late[1] != "none":
         problems.append(f"formula wipe: {early[1]!r} then {late[1]!r}")
     return report("5. electrons the other way round; a curve's head dot; a formula written left to right", problems)
 

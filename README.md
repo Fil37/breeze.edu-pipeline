@@ -4,6 +4,9 @@ One Python process, nine agents (all nine per channel, agent009 shared), four ch
 in its domain and turns it into a 90–180 s animated video, narrated in French, that ends on an
 "aha moment": `breeze_(electronics)`, `breeze_(physics)`, `breeze_(math)`, `breeze_(economics)`.
 
+Third-party components kept in the repository (KaTeX, Lucide icons, the Inter / Fira Code / Space
+Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
+
 | Order | Agent | Writes |
 |-------|-------|--------|
 | 1st, once per cycle | `agent009_analyticsreader` | `instance/analytics.json` |

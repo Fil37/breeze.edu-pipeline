@@ -15,7 +15,7 @@ Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 | | `agent003_scriptwriter` | `script.json` (narration per scene) |
 | | `agent004_visualbriefgenerator` | `storyboard.json` (one validated visual brief per scene) |
 | | `agent005_educationqa` | `qa.json`, and corrects `storyboard.json` (can send work back to 003 or 004, max 3 times) |
-| | `agent010_html_renderer` (a browser draws each frame) | `video.mp4` + `render_manifest.json` |
+| | `agent010_html_renderer` (a browser draws each frame) | `video.mp4` + `render_manifest.json` + `subtitles.srt` |
 | | `agent007_metadatagenerator` | `metadata.json` |
 | | `agent008_platformpublisher` | rows in `schemas/rows.json` |
 
@@ -123,6 +123,7 @@ system cron, e.g. `0 9 * * * /path/to/L_breeze/run`.
 | `dry_run` | `true`: placeholder video, nothing uploaded, no YouTube statistics |
 | `enabled_platforms` | `["youtube"]` to publish; `[]` to make videos without publishing |
 | `qa_strict_mode` | `true`: QA must score accuracy, simplicity and clarity >= 7 to pass |
+| `burn_subtitles` | `true` (default): the subtitles are drawn in the video; `false`: only `subtitles.srt` |
 | `max_revisions` | how many times QA may send work back before the channel is `critical` |
 
 Keys for each provider, in `.env`: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` +
@@ -177,6 +178,7 @@ fixed HTML/JavaScript code.
 | | `VECTOR_ARROW` | — | `direction` (see below), `length`, `label` |
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
+| Queues | `LANES` | — | `lanes` (2 to 4 `{"label", "rate"}`), `icon` (car, bus, truck, bike, user, users, person-standing, shopping-bag), `label`; `active` (false stops them) |
 | | `TEX_FORMULA` | — | `latex` (MathTex if LaTeX is installed, else readable text: `E=mc^2` → `E=mc²`) |
 | Annotation | `ARROW_ANNOTATION` | — | `text`, `direction` (see below), `target` (id it points at), `kind` (`pointer` / `status`; default: `status` from 20 characters) |
 
@@ -209,6 +211,14 @@ refuses another name) and is all on disk in `assets/icons` (Lucide, pinned versi
 offline; `elevator` and `cannon` are breeze's own drawings, Lucide has neither. agent004's prompt lists the icons and
 forbids borrowing another type's (a CART is a shopping cart, never an elevator); agent005 can change
 an OBJECT's icon by patch. Check: `python tests/test_object_component.py`.
+
+`LANES` draws queues side by side, the analogy of parallel branches (lanes at a toll, checkouts):
+each lane delimited (solid edges, dashed between two lanes), its label on its left, its vehicles or
+people (one `icon`) standing up to the gate and, once on screen, rolling through it at the lane's
+`rate` (how many per second, 0.2 to 3), and on the right how many went through. Positions and counts
+are worked out from t (`seekLanes`). `set_state {"active": false}` stops the lanes, `true` sets them
+off again. agent004 sends back a scene that moves three or more cars or people one by one
+(`queues_by_hand`): they piled up and left the frame. Check: `python tests/test_subtitles_lanes.py`.
 
 An `OBJECT`, a `BODY` or a `VECTOR_ARROW` that belongs to a graph (the Earth at the centre of an
 orbit, the Sun at a focus) sits on a point of it, in the graph's units:
@@ -449,7 +459,9 @@ A title, a subtitle, a label or an axis name written in LaTeX ("10^{-n}", "t_n")
 Unicode exponents and indices ("10⁻ⁿ", "tₙ") when every character has one (`plain_math`).
 A scene whose free components sit in a corner (no graph, no straight move) is moved to the middle of
 the frame: vertically between the titles and the legend, and horizontally (left of the side column
-when there is one; a comparison only vertically, its panels go by x) (`centre_content`). A counter
+when there is one; on a comparison, each panel's drawing in its panel, `PANEL_ROOM`) (`centre_content`).
+agent004 sends back a battery standing in the column of the branches it feeds (one above it, one
+below: its wires ran over them and their labels, `battery_in_column`). A counter
 shows the decimals of its value, up to 3 (0,96, not 1,0). The video does not stop on a cut: its
 last scene is held 2 s after the voice (`END_HOLD`), the last 1.2 s fading to the background
 (`END_FADE`). agent003 is asked to close the video (answer the hook's question, sum up, a closing
@@ -457,6 +469,16 @@ sentence; never end on a question or an example left unexplained) and to keep on
 all along (a 6 V battery stays 6 V); agent005 checks both on the whole video and sends an unfinished
 ending back to agent003. agent004 reports a BODY that neither moves nor sits on a graph (a disc
 standing for "Prix du pain"). Check: `python tests/test_plan.py`.
+
+**Subtitles.** Each scene's narration (the plan's too) is cut into short lines (`app/render/subtitles.py`:
+at most about 62 characters, cut at a sentence's end or a comma, a long sentence into lines of even
+length), each timed on the voice's word timings, found through the text as the voice reads it
+(numbers and units spelled out), and shown as written ("0,96 A"). The page draws the line being said
+at the bottom (`#subs`); the diagram, the vectors' legend and a comparison's panels stay above it.
+The whole video's lines go to `instance/<channel>/subtitles.srt` (`subtitles_path` in
+`render_manifest.json`), which agent008 sends to YouTube as the French captions.
+`"burn_subtitles": false` in the settings keeps them out of the picture (the file is still written).
+Check: `python tests/test_subtitles_lanes.py`.
 
 agent010 draws each scene as a web page:
 
@@ -625,11 +647,12 @@ working provider to get past agent001.
 3. **Videos without publishing:** set `"dry_run": false` and `"enabled_platforms": []`, run, and
    watch `instance/<channel>/video.mp4`.
 4. **YouTube:** create an OAuth client (`YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`) and one
-   refresh token per channel with the scopes `youtube.upload`, `youtube.readonly` and
-   `yt-analytics.readonly`, then set `"enabled_platforms": ["youtube"]`.
+   refresh token per channel with the scopes `youtube.upload`, `youtube.readonly`,
+   `yt-analytics.readonly` and `youtube.force-ssl` (the captions), then set `"enabled_platforms": ["youtube"]`.
 5. Videos are uploaded as **private**: review them in YouTube Studio, then make them public.
-   Each upload costs 1,600 of the 10,000 daily quota units, and agent008 refuses to upload when
-   the quota would be exceeded.
+   Each upload costs 1,600 of the 10,000 daily quota units (400 more for its captions,
+   `subtitles.srt`), and agent008 refuses to upload when the quota would be exceeded. Captions that
+   fail to go up (a token without `youtube.force-ssl`) leave the video published, agent008 `not_healthy`.
 6. To publish through Upload-Post instead, set `"publisher": "uploadpost"` and `UPLOADPOST_API_KEY`.
 
 ## Troubleshooting

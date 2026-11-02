@@ -49,6 +49,7 @@ class ComponentType(str, Enum):
     TEX_FORMULA = "TEX_FORMULA"
     BODY = "BODY"                            # a body (satellite, planet, ball): a disc, moving along a curve or in a straight line
     OBJECT = "OBJECT"                        # any concrete thing with no type of its own, drawn from OBJECT_ICONS
+    LANES = "LANES"                          # queues side by side (a toll, checkouts): delimited lanes, things rolling through a gate
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
 
@@ -80,6 +81,7 @@ COMPONENT_PORTS = {
     ComponentType.VECTOR_ARROW: (),
     ComponentType.TEX_FORMULA: (),
     ComponentType.BODY: (),
+    ComponentType.LANES: (),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
@@ -104,6 +106,39 @@ OBJECT_ICONS = {
 }
 OBJECT_ICON_NAMES = tuple(name for names in OBJECT_ICONS.values() for name in names)
 DEFAULT_OBJECT_ICON = "box"
+
+
+# LANES: queues side by side, the analogy of parallel branches (lanes at a toll, checkouts in a shop):
+# each lane delimited, its label on its left, its vehicles or people (one "icon", of LANE_ICONS) rolling
+# to the gate on the right at its "rate" (how many go through per second), and the count gone through.
+#   initial_state {"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}],
+#                  "icon": "car", "label": "Péage"}
+# The lanes run from the moment they are on screen; set_state {"active": false} stops them, {"active":
+# true} sets them off again.
+LANE_ICONS = ("car", "bus", "truck", "bike", "user", "users", "person-standing", "shopping-bag")
+LANE_COUNT = (2, 4)
+LANE_RATE = (0.2, 3.0)
+LANE_LABEL_MAX = 24
+
+
+def lanes_problem(state):
+    """Why a LANES initial_state is wrong (see above), or None."""
+    lanes = state.get("lanes")
+    if not isinstance(lanes, list) or not LANE_COUNT[0] <= len(lanes) <= LANE_COUNT[1]:
+        return (f'LANES needs "lanes": a list of {LANE_COUNT[0]} to {LANE_COUNT[1]} lanes '
+                f'[{{"label": "File rapide", "rate": 1.5}}, ...], got {lanes!r}'[:300])
+    for lane in lanes:
+        if not isinstance(lane, dict) or set(lane) - {"label", "rate"}:
+            return f'each lane is {{"label": "...", "rate": <number>}}, got {lane!r}'[:300]
+        label, rate = lane.get("label"), lane.get("rate")
+        if not isinstance(label, str) or not label.strip() or len(label) > LANE_LABEL_MAX:
+            return f"a lane's label is a short text (at most {LANE_LABEL_MAX} characters), got {label!r}"
+        if not is_number(rate) or not LANE_RATE[0] <= rate <= LANE_RATE[1]:
+            return (f"a lane's rate is how many go through per second, from {LANE_RATE[0]:g} to {LANE_RATE[1]:g}; "
+                    f"got {rate!r}")
+    if state.get("icon", "car") not in LANE_ICONS:
+        return f"LANES icon must be one of {list(LANE_ICONS)}, got {state.get('icon')!r}"
+    return None
 
 
 # Semantic positions -> scene coordinates (x right, y up; the frame is 14.2 x 8 units).
@@ -478,6 +513,8 @@ class VisualEntity(StrictModel):
         if self.type == ComponentType.OBJECT and self.initial_state.get("icon", DEFAULT_OBJECT_ICON) not in OBJECT_ICON_NAMES:
             raise ValueError(f"{self.id}: OBJECT icon must be one of {list(OBJECT_ICON_NAMES)}, "
                              f"got {self.initial_state.get('icon')!r}")
+        if self.type == ComponentType.LANES and lanes_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {lanes_problem(self.initial_state)}")
         if self.type == ComponentType.TEX_FORMULA:
             latex = self.initial_state.get("latex")
             if not isinstance(latex, str) or not latex.strip() or len(latex) > 200:

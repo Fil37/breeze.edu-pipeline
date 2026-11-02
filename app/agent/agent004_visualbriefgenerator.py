@@ -54,7 +54,7 @@ from app import provenance
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
-from models.visual_brief_schema import (COMPONENT_PORTS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
+from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
                                         OBJECT_ICON_NAMES, emphasis_problem, find_cue, measure_problem, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
@@ -102,6 +102,10 @@ STATES = {
     ComponentType.BODY: NO_STATE + '; moves with "move_along" (on a curve) or "move" (straight); initial_state '
                                    '{"label": "Satellite", "anchor": {"curve": "<CURVE_PLOT id>", "t": 0}, "size": 0.25, '
                                    '"color": "#F59E0B"}; rides in another body or object: "anchor": {"body": "<its id>"}',
+    ComponentType.LANES: '{"active": true|false} (false stops the lanes, true sets them off again); initial_state '
+                         '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
+                         f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
+                         'go through per second (0.2 to 3)',
     ComponentType.VOLTMETER_PROBES: NO_STATE + '; reads a voltage with the "measure" action; '
                                                'initial_state {"label": "Voltmètre"}',
 }
@@ -170,6 +174,10 @@ STRICT RULES:
     An icon means what it shows: "zap" is electricity, never a cannon (that is "cannon"). When no
     icon in the list is the thing, use a BODY (a plain disc) with its label rather than an icon
     that shows something else.
+  * Queues side by side (lanes at a toll, checkouts in a shop, counters: the analogy of parallel
+    branches, of a flow that splits between ways): ONE LANES, never cars or people moved one by one.
+    It draws the lanes delimited, each with its label, its vehicles rolling through the gate at its
+    "rate" (the faster lane: the higher rate) and the count gone through: every lane keeps going.
   * Maths and physics concepts: AXES_GRAPH with CURVE_PLOT for functions and quantities over time,
     VECTOR_ARROW for forces and velocities (weight / gravity always points DOWN), TEX_FORMULA for
     equations. These have no ports and are never wired.
@@ -675,8 +683,43 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.LANES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
+
+
+QUEUE_ICONS = set(LANE_ICONS)
+QUEUE_MOVERS = 3          # this many vehicles or people moved one by one: a queue, drawn by hand
+
+
+def queues_by_hand(brief):
+    """Vehicles or people (OBJECTs) moved one by one to show queues: they pile up and leave the frame;
+    LANES draws the lanes, the flow and the counts."""
+    moved = {a.get("target") for a in brief.actions if a.get("action") == "move"}
+    queue = [e.id for e in brief.entities if e.type == ComponentType.OBJECT and e.id in moved
+             and e.initial_state.get("icon") in QUEUE_ICONS]
+    if len(queue) < QUEUE_MOVERS:
+        return []
+    return [f"scene {brief.scene_id}: {queue} are moved one by one to show queues: they pile up and leave the "
+            f"frame; draw ONE LANES instead (its lanes delimited, each with its label and its \"rate\"), and drop these OBJECTs"]
+
+
+COLUMN_GAP = 1.2          # scene units: a battery this close (in x) to the parts it feeds is in their column
+
+
+def battery_in_column(brief):
+    """A battery feeding several parts that stand in its own column (one above it, one below): its wires
+    run over them and their labels."""
+    position = {e.id: scene_point(e.position) for e in brief.entities if e.type.value in CIRCUIT_PARTS}
+    errors = []
+    for battery in (e for e in brief.entities if e.type == ComponentType.BATTERY):
+        fed = {c.target_id if c.source_id == battery.id else c.source_id for c in brief.connections
+               if battery.id in (c.source_id, c.target_id)}
+        near = sorted(i for i in fed if i in position and abs(position[i][0] - position[battery.id][0]) < COLUMN_GAP)
+        if len(fed) >= 2 and near:
+            errors.append(f"scene {brief.scene_id}: the battery {battery.id} stands in the same column as {near}, which it "
+                          f"feeds: its wires would run over them and their labels; put the battery on the left, at least "
+                          f"2.5 units left of its branches, the branches one above the other on its right")
+    return errors
 
 
 def icons_only(brief, narration):
@@ -746,6 +789,8 @@ def coherence_problems(brief, narration, duration=None) -> list:
                                              "or keep only those far enough apart"))
     errors += tiny_curves(brief, graphs)
     errors += idle_discs(brief, graphs)
+    errors += queues_by_hand(brief)
+    errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
                f"together, at the same speed (same \"at\", \"duration\" and distance), or keep them apart all along"

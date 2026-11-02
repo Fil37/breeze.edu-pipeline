@@ -1,16 +1,22 @@
 """
-INPUT:  instance/{channel_id}/video.mp4 + metadata.json + schemas/routes.json (publish_platforms)
+INPUT:  instance/{channel_id}/video.mp4 + metadata.json + subtitles.srt (agent010; optional)
+        + schemas/routes.json (publish_platforms)
         + settings (dry_run, enabled_platforms, publisher, youtube_quota_limit,
         youtube_quota_used_today: injected by the orchestrator)
 OUTPUT: one row per platform appended to schemas/rows.json, stage "publish",
         data = {platform, video_id, url, publish_timestamp, quota_used}
 NOTES:  The ONLY agent that touches platform APIs. Only YouTube is wired at launch.
         Uploads go out as "private" so a human reviews them before they go public.
+        On YouTube (direct), the subtitles go up as the video's French captions (captions.insert,
+        400 units; the refresh token needs the youtube.force-ssl scope). A caption upload that fails
+        leaves the video published: not_healthy, with the reason.
         With publisher "uploadpost" the upload goes through Upload-Post instead of the YouTube API.
-HEALTH: not_healthy if dry_run, a platform is disabled, or there is no real video to upload;
+HEALTH: not_healthy if dry_run, a platform is disabled, there is no real video to upload, or the
+        captions did not go up;
         critical if metadata is missing, a key is missing, the YouTube quota is exhausted, or an API call fails.
 """
 
+import json
 import os
 import sys
 
@@ -23,6 +29,7 @@ from app import provenance
 
 AGENT = "agent008"
 UPLOAD_COST = 1600  # YouTube Data API units for one videos.insert
+CAPTION_COST = 400  # ... and for one captions.insert
 MIN_VIDEO_BYTES = 1024  # anything smaller is a dry-run placeholder, never uploaded
 SEVERITY = {"healthy": 0, "not_healthy": 1, "critical": 2}
 
@@ -60,6 +67,23 @@ def upload_to_youtube(channel_id, video_path, metadata):
     upload.raise_for_status()
     video_id = upload.json()["id"]
     return video_id, f"https://www.youtube.com/watch?v={video_id}"
+
+
+def upload_captions(channel_id, video_id, srt_path):
+    """The subtitles as the video's French captions (one multipart request: the caption's snippet, then
+    the SubRip file)."""
+    import requests
+    boundary = "breeze-captions"
+    snippet = {"snippet": {"videoId": video_id, "language": "fr", "name": "Français", "isDraft": False}}
+    with open(srt_path, "rb") as f:
+        srt = f.read()
+    body = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps(snippet)}\r\n"
+            f"--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n").encode() + srt + f"\r\n--{boundary}--\r\n".encode()
+    response = requests.post("https://www.googleapis.com/upload/youtube/v3/captions?uploadType=multipart&part=snippet",
+                             headers={"Authorization": "Bearer " + youtube_access_token(channel_id),
+                                      "Content-Type": f"multipart/related; boundary={boundary}"},
+                             data=body, timeout=120)
+    response.raise_for_status()
 
 
 def upload_via_uploadpost(channel_id, platform, video_path, metadata):
@@ -100,6 +124,17 @@ def publish_one(channel_id, platform, settings, video_path, metadata, publicatio
     except Exception as exc:
         return "critical", f"{platform} upload failed: {exc}"
     publication.update(video_id=video_id, url=url, publish_timestamp=utc_now())
+    srt_path = os.path.join(os.path.dirname(video_path), "subtitles.srt")
+    if uses_uploadpost or not os.path.isfile(srt_path):
+        return "healthy", None
+    if quota_used_today + UPLOAD_COST + CAPTION_COST > settings.get("youtube_quota_limit", 10000):
+        return "not_healthy", "captions not uploaded: YouTube quota exhausted"
+    try:
+        upload_captions(channel_id, video_id, srt_path)
+        publication["quota_used"] += CAPTION_COST
+        publication["captions"] = True
+    except Exception as exc:
+        return "not_healthy", f"captions not uploaded (the token needs the youtube.force-ssl scope): {exc}"
     return "healthy", None
 
 

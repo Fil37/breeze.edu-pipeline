@@ -66,6 +66,7 @@ SHAPES = {"BATTERY": (190, 96), "LAMP": (110, 110), "SWITCH": (200, 90), "AMMETE
 ICON_SIZE = (154, 154)                     # icon cards (and the bicycle parts, drawn as icons)
 ICON_TYPES = {t.value for t in SVG_TYPES} | {"SPROCKET", "PEDAL_CRANK", "CHAIN_LINK", "OBJECT"}
 CARD_SIZE = (150, 80)
+LANES_W, LANE_H = 1260, 104                # LANES: labels + road + counts, and one lane's height
 GRAPH_W, GRAPH_H = round(SCREEN_W * 0.7), round(SCREEN_H * 0.6) + 49   # + the legend under it (measured)
 FORMULA_EM = 2.2 * 24 * 1.21               # KaTeX glyph size in px: 2.2rem of 24 px, times KaTeX's 1.21
 FORMULA_PADDING, FORMULA_H = 76, 129       # card padding + border; a card's height (measured, with or without \frac)
@@ -126,6 +127,9 @@ def shape_size(entity, graph_count):
         return SHAPES[kind]
     if kind in ICON_TYPES:
         return ICON_SIZE
+    if kind == "LANES":
+        lanes = state.get("lanes")
+        return LANES_W, LANE_H * (len(lanes) if isinstance(lanes, list) else 2)
     if kind in ("AXES_GRAPH", "CURVE_PLOT"):
         return GRAPH_W / max(1, graph_count), GRAPH_H
     if kind == "TEX_FORMULA":

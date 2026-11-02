@@ -16,5 +16,6 @@
   ],
   "dry_run": false,
   "qa_strict_mode": true,
+  "burn_subtitles": true,
   "max_revisions": 3
 }

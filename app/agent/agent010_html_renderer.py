@@ -1,8 +1,8 @@
 """
 INPUT:  instance/{channel_id}/storyboard.json (each scene with a visual_brief) + script.json
         + qa.json (verdict must be "pass") + settings (dry_run)
-OUTPUT: instance/{channel_id}/video.mp4 + render_manifest.json = {video_path, duration, resolution,
-        renderer_used "html_playwright", rendered_at, status, voice_engine, scenes:[{scene_id,
+OUTPUT: instance/{channel_id}/video.mp4 + subtitles.srt + render_manifest.json = {video_path, duration,
+        resolution, renderer_used "html_playwright", rendered_at, status, voice_engine, subtitles_path, scenes:[{scene_id,
         start_sec, end_sec, duration_sec, voice_sec, voice_engine, voice_fallback, layout_template,
         layout_conflicts, status, error}]}
 NOTES:  The renderer (the Manim one, agent006, is retired): "web-style" motion design drawn by a browser.
@@ -64,6 +64,7 @@ from app import provenance
 from app.curve_math import anchor_geometry, curve_at, curve_centre
 from app.tts_manager import generate_voice, normalize_text_for_tts, voice_report   # the voice: ElevenLabs, else edge-tts
 from app.render.asset_resolver import BASE_DIR, AssetResolver
+from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.layout_solver import annotation_targets, target_first_timing
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, SVG_TYPES, check_curve, check_function_expression, find_cue,
@@ -301,6 +302,10 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["icon"] = icon_data_uri(state.get("icon", DEFAULT_OBJECT_ICON), ink)
         if state.get("icon") in SPHERES:          # a planet, a moon, the Sun: drawn as a lit sphere, not an icon card
             data["sphere"] = SPHERES[state["icon"]]
+    if entity["type"] == "LANES":                 # queues side by side: their labels and rates, one icon for all
+        data["lanes"] = [{"label": plain_math(lane.get("label")), "rate": float(lane.get("rate"))}
+                         for lane in state.get("lanes", [])]
+        data["icon"] = icon_data_uri(state.get("icon", "car"), ink)
     if entity["type"] == "ARROW_ANNOTATION":     # a pill badge; the position is where its short arrow points
         direction = vector_direction(state.get("direction", "DOWN"), "DOWN")
         data["annotation"] = {"direction": direction, "angle": direction_degrees(direction),
@@ -506,6 +511,7 @@ def vector_symbols(entities):
 CONTENT_BAND = (240, HEIGHT - 140)     # px: under the titles, above the legend
 CONTENT_SIDES = (140, WIDTH - 140)     # px: left and right, the badges and labels need room past the centres
 SIDE_COLUMN_LEFT = round(WIDTH * 0.75) - 100   # with a side column (instruments, counters), the drawing ends here
+PANEL_ROOM = ((140, WIDTH // 2 - 120), (WIDTH // 2 + 120, WIDTH - 140))   # px: a comparison's panels (the page's PANELS), less room for the labels
 CENTRE_MIN_SHIFT = 40
 
 
@@ -521,9 +527,10 @@ def centred(values, low, high):
 def centre_content(entities, brief, horizontal=True):
     """The LLM tends to put everything in a corner (y > 0, or x far left), leaving the frame empty:
     move the whole drawing so its free things (not in a graph, not riding, not in the side column)
-    are centred, vertically in CONTENT_BAND and, outside a comparison (its panels go by x),
-    horizontally between the sides (or the side column). A scene with a graph is left alone: the
-    graph is laid out to fit by the page."""
+    are centred, vertically in CONTENT_BAND and horizontally between the sides (or the side column);
+    on a comparison (horizontal False), each panel's things in their panel (PANEL_ROOM), so a circuit
+    put at x = 0 does not stick to its panel's edge. A scene with a graph is left alone: the graph is
+    laid out to fit by the page."""
     free = [d for d in entities if not d.get("instrument") and not (d.get("annotation") or {}).get("status")
             and not d.get("placed") and not d.get("rides") and not (d.get("vector") or {}).get("anchor")
             and not (d.get("body") or {}).get("anchor") and not (d.get("curve") or {}).get("axes")]
@@ -538,6 +545,15 @@ def centre_content(entities, brief, horizontal=True):
     if dx or dy:
         for d in entities:
             d["xy"] = [round(d["xy"][0] + dx), round(d["xy"][1] + dy)]
+    if not horizontal:              # a comparison: each panel on its own (the page puts a thing in a panel by its x)
+        for low, high in PANEL_ROOM:
+            inside = lambda d: (d["xy"][0] < WIDTH / 2) == (low < WIDTH / 2)
+            xs = [d["xy"][0] for d in free if inside(d)]
+            shift = centred(xs, low, high) if xs else 0
+            if shift:
+                for d in entities:
+                    if inside(d):
+                        d["xy"] = [round(d["xy"][0] + shift), d["xy"][1]]
 
 
 def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circuit", panel_titles=None,
@@ -695,6 +711,22 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .dmm-jacks { display:flex; justify-content:space-around; }
   .jack { width:32px; height:32px; border-radius:50%; border:7px solid; box-sizing:border-box; background:#0F172A; }
   .jack.black { border-color:#334155; } .jack.red { border-color:#EF4444; }
+  /* LANES: a row per lane: its label, the road (delimited: solid edges, dashed between two lanes) with
+     its vehicles and the gate across all lanes, and the count gone through. Sizes in app/layout_solver.py. */
+  .lanes { position:relative; width:1260px; }
+  .lane { position:absolute; left:0; width:100%; height:104px; }
+  .lane-label { position:absolute; left:0; top:0; width:214px; height:100%; display:flex; align-items:center; justify-content:flex-end;
+                font-size:28px; font-weight:600; color:var(--text); text-align:right; line-height:1.1; }
+  .lane-road { position:absolute; left:230px; top:0; width:900px; height:100%; overflow:hidden; box-sizing:border-box;
+               background:color-mix(in srgb, var(--muted) 14%, transparent); border-top:4px dashed color-mix(in srgb, var(--ink) 55%, transparent); }
+  .lane:first-child .lane-road { border-top:5px solid var(--ink); }
+  .lane:last-child .lane-road { border-bottom:5px solid var(--ink); }
+  .lane-car { position:absolute; top:50%; width:62px; height:62px; margin-top:-31px; }
+  .lane-gate { position:absolute; top:-10px; width:10px; border-radius:5px; background:var(--accent);
+               box-shadow:0 0 16px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .lane-count { position:absolute; left:1146px; top:50%; transform:translateY(-50%); min-width:100px; padding:6px 12px; box-sizing:border-box;
+                border-radius:10px; background:var(--card); border:2px solid var(--border); text-align:center;
+                font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:32px; font-weight:700; color:var(--accent); }
   .junction { width:160px; height:14px; border-radius:7px; background:var(--ink); }
   .body-disc { border-radius:50%; box-shadow:0 0 0 4px var(--ring), 0 6px 16px rgba(15, 23, 42, .25); }
   /* A planet, a moon, the Sun: a sphere lit from the top left, its atmosphere or its light around it. */
@@ -759,6 +791,11 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .plan-item .num { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:34px; font-weight:600; color:var(--accent);
                     min-width:64px; }
   .plan-item.now { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent); }
+  /* Subtitles (D.subtitles): the line being said, at the bottom, readable on any background. */
+  #subs { position:absolute; left:50%; bottom:22px; transform:translateX(-50%); width:max-content; max-width:1560px; box-sizing:border-box;
+          padding:10px 28px; border-radius:14px; background:rgba(15, 23, 42, .82); color:#F8FAFC; font-size:38px; font-weight:600;
+          line-height:1.3; text-align:center; z-index:40; opacity:0; }
+  .with-subs .comparison-panel { bottom:118px; }   /* the panels end above the subtitles */
   #fade { position:absolute; inset:0; z-index:50; background:var(--bg); opacity:0; pointer-events:none; }
   #progress { position:absolute; top:34px; right:40px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
   #progress .count { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:22px; font-weight:600; color:var(--muted); letter-spacing:1px; }
@@ -913,6 +950,56 @@ function buildGround(shape, type) {
   }
   shape.append(s);
 }
+// LANES: queues side by side. Each lane's vehicles stand one behind the other up to the gate and,
+// while the lanes run, roll through it at the lane's rate (LANE_STEP px apart, so rate x LANE_STEP px/s):
+// worked out from t by seekLanes, nothing runs on its own. The count is how many went through.
+const LANE_H = 104, LANE_ROAD = 900, LANE_STEP = 120, LANE_GATE = 700, LANE_CAR = 62;
+const LANE_PAST = LANE_GATE + LANE_CAR + 8;     // the gate's line, in the road: a vehicle whose back is past it went through
+function buildLanes(ent) {
+  const shape = el("div", "lanes");
+  shape.style.height = ent.lanes.length * LANE_H + "px";
+  ent.laneRows = ent.lanes.map((lane, i) => {
+    const row = el("div", "lane"), road = el("div", "lane-road"), count = el("div", "lane-count", "0");
+    row.style.top = i * LANE_H + "px";
+    row.append(el("div", "lane-label", lane.label || ""), road, count);   // LLM text: textContent only
+    const cars = [];
+    for (let k = 0; k < Math.ceil(LANE_ROAD / LANE_STEP) + 2; k++) {
+      const car = el("img", "lane-car"); car.src = ent.icon; road.append(car); cars.push(car);
+    }
+    shape.append(row);
+    return {rate: Math.min(3, Math.max(0.2, +lane.rate || 1)), cars, count};
+  });
+  const gate = el("div", "lane-gate");
+  Object.assign(gate.style, {left: `${230 + LANE_PAST}px`, height: `${ent.lanes.length * LANE_H + 20}px`});
+  shape.append(gate);
+  return shape;
+}
+function laneSeconds(e, t) {        // how long the lanes have run by t: from the pop, minus the stops
+  const start = e.spawn + 0.6;
+  if (t <= start) return 0;
+  let on = true, from = start, total = 0;
+  for (const s of e.states) {
+    if (!s.state || typeof s.state !== "object" || !("active" in s.state)) continue;
+    if (s.at <= start) { on = s.state.active !== false; continue; }
+    if (s.at >= t) break;
+    if (on) total += s.at - from;
+    from = s.at; on = s.state.active !== false;
+  }
+  return total + (on ? t - from : 0);
+}
+function seekLanes(e, t) {
+  const run = laneSeconds(e, t);
+  for (const lane of e.data.laneRows) {
+    const travel = run * lane.rate * LANE_STEP;       // vehicle k (0: the first in line) is at LANE_GATE - k x LANE_STEP + travel
+    const first = Math.max(0, Math.ceil((LANE_GATE + travel - LANE_ROAD) / LANE_STEP));
+    lane.cars.forEach((car, j) => {
+      const x = LANE_GATE - (first + j) * LANE_STEP + travel;
+      car.style.left = `${x}px`;
+      car.style.opacity = x > LANE_PAST ? clamp(1 - (x - LANE_PAST) / (LANE_ROAD - LANE_PAST - LANE_CAR), 0, 1) : 1;
+    });
+    lane.count.textContent = String(travel > LANE_PAST - LANE_GATE ? Math.floor((travel - LANE_PAST + LANE_GATE) / LANE_STEP) + 1 : 0);   // backs past the gate
+  }
+}
 function buildLamp(shape) {                 // a bulb with a filament and a radial glow behind it
   const s = sv("svg", {viewBox: "-125 -125 250 250"});
   const halo = sv("circle", {r: 122, fill: "url(#lampGlow)", opacity: 0}, s);
@@ -941,7 +1028,8 @@ const MAIN_RIGHT = SIDE && !ROW ? Math.round(D.width * 0.75) : D.width;
 const PANEL_HEAD = 56;
 const PANELS = LAYOUT === "comparison" ? [[40, D.width / 2 - 20], [D.width / 2 + 20, D.width - 40]] : null;
 let CONTENT_TOP = 0;               // stays 0 for "circuit": its limits are the titles' only
-let FLOOR = D.height;              // the lowest the diagram goes: above the vector legend, when it is at the bottom
+const SUBS_SPACE = Array.isArray(D.subtitles) && D.subtitles.length ? 96 : 0;   // the subtitles' room at the bottom
+let FLOOR = D.height - SUBS_SPACE;   // the lowest the diagram goes: above the subtitles and the vector legend, when it is at the bottom
 const below = top => Math.max(top, CONTENT_TOP);
 const side = el("div");
 side.id = "side";
@@ -1033,6 +1121,11 @@ let FADE = null;
 if (D.ending && D.ending.length > 0) {
   FADE = el("div"); FADE.id = "fade"; stage.append(FADE);
 }
+// Subtitles: the line the voice is saying (D.subtitles, timed in Python), text only.
+let SUBS = null;
+if (SUBS_SPACE) {
+  SUBS = el("div"); SUBS.id = "subs"; stage.append(SUBS); stage.classList.add("with-subs");
+}
 let PROGRESS = null;
 if (D.progress && D.progress.total > 0) {
   const box = el("div"), bars = el("div", "bars"); box.id = "progress";
@@ -1081,6 +1174,7 @@ for (const ent of D.entities) {
                   + ` color-mix(in srgb, ${ent.body.color} 70%, #000000) 100%)`});
     if (GLOW) shape.style.boxShadow = `0 0 0 3px var(--ring), 0 0 22px color-mix(in srgb, ${ent.body.color} 70%, transparent)`;
   }
+  else if (ent.lanes) shape = buildLanes(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1198,7 +1292,8 @@ for (const ent of D.entities.filter(e => e.vector && e.vector.legend)) {
     if (!legendGraph && !bottomLegend) {
       bottomLegend = el("div", "legend"); bottomLegend.id = "vlegend"; stage.append(bottomLegend);
       bottomLegend.style.right = `${D.width - MAIN_RIGHT}px`;          // under the diagram, not the instrument column
-      FLOOR = D.height - VLEGEND_ROOM;
+      FLOOR = D.height - SUBS_SPACE - VLEGEND_ROOM;
+      bottomLegend.style.bottom = `${18 + SUBS_SPACE}px`;
     }
     const item = el("div"), colours = el("span", "vsym"), symbol = el("b");
     writeSymbol(symbol, ent.vector.symbol, false);
@@ -2368,6 +2463,11 @@ window.seek = function (t) {
   subtitle.style.opacity = si; subtitle.style.transform = `translateY(${(1 - si) * 20}px)`;
   if (PROGRESS) PROGRESS.style.opacity = si;
   if (FADE) FADE.style.opacity = easeInOut(progress(t, D.ending.at, D.ending.length));
+  if (SUBS) {
+    const cue = D.subtitles.find(c => t >= c.at && t < c.end), text = cue ? String(cue.text) : "";
+    if (SUBS.textContent !== text) SUBS.textContent = text;
+    SUBS.style.opacity = cue ? 1 : 0;
+  }
   PLAN.forEach((p, i) => {             // each chapter slides in when it is named; the one named last is lit
     const k = easeInOut(progress(t, p.at, 0.5));
     p.row.style.opacity = k; p.row.style.transform = `translateX(${(1 - k) * -40}px)`;
@@ -2427,6 +2527,8 @@ window.seek = function (t) {
       reading.style.color = value > 0 ? "var(--primary)" : "var(--muted)";
       e.shape.style.borderColor = value > 0 ? "var(--primary)" : "";
       e.shape.style.boxShadow = is(s, "highlighted") ? "0 0 0 10px rgba(59, 130, 246, .25)" : "";   // the current is read here
+    } else if (e.data.lanes) {
+      seekLanes(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {
@@ -2662,8 +2764,9 @@ def plan_page_data(plan, spoken, voice, total, style):
     return data
 
 
-def render_video(storyboard, script, video_path, folder, warnings, style=None):
-    """1. every voice-over, 2. every picture in one browser session, 3. join and concatenate."""
+def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True):
+    """1. every voice-over, 2. every picture in one browser session, 3. join and concatenate, and the
+    subtitles in folder/subtitles.srt (burnt into the picture too, unless burn_subtitles is False)."""
     from playwright.sync_api import sync_playwright
 
     temp_dir = os.path.join(folder, "temp_html")
@@ -2684,6 +2787,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
             engine = {}
             voice = generate_voice(narration, audio_path, spoken, engine)
             jobs.append({"name": name, "scene": scene, "source": source, "audio": audio_path, "voice": voice, "spoken": spoken,
+                         "subtitles": subtitle_cues(narration, spoken, voice, plain_math),
                          "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, name + "_visual.mp4"),
                          "entry": {"scene_id": scene["scene_id"], "title": scene_title(scene, number), "voice_sec": round(voice, 2),
                                    "voice_engine": engine["used"], "voice_fallback": engine["fallback"],
@@ -2694,6 +2798,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
             spoken, engine = [], {}
             voice = generate_voice(plan["narration"], audio_path, spoken, engine)
             jobs.insert(PLAN_AFTER, {"name": "plan", "plan": plan, "audio": audio_path, "voice": voice, "spoken": spoken,
+                                     "subtitles": subtitle_cues(plan["narration"], spoken, voice, plain_math),
                                      "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, "plan_visual.mp4"),
                                      "entry": {"scene_id": "plan", "title": PLAN_TITLE, "plan_source": plan["source"],
                                                "voice_sec": round(voice, 2),
@@ -2710,8 +2815,11 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                 try:
                     html_path = os.path.join(temp_dir, job["name"] + ".html")
                     if job.get("plan"):
+                        data = plan_page_data(job["plan"], job["spoken"], job["voice"], job["total"], style)
+                        if burn_subtitles:
+                            data["subtitles"] = job["subtitles"]
                         with open(html_path, "w", encoding="utf-8") as f:
-                            f.write(build_page(plan_page_data(job["plan"], job["spoken"], job["voice"], job["total"], style)))
+                            f.write(build_page(data))
                         job["entry"]["layout_conflicts"] = render_html_visual(page, html_path, job["total"], job["visual"])
                         continue
                     number += 1
@@ -2722,6 +2830,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                     data = page_data(job["scene"]["visual_brief"], job["total"],
                                      scene_field(job["source"], "duration_sec", "duration_seconds"), job["spoken"],
                                      layout, job["scene"].get("panel_titles"), style, number)
+                    if burn_subtitles:
+                        data["subtitles"] = job["subtitles"]
                     if job is jobs[-1]:
                         data["ending"] = {"at": round(job["total"] - END_FADE, 2), "length": END_FADE}
                     if plan and number > PLAN_AFTER:       # where this scene is in the plan
@@ -2750,6 +2860,9 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
             clips.append(clip_path)
             scenes.append(job["entry"])
         concat_scenes(clips, os.path.join(temp_dir, "scenes.txt"), video_path)
+        with open(os.path.join(folder, "subtitles.srt"), "w", encoding="utf-8") as f:   # the whole video's lines
+            f.write(srt([{**cue, "at": cue["at"] + job["entry"]["start_sec"], "end": cue["end"] + job["entry"]["start_sec"]}
+                         for job in jobs for cue in job["subtitles"]]))
         return scenes
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -2782,7 +2895,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
             if missing:
                 raise RuntimeError(f"{' and '.join(missing)} not found on PATH")
-            scenes = render_video(storyboard, script, video_path, folder, warnings, channel_style(channel_id))
+            scenes = render_video(storyboard, script, video_path, folder, warnings, channel_style(channel_id),
+                                  settings.get("burn_subtitles", True))
             duration = round(media_duration(video_path), 2)
             renderer_used = "html_playwright"
     except ImportError:
@@ -2799,6 +2913,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                 "rendered_at": utc_now(), "status": status, "voice_engine": voice_engine, "scenes": scenes}
     if os.path.exists(video_path) and renderer_used != "skip":   # written by ffmpeg (or the dry-run placeholder)
         provenance.register_artifact(run_id, channel_id, "video.mp4", AGENT)
+    if renderer_used == "html_playwright":
+        manifest["subtitles_path"] = os.path.join(folder, "subtitles.srt")
+        provenance.register_artifact(run_id, channel_id, "subtitles.srt", AGENT)
     save_json(manifest_path, manifest)
     provenance.register_artifact(run_id, channel_id, "render_manifest.json", AGENT)
     return finish(channel_id, AGENT, "render", status, manifest_path, data={**manifest, "warnings": warnings})

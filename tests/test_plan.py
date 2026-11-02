@@ -17,7 +17,7 @@ but for the browser:
      or the LLM says so) is sent back with the reason; every answer a repeat is critical; an imposed
      topic that repeats one is kept and reported (not_healthy)
   7. agent010 page: a counter shows the decimals of its value (0,96, not 1,0); a scene drawn in a corner
-     is moved to the middle of the frame (a comparison only vertically: its panels go by x); the last
+     is moved to the middle of the frame (on a comparison, each panel's drawing to its panel's middle); the last
      scene of a video fades to the background
   8. agent004 reports a disc (BODY) that neither moves nor sits on a graph
 Prints PASS or FAIL per case. Cases 1 and 7 need Playwright + Chromium (as agent010).
@@ -267,9 +267,10 @@ def case_page_fixes():
     middle = (renderer.CONTENT_SIDES[0] + renderer.SIDE_COLUMN_LEFT) / 2      # a counter: a side column on the right
     if min(xs) < renderer.CONTENT_SIDES[0] or abs((min(xs) + max(xs)) / 2 - middle) > 2:
         problems.append(f"not centred: x {xs}")
-    if [e["xy"][0] for e in comparison["entities"]][:2] != [round(renderer.WIDTH / 2 - 6.4 * renderer.WIDTH / renderer.UNITS_WIDE),
-                                                            round(renderer.WIDTH / 2 - 5.2 * renderer.WIDTH / renderer.UNITS_WIDE)]:
-        problems.append("a comparison was moved sideways")
+    panel = [e["xy"][0] for e in comparison["entities"]]          # all in panel A: centred in it, not in the frame
+    low, high = renderer.PANEL_ROOM[0]
+    if min(panel) < low or max(panel) > high or abs((min(panel) + max(panel)) / 2 - (low + high) / 2) > 2:
+        problems.append(f"a comparison's panel not centred in it: x {panel}")
     with tempfile.TemporaryDirectory() as folder, sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:

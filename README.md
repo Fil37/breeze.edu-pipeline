@@ -447,8 +447,16 @@ than three scenes (`PLAN_MIN_CHAPTERS`). The plan is a scene of `render_manifest
 (`"scene_id": "plan"`), so agent007's YouTube chapters, built from the rendered start times, include it.
 A title, a subtitle, a label or an axis name written in LaTeX ("10^{-n}", "t_n") is shown with
 Unicode exponents and indices ("10⁻ⁿ", "tₙ") when every character has one (`plain_math`).
-A scene whose free components sit high or low (no graph, no straight move) is moved to the middle of
-the frame, between the titles and the legend (`centre_vertically`). Check: `python tests/test_plan.py`.
+A scene whose free components sit in a corner (no graph, no straight move) is moved to the middle of
+the frame: vertically between the titles and the legend, and horizontally (left of the side column
+when there is one; a comparison only vertically, its panels go by x) (`centre_content`). A counter
+shows the decimals of its value, up to 3 (0,96, not 1,0). The video does not stop on a cut: its
+last scene is held 2 s after the voice (`END_HOLD`), the last 1.2 s fading to the background
+(`END_FADE`). agent003 is asked to close the video (answer the hook's question, sum up, a closing
+sentence; never end on a question or an example left unexplained) and to keep one example's values
+all along (a 6 V battery stays 6 V); agent005 checks both on the whole video and sends an unfinished
+ending back to agent003. agent004 reports a BODY that neither moves nor sits on a graph (a disc
+standing for "Prix du pain"). Check: `python tests/test_plan.py`.
 
 agent010 draws each scene as a web page:
 

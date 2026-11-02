@@ -39,6 +39,11 @@ Rules:
 - Speaking pace is about 2.5 words per second; set duration_sec accordingly.
 - Each scene must have a narration of at least 15-20 words to ensure the audio track lasts at least
   6-8 seconds. Do not write very short sentences.
+- The last scene CLOSES the video: it answers the hook's question in one clear sentence (the "aha"),
+  sums up the key idea, and ends on a closing sentence. Never end on a question, a colon, "Vérifions"
+  or a new example left unexplained: an example used to check the idea is given AND explained.
+- One example, the same values all along: the same battery (6 V in one scene stays 6 V), the same
+  prices, the same object, unless the change itself is what a scene shows (then say so).
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.

@@ -69,7 +69,7 @@ from app.layout_solver import annotation_targets, target_first_timing
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, SVG_TYPES, check_curve, check_function_expression, find_cue,
                                         is_parametric, is_status_annotation, narration_words, parameter_range,
                                         scene_point, unit_direction)
-from app.render.video import (FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
+from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL_PAUSE, VIDEO_CODEC, WIDTH, check_briefs, concat_scenes,
                               make_error_visual, mux_scene, scene_field)
 from app.tts_manager import media_duration
 
@@ -504,26 +504,40 @@ def vector_symbols(entities):
 
 
 CONTENT_BAND = (240, HEIGHT - 140)     # px: under the titles, above the legend
+CONTENT_SIDES = (140, WIDTH - 140)     # px: left and right, the badges and labels need room past the centres
+SIDE_COLUMN_LEFT = round(WIDTH * 0.75) - 100   # with a side column (instruments, counters), the drawing ends here
 CENTRE_MIN_SHIFT = 40
 
 
-def centre_vertically(entities):
-    """The LLM tends to put everything in the upper half (y > 0), leaving the bottom of the frame
-    empty: move the whole drawing so its free things (not in a graph, not riding, not in the side
-    column) are centred in CONTENT_BAND. A scene with a graph is left alone: the graph is laid out
-    to fit by the page."""
+def centred(values, low, high):
+    """The shift that centres `values` in [low, high] without pushing any of them out of it; 0 when small."""
+    if max(values) - min(values) > high - low:      # wider than the room: left as placed
+        return 0
+    shift = (low + high) / 2 - (min(values) + max(values)) / 2
+    shift = max(min(shift, high - max(values)), low - min(values))
+    return shift if abs(shift) >= CENTRE_MIN_SHIFT else 0
+
+
+def centre_content(entities, brief, horizontal=True):
+    """The LLM tends to put everything in a corner (y > 0, or x far left), leaving the frame empty:
+    move the whole drawing so its free things (not in a graph, not riding, not in the side column)
+    are centred, vertically in CONTENT_BAND and, outside a comparison (its panels go by x),
+    horizontally between the sides (or the side column). A scene with a graph is left alone: the
+    graph is laid out to fit by the page."""
     free = [d for d in entities if not d.get("instrument") and not (d.get("annotation") or {}).get("status")
             and not d.get("placed") and not d.get("rides") and not (d.get("vector") or {}).get("anchor")
             and not (d.get("body") or {}).get("anchor") and not (d.get("curve") or {}).get("axes")]
     if not free or any(d.get("graph") or d.get("curve") for d in free):
         return
-    ys = [d["xy"][1] for d in free]
-    shift = (CONTENT_BAND[0] + CONTENT_BAND[1]) / 2 - (min(ys) + max(ys)) / 2
-    shift = max(min(shift, CONTENT_BAND[1] - max(ys)), CONTENT_BAND[0] - min(ys))   # stays in the band
-    if abs(shift) < CENTRE_MIN_SHIFT:
-        return
-    for d in entities:
-        d["xy"] = [d["xy"][0], round(d["xy"][1] + shift)]
+    dy = centred([d["xy"][1] for d in free], *CONTENT_BAND)
+    dx = 0
+    if horizontal:
+        column = any(d.get("instrument") or (d.get("annotation") or {}).get("status") for d in entities) \
+            or any(a.get("action") == "set_value" for a in brief.get("actions", []))
+        dx = centred([d["xy"][0] for d in free], CONTENT_SIDES[0], SIDE_COLUMN_LEFT if column else CONTENT_SIDES[1])
+    if dx or dy:
+        for d in entities:
+            d["xy"] = [round(d["xy"][0] + dx), round(d["xy"][1] + dy)]
 
 
 def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circuit", panel_titles=None,
@@ -542,7 +556,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
             vector["color"], vector["label_color"] = RIDER_COLORS[i % len(RIDER_COLORS)], True
     vector_symbols(entities)
     if layout in ("circuit", "comparison") and not any(a.get("action") == "move" for a in brief.get("actions", [])):
-        centre_vertically(entities)            # (a straight move keeps its scene positions: its end is one)
+        centre_content(entities, brief, layout == "circuit")   # (a straight move keeps its scene positions: its end is one)
     targets = annotation_targets(brief)       # what each badge points at (as the layout solver sees it)
     for data in entities:
         if data.get("annotation"):
@@ -745,6 +759,7 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .plan-item .num { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:34px; font-weight:600; color:var(--accent);
                     min-width:64px; }
   .plan-item.now { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent); }
+  #fade { position:absolute; inset:0; z-index:50; background:var(--bg); opacity:0; pointer-events:none; }
   #progress { position:absolute; top:34px; right:40px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
   #progress .count { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:22px; font-weight:600; color:var(--muted); letter-spacing:1px; }
   #progress .bars { display:flex; gap:6px; }
@@ -1013,6 +1028,11 @@ if (Array.isArray(D.plan)) {
     list.append(row); PLAN.push({row, at: +item.at || 0});
   }
 }
+// The end of the video (D.ending, on its last scene): the picture fades to the background.
+let FADE = null;
+if (D.ending && D.ending.length > 0) {
+  FADE = el("div"); FADE.id = "fade"; stage.append(FADE);
+}
 let PROGRESS = null;
 if (D.progress && D.progress.total > 0) {
   const box = el("div"), bars = el("div", "bars"); box.id = "progress";
@@ -1191,6 +1211,8 @@ for (const ent of D.entities.filter(e => e.vector && e.vector.legend)) {
   if (!entry.seen.has(color)) { entry.seen.add(color); const c = el("i"); c.style.background = color; entry.colours.append(c); }
   entry.ids.push(ent.id);
 }
+// A value shows the decimals it was given (0.96 -> "0,96", 1.5 -> "1,5"), up to 3.
+function decimalsOf(v) { const s = String(v), i = s.indexOf("."); return i < 0 || /e/i.test(s) ? 0 : Math.min(3, s.length - i - 1); }
 for (const ev of D.events) {
   const e = E[ev.target];
   if (ev.action === "spawn" && e && e.spawn === null) e.spawn = ev.at;
@@ -1198,7 +1220,7 @@ for (const ev of D.events) {
   if (ev.action === "set_state" && e) e.states.push({at: ev.at, state: ev.state});
   if (ev.action === "set_value" && e && typeof ev.value === "number") {
     e.values.push({at: ev.at, value: ev.value, unit: ev.unit || "", tone: ev.tone,
-                   decimals: Number.isInteger(ev.decimals) ? ev.decimals : (Number.isInteger(ev.value) ? 0 : 1)});
+                   decimals: Number.isInteger(ev.decimals) ? ev.decimals : decimalsOf(ev.value)});
     if (!e.counter && e.data.type !== "AMMETER") {   // an ammeter shows its value in its own dial
       e.counter = el("div", "card telemetry");
       e.counter.append(el("div", "t-label", e.data.label || ""), el("div", "t-value", "\u00a0"));   // its line kept from the start: the row is measured before any value
@@ -2345,6 +2367,7 @@ window.seek = function (t) {
   const si = easeInOut(progress(t, 0.3, 0.6));
   subtitle.style.opacity = si; subtitle.style.transform = `translateY(${(1 - si) * 20}px)`;
   if (PROGRESS) PROGRESS.style.opacity = si;
+  if (FADE) FADE.style.opacity = easeInOut(progress(t, D.ending.at, D.ending.length));
   PLAN.forEach((p, i) => {             // each chapter slides in when it is named; the one named last is lit
     const k = easeInOut(progress(t, p.at, 0.5));
     p.row.style.opacity = k; p.row.style.transform = `translateX(${(1 - k) * -40}px)`;
@@ -2677,6 +2700,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                                                "voice_engine": engine["used"], "voice_fallback": engine["fallback"],
                                                "status": "ok", "error": None}})
         total_chapters = len(storyboard["scenes"])
+        jobs[-1]["total"] += END_HOLD      # the video ends: its last picture held, then a fade, not a cut
         # 2. Pictures: one page per scene, one screenshot per frame.
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -2698,6 +2722,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                     data = page_data(job["scene"]["visual_brief"], job["total"],
                                      scene_field(job["source"], "duration_sec", "duration_seconds"), job["spoken"],
                                      layout, job["scene"].get("panel_titles"), style, number)
+                    if job is jobs[-1]:
+                        data["ending"] = {"at": round(job["total"] - END_FADE, 2), "length": END_FADE}
                     if plan and number > PLAN_AFTER:       # where this scene is in the plan
                         data["progress"] = {"current": number - PLAN_AFTER, "total": total_chapters - PLAN_AFTER}
                     with open(html_path, "w", encoding="utf-8") as f:

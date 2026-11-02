@@ -266,6 +266,12 @@ STRICT RULES:
   value, a TEX_FORMULA. Icons (CART, TRENDING_UP, COINS...) illustrate, they explain nothing alone: a
   scene of icons and labels only is a list, not an explanation. Each video has at least one graph
   of its main quantity when there is one (economics: always).
+- A BODY IS A DISC FOR SOMETHING THAT MOVES OR SITS ON A GRAPH: a ball, a satellite, a point on a
+  curve or a number line. Never a disc standing for an idea, a price or a quantity ("Prix du pain"):
+  show a thing by its icon (OBJECT with an icon, CART, COINS...), a value by a GAUGE or a graph, an
+  idea by an ARROW_ANNOTATION. A planet, a moon, the Sun: an OBJECT with the icon "earth", "moon" or "sun".
+- THE SAME VALUES ALL ALONG: a battery, a price, an object keeps the values the narration gives it
+  from one scene to the next (a "Pile 6 V" stays "Pile 6 V"); change them only where the narration does.
 - THINGS IN A GRAPH: an OBJECT, a BODY or a VECTOR_ARROW that belongs to a graph (the Earth at the
   centre of an orbit, the Sun at a focus, a car at a point of a road drawn as a curve) is placed on
   that point of the graph, in the graph's units: "anchor": {{"axes": "<AXES_GRAPH id>", "x": 0, "y": 0}}
@@ -656,6 +662,19 @@ def tiny_curves(brief, graphs):
     return errors
 
 
+def idle_discs(brief, graphs):
+    """BODYs that neither move nor sit on a graph, in a scene without one: a disc standing for an idea
+    or a price ("Prix du pain") means nothing to the viewer."""
+    if graphs:
+        return []
+    moving = {a.get("target") for a in brief.actions if a.get("action") in MOTIONS}
+    idle = [e for e in brief.entities if e.type == ComponentType.BODY and e.id not in moving
+            and not isinstance(e.initial_state.get("anchor"), dict)]
+    return [f"scene {brief.scene_id}: the BODY {e.id} ({e.initial_state.get('label')!r}) is a plain disc that neither "
+            f"moves nor sits on a graph: show the thing by its icon (OBJECT with an icon; \"earth\", \"moon\", "
+            f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
+
+
 SHOWS_VALUES = {ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
@@ -726,6 +745,7 @@ def coherence_problems(brief, narration, duration=None) -> list:
                           + ("" if ride else "; on a number line, narrow its x_range around these numbers "
                                              "or keep only those far enough apart"))
     errors += tiny_curves(brief, graphs)
+    errors += idle_discs(brief, graphs)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
                f"together, at the same speed (same \"at\", \"duration\" and distance), or keep them apart all along"

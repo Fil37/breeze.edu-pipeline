@@ -16,7 +16,11 @@ but for the browser:
   6. agent001 checks the topic against the channel's topics already made: a repeat (same key words,
      or the LLM says so) is sent back with the reason; every answer a repeat is critical; an imposed
      topic that repeats one is kept and reported (not_healthy)
-Prints PASS or FAIL per case. Case 1 needs Playwright + Chromium (as agent010).
+  7. agent010 page: a counter shows the decimals of its value (0,96, not 1,0); a scene drawn in a corner
+     is moved to the middle of the frame (a comparison only vertically: its panels go by x); the last
+     scene of a video fades to the background
+  8. agent004 reports a disc (BODY) that neither moves nor sits on a graph
+Prints PASS or FAIL per case. Cases 1 and 7 need Playwright + Chromium (as agent010).
 
   .venv/bin/python tests/test_plan.py
 """
@@ -248,10 +252,62 @@ def case_novelty():
     return report("6. agent001: a topic already made is sent back, by its words or by the LLM", problems)
 
 
-results = [case_voice(), case_display(), case_agent004(), case_script_plan(), case_novelty()]
+def case_page_fixes():
+    from playwright.sync_api import sync_playwright
+    left = {"scene_id": "1", "text_overlay": {"title": "Juillet"}, "connections": [], "actions": [
+                {"at": 1.0, "action": "set_value", "target": "gauge", "value": 0.96}],
+            "entities": [{"id": "sun", "type": "OBJECT", "position": [-6.4, 1.8, 0], "initial_state": {"icon": "sun", "label": "Soleil"}},
+                         {"id": "earth", "type": "OBJECT", "position": [-5.2, 0.2, 0], "initial_state": {"icon": "earth", "label": "Terre"}},
+                         {"id": "gauge", "type": "GAUGE", "position": [-4, -1, 0], "initial_state": {"label": "Coefficient global"}}]}
+    data = renderer.page_data(left, 6.0, None)
+    data["ending"] = {"at": 4.8, "length": 1.2}
+    xs = [e["xy"][0] for e in data["entities"]]
+    comparison = renderer.page_data(left, 6.0, None, layout="comparison")
+    problems = []
+    middle = (renderer.CONTENT_SIDES[0] + renderer.SIDE_COLUMN_LEFT) / 2      # a counter: a side column on the right
+    if min(xs) < renderer.CONTENT_SIDES[0] or abs((min(xs) + max(xs)) / 2 - middle) > 2:
+        problems.append(f"not centred: x {xs}")
+    if [e["xy"][0] for e in comparison["entities"]][:2] != [round(renderer.WIDTH / 2 - 6.4 * renderer.WIDTH / renderer.UNITS_WIDE),
+                                                            round(renderer.WIDTH / 2 - 5.2 * renderer.WIDTH / renderer.UNITS_WIDE)]:
+        problems.append("a comparison was moved sideways")
+    with tempfile.TemporaryDirectory() as folder, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": renderer.WIDTH, "height": renderer.HEIGHT})
+            path = os.path.join(folder, "scene.html")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(renderer.build_page(data))
+            renderer.open_scene(page, path)
+            shown = {}
+            for t in (4.5, 5.4, 6.0):
+                page.evaluate(f"window.seek({t})")
+                shown[t] = page.evaluate("""() => ({value: (document.querySelector('.t-value') || {}).textContent,
+                    fade: +getComputedStyle(document.getElementById('fade')).opacity})""")
+        finally:
+            browser.close()
+    if (shown[4.5]["value"] or "").strip() != "0,96":
+        problems.append(f"counter shows {shown[4.5]['value']!r}")
+    if not (shown[4.5]["fade"] == 0 and 0 < shown[5.4]["fade"] < 1 and shown[6.0]["fade"] > 0.99):
+        problems.append(f"fade {[shown[t]['fade'] for t in shown]}")
+    return report("7. counter decimals, a corner scene centred, the last scene fades out", problems,
+                  [f"the drawing now at x {xs} (was 92 to 449); counter {shown[4.5]['value']!r}"])
+
+
+def case_idle_disc():
+    disc = {"id": "pain", "type": "BODY", "position": [-3, 1, 0], "initial_state": {"label": "Prix du pain"}}
+    found = [e for e in agent004.coherence_problems(brief([disc]), "le pain", 10) if "plain disc" in e]
+    axes = {"id": "ax", "type": "AXES_GRAPH", "position": [0, 0, 0], "initial_state": {"x_range": [0, 2, 1]}}
+    dot = {"id": "p", "type": "BODY", "position": [0, 0, 0], "initial_state": {"label": "1", "anchor": {"axes": "ax", "x": 1, "y": 0}}}
+    on_line = [e for e in agent004.coherence_problems(brief([axes, dot]), "un", 10) if "plain disc" in e]
+    return report("8. agent004 reports a disc standing for an idea, not a dot on a number line",
+                  [] if found and not on_line else [f"{found} / {on_line}"])
+
+
+results = [case_voice(), case_display(), case_agent004(), case_script_plan(), case_novelty(), case_idle_disc()]
 try:
     import playwright  # noqa: F401
     results.insert(0, case_plan())
+    results.append(case_page_fixes())
 except ImportError:
     print("FAIL  1. Playwright is not installed (pip install playwright && playwright install chromium)")
     results.append(False)

@@ -150,7 +150,12 @@ TASK:
    Text you write (title, subtitle, label, text) is in PERFECT FRENCH.
 3. List in "unsupported" what the narration needs but these component types cannot show
    (e.g. a demand curve, a light cone, a bar chart). Do not fake it with other components.
-4. If the SCRIPT itself is wrong, set reject_to "agent003"; if the visuals are wrong in a way
+4. Check the whole video too: the same example keeps the same values from scene to scene (a "Pile 6 V"
+   that becomes "9 V" without the narration saying so is a factual issue: fix the label by patch, or the
+   script if the narration changes it); and the last scene closes the video (answers the hook's
+   question, sums up the idea, ends on a closing sentence). A video ending on a question, on a new
+   example left unexplained or mid-thought is unfinished: set reject_to "agent003".
+5. If the SCRIPT itself is wrong, set reject_to "agent003"; if the visuals are wrong in a way
    patches cannot fix, set reject_to "agent004"; otherwise null.
 
 Answer with JSON only:

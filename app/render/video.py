@@ -20,6 +20,8 @@ from models.visual_brief_schema import SceneVisualBrief
 
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
 TAIL_PAUSE = 0.4          # seconds of picture after the voice ends: a breath between scenes
+END_HOLD = 2.0            # the last scene: seconds more of picture after its voice, the end ...
+END_FADE = 1.2            # ... of which the last ones fade to the background (no cut)
 PLACEHOLDER = b"BREEZE DRY RUN PLACEHOLDER - not a real video\n"
 ERROR_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FFMPEG_TIMEOUT_SEC = 600

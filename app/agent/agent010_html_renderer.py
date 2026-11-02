@@ -738,7 +738,8 @@ PAGE_TEMPLATE = r"""<!doctype html>
   #vlegend { position:absolute; left:0; right:0; bottom:18px; margin:0; flex-wrap:wrap; row-gap:8px; }
   /* The plan (D.plan): its chapters, one per line, appearing as the voice names them; the one being
      named in the accent colour. The progress (D.progress): where the scene is in the plan, top right. */
-  #plan { position:absolute; left:50%; top:230px; transform:translateX(-50%); display:flex; flex-direction:column; gap:22px; width:1100px; }
+  #plan { position:absolute; left:50%; top:210px; bottom:70px; transform:translateX(-50%); display:flex; flex-direction:column;
+          justify-content:center; gap:22px; width:1300px; }   /* centred in the room under the titles */
   .plan-item { display:flex; align-items:center; gap:28px; padding:18px 32px; border-radius:var(--radius); background:var(--card);
                border:2px solid var(--border); font-size:40px; font-weight:600; color:var(--text); }
   .plan-item .num { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:34px; font-weight:600; color:var(--accent);
@@ -2556,8 +2557,11 @@ def render_html_visual(page, html_path, duration, visual_path):
 
 
 # The plan, announced right after the hook (scene 1) so the viewer knows where the video goes: a scene
-# of its own, its voice and its list built here from the scenes' titles (no LLM). From then on each
-# scene shows where it is in the plan (D.progress, top right).
+# of its own. agent003 writes it in script.json ("plan"): a spoken narration, as a teacher announces
+# the lesson, and for each later scene what it will show, with the words ("cue") that announce it;
+# each line appears when the voice says them. Without a usable one (older scripts, a plan that does
+# not match the scenes), it is built here from the scenes' titles ("D'abord, ... Et enfin, ...").
+# From then on each scene shows where it is in the plan (D.progress, top right).
 PLAN_AFTER = 1                     # the plan comes after this many scenes
 PLAN_MIN_CHAPTERS = 2              # fewer chapters: no plan scene
 PLAN_TITLE, PLAN_SUBTITLE = "Au programme", "Le plan de la vidéo"
@@ -2588,25 +2592,50 @@ def plan_narration(chapters):
                                        for lead, title in plan_lines(chapters))
 
 
-def plan_times(chapters, spoken, voice):
-    """When each chapter starts being said (its connector), in order; spread over the voice when unknown."""
+def script_plan(script, storyboard):
+    """agent003's plan as {"narration", "items": [(number, text, cue)]}, or None when it does not give
+    one line per scene after the hook, in the storyboard's order."""
+    plan = script.get("plan") if isinstance(script, dict) else None
+    if not isinstance(plan, dict) or not str(plan.get("narration") or "").strip():
+        return None
+    numbers = {str(scene.get("scene_id")): number for number, scene in enumerate(storyboard["scenes"], start=1)}
+    items = [(numbers.get(str(part.get("scene_id"))), plain_math(str(part.get("text") or "").strip()), str(part.get("cue") or ""))
+             for part in plan.get("parts") or [] if isinstance(part, dict)]
+    if [n for n, _, _ in items] != list(range(PLAN_AFTER + 1, len(storyboard["scenes"]) + 1)) or not all(t for _, t, _ in items):
+        return None
+    return {"narration": str(plan["narration"]).strip(), "items": items, "source": "script"}
+
+
+def video_plan(script, storyboard):
+    """The plan to show: agent003's, else one from the titles; None for a video too short for a plan."""
+    chapters = plan_chapters(storyboard)
+    if not chapters:
+        return None
+    return script_plan(script, storyboard) or {
+        "narration": plan_narration(chapters), "source": "titles",
+        "items": [(n, title, f"{lead}, {title}") for (n, title), (lead, _) in zip(chapters, plan_lines(chapters))]}
+
+
+def plan_times(items, spoken, voice):
+    """When each line is announced (its cue's first word), in order; spread over the voice when its
+    cue is not found."""
     words = [(at, word) for at, text in (spoken or []) for _, word in narration_words(text)]
     times, position = [], 0
-    for i, (lead, title) in enumerate(plan_lines(chapters)):
-        index = find_cue(words, normalize_text_for_tts(f"{lead}, {title}"), position) if words else None
+    for i, (_, _, cue) in enumerate(items):
+        index = find_cue(words, normalize_text_for_tts(cue), position) if words and cue else None
         if index is not None:
             position = index + 1
-            times.append(words[index][0])
+            times.append(max(words[index][0], times[-1] + 0.3 if times else 0.0))
         else:
-            times.append(0.8 + (voice - 1.2) * i / max(len(chapters), 1))
+            times.append(max(0.8 + (voice - 1.2) * i / max(len(items), 1), times[-1] + 0.3 if times else 0.0))
     return times
 
 
-def plan_page_data(chapters, spoken, voice, total, style):
+def plan_page_data(plan, spoken, voice, total, style):
     brief = {"entities": [], "actions": [], "connections": [], "text_overlay": {"title": PLAN_TITLE, "subtitle": PLAN_SUBTITLE}}
     data = page_data(brief, total, None, None, DEFAULT_LAYOUT, None, style, 0)
     data["plan"] = [{"number": n, "title": t, "at": round(at, 2)}
-                    for (n, t), at in zip(chapters, plan_times(chapters, spoken, voice))]
+                    for (n, t, _), at in zip(plan["items"], plan_times(plan["items"], spoken, voice))]
     return data
 
 
@@ -2636,14 +2665,15 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                          "entry": {"scene_id": scene["scene_id"], "title": scene_title(scene, number), "voice_sec": round(voice, 2),
                                    "voice_engine": engine["used"], "voice_fallback": engine["fallback"],
                                    "status": "ok", "error": None}})
-        chapters = plan_chapters(storyboard)
-        if chapters:                       # the plan, after the hook
+        plan = video_plan(script, storyboard)
+        if plan:                           # the plan, after the hook
             audio_path = os.path.join(temp_dir, "plan.mp3")
             spoken, engine = [], {}
-            voice = generate_voice(plan_narration(chapters), audio_path, spoken, engine)
-            jobs.insert(PLAN_AFTER, {"name": "plan", "plan": chapters, "audio": audio_path, "voice": voice, "spoken": spoken,
+            voice = generate_voice(plan["narration"], audio_path, spoken, engine)
+            jobs.insert(PLAN_AFTER, {"name": "plan", "plan": plan, "audio": audio_path, "voice": voice, "spoken": spoken,
                                      "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, "plan_visual.mp4"),
-                                     "entry": {"scene_id": "plan", "title": PLAN_TITLE, "voice_sec": round(voice, 2),
+                                     "entry": {"scene_id": "plan", "title": PLAN_TITLE, "plan_source": plan["source"],
+                                               "voice_sec": round(voice, 2),
                                                "voice_engine": engine["used"], "voice_fallback": engine["fallback"],
                                                "status": "ok", "error": None}})
         total_chapters = len(storyboard["scenes"])
@@ -2668,7 +2698,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None):
                     data = page_data(job["scene"]["visual_brief"], job["total"],
                                      scene_field(job["source"], "duration_sec", "duration_seconds"), job["spoken"],
                                      layout, job["scene"].get("panel_titles"), style, number)
-                    if chapters and number > PLAN_AFTER:   # where this scene is in the plan
+                    if plan and number > PLAN_AFTER:       # where this scene is in the plan
                         data["progress"] = {"current": number - PLAN_AFTER, "total": total_chapters - PLAN_AFTER}
                     with open(html_path, "w", encoding="utf-8") as f:
                         f.write(build_page(data))

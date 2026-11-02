@@ -1,8 +1,8 @@
 """
 Check the plan announced after the hook and the follow-ups of the 4-channel run of 2026-11-02, offline
 but for the browser:
-  1. agent010 builds the plan from the scenes' titles: its narration ("Au programme. D'abord, ...
-     Et enfin, ..."), its page (one line per chapter, appearing in turn) and, on the scenes after it,
+  1. without a plan from agent003, agent010 builds it from the scenes' titles: its narration ("Au
+     programme. D'abord, ... Et enfin, ..."), its page (one line per chapter, appearing in turn) and, on the scenes after it,
      where they are in the plan ("02 / 05"); agent007's YouTube chapters use the rendered start times
      (the plan included)
   2. the voice says the maths written in the narration: "t_n", "10^{-n}", < ≤ > ≥, a truncation "0,999…9"
@@ -10,6 +10,12 @@ but for the browser:
   4. agent004: a comparison with an empty panel or a circuit wired across the panels goes back to
      "circuit"; a curve too small for its graph and a scene of icons only (with numbers in its
      narration) are sent back to the LLM
+  5. agent003's plan (a spoken narration, what each later scene shows, the words announcing it) is
+     kept when it matches the scenes and shown line by line on those words; one that does not match
+     falls back to the titles
+  6. agent001 checks the topic against the channel's topics already made: a repeat (same key words,
+     or the LLM says so) is sent back with the reason; every answer a repeat is critical; an imposed
+     topic that repeats one is kept and reported (not_healthy)
 Prints PASS or FAIL per case. Case 1 needs Playwright + Chromium (as agent010).
 
   .venv/bin/python tests/test_plan.py
@@ -46,7 +52,8 @@ STORYBOARD = {"scenes": [scene(1, "Que signifie 9 V ?"), scene(2, "La tension es
 def case_plan():
     from playwright.sync_api import sync_playwright
     chapters = renderer.plan_chapters(STORYBOARD)
-    text = renderer.plan_narration(chapters)
+    plan = renderer.video_plan({"scenes": []}, STORYBOARD)       # no plan from agent003: from the titles
+    text = plan["narration"]
     problems = []
     if [n for n, _ in chapters] != [2, 3, 4] or chapters[1][1] != "L'écart vaut 10⁻ⁿ":
         problems.append(f"chapters {chapters}")
@@ -54,7 +61,9 @@ def case_plan():
         problems.append(f"narration {text!r}")
     if renderer.plan_chapters({"scenes": STORYBOARD["scenes"][:2]}):
         problems.append("a plan for a video of two scenes")
-    data = renderer.plan_page_data(chapters, None, 9.0, 9.4, None)
+    if plan["source"] != "titles":
+        problems.append(f"plan source {plan['source']!r}")
+    data = renderer.plan_page_data(plan, None, 9.0, 9.4, None)
     times = [item["at"] for item in data["plan"]]
     if times != sorted(times) or times[0] <= 0:
         problems.append(f"chapter times {times}")
@@ -147,7 +156,99 @@ def case_agent004():
                   problems, forced + tiny + icons)
 
 
-results = [case_voice(), case_display(), case_agent004()]
+def case_script_plan():
+    from app.agent import agent003_scriptwriter as agent003
+    scenes = [{"scene_id": i} for i in (1, 2, 3, 4)]
+    answer = {"narration": "On va voir pourquoi la tension existe sans courant, puis comment le courant circule, "
+                           "et enfin ce que mesure chaque appareil.",
+              "parts": [{"scene_id": 2, "text": "Une tension sans aucun courant.", "cue": "pourquoi la tension"},
+                        {"scene_id": 3, "text": "Comment le courant circule", "cue": "comment le courant"},
+                        {"scene_id": 4, "text": "Ce que mesure chaque appareil", "cue": "ce que mesure"}]}
+    checked = agent003.checked_plan(answer, scenes)
+    problems = []
+    if not checked or checked["parts"][0]["text"] != "Une tension sans aucun courant":
+        problems.append(f"agent003 kept {checked}")
+    if agent003.checked_plan({**answer, "parts": answer["parts"][:2]}, scenes) is not None:
+        problems.append("agent003 kept a plan missing a scene")
+    plan = renderer.video_plan({"plan": checked}, STORYBOARD)
+    spoken = [(0.3 * i, w) for i, w in enumerate(answer["narration"].split())]
+    times = renderer.plan_times(plan["items"], spoken, 9.0)
+    said = {w: 0.3 * i for i, w in reversed(list(enumerate(answer["narration"].split())))}
+    if plan["source"] != "script" or [t for _, t, _ in plan["items"]][1] != "Comment le courant circule":
+        problems.append(f"agent010 plan {plan}")
+    if [round(t, 2) for t in times] != [round(said["pourquoi"], 2), round(said["comment"], 2), round(said["ce"], 2)]:
+        problems.append(f"lines at {times}")
+    broken = {"plan": {**checked, "parts": checked["parts"][::-1]}}
+    if renderer.video_plan(broken, STORYBOARD)["source"] != "titles":
+        problems.append("a plan in the wrong order was used")
+    return report("5. agent003's plan is said naturally and each line appears on its words", problems,
+                  [f"lines at {[round(t, 1) for t in times]} s"])
+
+
+def run_agent001(answers, past, topic=None):
+    """agent001.run with its LLM answering `answers` in turn and `past` as the topics already made."""
+    import json
+    from app import provenance
+    from app.agent import agent001_conceptresearcher as agent001
+    calls, saved = [], {}
+    stubs = {"llm_call": lambda prompt: calls.append(prompt) or json.dumps(answers[len(calls) - 1]),
+             "past_topics": lambda channel_id: past, "channel_dir": lambda channel_id: "/nonexistent",
+             "save_json": lambda path, data: saved.update(data),
+             "finish": lambda channel_id, agent, stage, status, path, data=None, error=None: {"status": status, "error": error}}
+    originals = {name: getattr(agent001, name) for name in stubs}
+    prov = (provenance.check_inputs, provenance.register_artifact)
+    old_topic = os.environ.pop(agent001.TOPIC_ENV, None)
+    try:
+        for name, stub in stubs.items():
+            setattr(agent001, name, stub)
+        provenance.check_inputs, provenance.register_artifact = (lambda *a, **k: "run"), (lambda *a, **k: None)
+        if topic:
+            os.environ[agent001.TOPIC_ENV] = topic
+        stderr, sys.stderr = sys.stderr, open(os.devnull, "w")
+        try:
+            result = agent001.run("breeze_(physics)", {}, [{"channel_id": "breeze_(physics)", "name": "Physique",
+                                  "domain": "physics_math", "target_age_band": "14-18", "persona": "lycéen"}])
+        finally:
+            sys.stderr.close()
+            sys.stderr = stderr
+    finally:
+        for name, original in originals.items():
+            setattr(agent001, name, original)
+        provenance.check_inputs, provenance.register_artifact = prov
+        os.environ.pop(agent001.TOPIC_ENV, None)
+        if old_topic is not None:
+            os.environ[agent001.TOPIC_ENV] = old_topic
+    return result, saved, calls
+
+
+def case_novelty():
+    past = ["Une orbite est une chute libre permanente", "Les saisons viennent de l'inclinaison de l'axe terrestre"]
+    sources = [{"title": "a", "url": "https://a.org"}, {"title": "b", "url": "https://b.org"}]
+    same_words = {"concept": "L'orbite : une chute libre permanente autour de la Terre", "sources": sources}
+    other_angle = {"concept": "L'impesanteur des astronautes dans l'ISS", "sources": sources}
+    new = {"concept": "La poussée d'Archimède ne dépend pas de la profondeur", "sources": sources}
+    problems = []
+    result, saved, calls = run_agent001([same_words, other_angle, {"duplicate_of": past[0], "reason": "même idée"},
+                                         new, {"duplicate_of": None, "reason": "nouveau"}], past)
+    novelty = saved.get("novelty", {})
+    if result["status"] != "healthy" or saved.get("concept") != new["concept"] or novelty.get("attempts") != 3 \
+            or [r["by"] for r in novelty.get("rejected", [])] != ["words", "llm"]:
+        problems.append(f"repeats sent back: {result}, {novelty}")
+    if "ALREADY made a video" not in calls[0] or past[0] not in calls[0] or "Already refused" not in calls[3]:
+        problems.append("the prompts do not list the topics made / refused")
+    result, saved, _ = run_agent001([same_words, same_words, same_words], past)
+    if result["status"] != "critical" or "repeats one already made" not in str(result["error"]):
+        problems.append(f"only repeats: {result}")
+    result, saved, _ = run_agent001([same_words], past, topic="L'orbite comme chute libre")
+    if result["status"] != "not_healthy" or saved.get("novelty", {}).get("verdict") != "duplicate":
+        problems.append(f"imposed repeat: {result}, {saved.get('novelty')}")
+    result, saved, _ = run_agent001([new], [])
+    if result["status"] != "healthy" or saved.get("novelty", {}).get("checked_against") != 0:
+        problems.append(f"first video of a channel: {result}")
+    return report("6. agent001: a topic already made is sent back, by its words or by the LLM", problems)
+
+
+results = [case_voice(), case_display(), case_agent004(), case_script_plan(), case_novelty()]
 try:
     import playwright  # noqa: F401
     results.insert(0, case_plan())

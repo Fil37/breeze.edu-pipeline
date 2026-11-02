@@ -83,7 +83,7 @@ def run_main(argv):
                                    "REPORTS_PATH": os.path.join(root, "reports.json"),
                                    "ROWS_PATH": os.path.join(root, "rows.json"), "db_connect": db_connect,
                                    "log_status": lambda *args, **kwargs: None}),
-                   (agent001, {"llm_call": llm, "INSTANCE_DIR": root,
+                   (agent001, {"llm_call": llm, "INSTANCE_DIR": root, "db_connect": db_connect,   # its topics made: this run's
                                "channel_dir": lambda channel_id: os.makedirs(os.path.join(root, channel_id), exist_ok=True)
                                or os.path.join(root, channel_id),
                                "finish": lambda channel_id, agent, stage, status, output_path, data=None, error=None:

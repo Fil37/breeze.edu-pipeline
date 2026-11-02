@@ -1,8 +1,11 @@
 """
 INPUT:  instance/{channel_id}/outline.json
 OUTPUT: instance/{channel_id}/script.json = {scenes:[{scene_id, narration_text, duration_sec,
-        key_visual_moment}], total_duration_sec, word_count}
-NOTES:  Narration only, aiming at 90-180 s. A scene that cannot be drawn as one visual is split.
+        key_visual_moment}], plan: {narration, parts:[{scene_id, text, cue}]} | null,
+        total_duration_sec, word_count}
+NOTES:  Narration only, aiming at 90-180 s. Also the plan announced after the hook (agent010 shows it):
+        its spoken narration and what each later scene shows; null when the LLM's plan does not
+        match the scenes (agent010 then builds one from the titles). A scene that cannot be drawn as one visual is split.
         Never names a renderer or a template.
         Redone after a QA reject (reject_to agent003), it gets the QA's feedback in LBREEZE_QA_FEEDBACK
         (app/qa_feedback.py) as a "Corrections demandées par le QA" section of its prompt, with what the
@@ -39,11 +42,37 @@ Rules:
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.
-- Scene 1 is the hook (the question, the surprise). Do not announce the plan of the video: it is
-  announced automatically right after scene 1, from the scenes' titles.
+- Scene 1 is the hook (the question, the surprise). Right after it, the video announces its plan:
+  write it in "plan". "narration": 2 or 3 natural spoken sentences (25 to 50 words), as a teacher
+  tells the class where the lesson goes, in the order of the scenes; not a list read aloud, never
+  "D'abord ... Ensuite ... Puis ... Et enfin". "parts": one per scene after scene 1, in order:
+  "scene_id"; "text", what that part will show or make clear, as it is written on screen (4 to 9
+  words, no final full stop: "Pourquoi une pile a 6 volts sans courant"); "cue", the exact words of
+  "narration" (2 to 4 words, copied as written) where that part is announced.
 IMPORTANT: The target audience is French. You MUST write all your output (text, explanations, titles, descriptions, tags) in PERFECT FRENCH. The JSON keys must remain in English, but the VALUES must be in French.
 Answer with JSON only:
-{{"scenes": [{{"scene_id": 1, "narration_text": "...", "duration_sec": 15, "key_visual_moment": "..."}}]}}"""
+{{"scenes": [{{"scene_id": 1, "narration_text": "...", "duration_sec": 15, "key_visual_moment": "..."}}],
+  "plan": {{"narration": "...", "parts": [{{"scene_id": 2, "text": "...", "cue": "..."}}]}}}}"""
+PLAN_TEXT_MAX = 80        # characters of a part's text on screen
+
+
+def checked_plan(plan, scenes):
+    """The plan as agent010 can use it, or None (it then builds one from the scenes' titles): a spoken
+    narration and one short text per scene after the hook, each on a scene of the script."""
+    if not isinstance(plan, dict) or not isinstance(plan.get("narration"), str) or not plan["narration"].strip():
+        return None
+    later = [str(s.get("scene_id")) for s in scenes[1:]]
+    parts = []
+    for part in plan.get("parts") or []:
+        if not isinstance(part, dict) or str(part.get("scene_id")) not in later or not isinstance(part.get("text"), str):
+            continue
+        text = part["text"].strip().rstrip(".")
+        if text and len(text) <= PLAN_TEXT_MAX:
+            parts.append({"scene_id": str(part["scene_id"]), "text": text,
+                          "cue": part["cue"].strip() if isinstance(part.get("cue"), str) else ""})
+    if [p["scene_id"] for p in parts] != later:       # one part per scene after the hook, in order
+        return None
+    return {"narration": plan["narration"].strip(), "parts": parts}
 
 
 def run(channel_id: str, settings: dict, routes: list) -> dict:
@@ -71,6 +100,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     # Totals are computed here, never trusted from the LLM.
     script = {
         "scenes": scenes,
+        "plan": checked_plan(answer.get("plan"), scenes),
         "total_duration_sec": sum(float(s.get("duration_sec", 0)) for s in scenes),
         "word_count": sum(len(str(s.get("narration_text", "")).split()) for s in scenes),
     }

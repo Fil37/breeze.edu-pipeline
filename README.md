@@ -317,6 +317,16 @@ The channels' domains (`schemas/routes.json`) set what agent001 may pick: each d
 its prompt (`DOMAIN_SCOPES`: a "math" channel stays in mathematics, never the seasons), and agent005
 checks a "math" channel with the maths rules alone.
 
+**No topic twice.** agent001's prompt lists the channel's topics already made into a video (`breeze.db`,
+runs that ended `healthy` or `not_healthy`) and forbids them, in other words too. Then the topic it
+picked is checked: first by its key words (4 letters or more, accents and endings dropped: most of
+them found in a topic already made), then by the LLM, asked whether it is the same subject or the
+same misconception from another angle. A repeat is sent back with the reason, up to 3 answers
+(`TOPIC_ATTEMPTS`); if all of them repeat, agent001 is `critical` and no video is made. An imposed
+topic (`--topic`) is checked too but kept: agent001 ends `not_healthy`. `research.json` records the
+check in `"novelty"` (`verdict`: `new`, `duplicate` or `unchecked` when the LLM could not be asked;
+the topics refused and why). Check: `python tests/test_plan.py` (case 6).
+
 `direction` (where a `VECTOR_ARROW` or an `ARROW_ANNOTATION` points, scene axes: x right, y up) is
 either a cardinal, `"UP"` / `"DOWN"` / `"LEFT"` / `"RIGHT"` (case-insensitive, drawn exactly as
 before), or a vector `[x, y]` of two real numbers, of any length but not `[0, 0]`: both renderers
@@ -423,13 +433,18 @@ contradiction shake (0.9 s, fading, flashing red) or a result pulse (two beats, 
 moved by `seek(t)`. agent004's prompt asks for them, once or twice a video; agent005 can patch a tone
 and add an emphasis. Check: `python tests/test_themes.py`.
 
-**The plan.** Right after the hook (scene 1), agent010 adds a scene of its own, "Au programme": its
-voice ("Au programme. D'abord, <titre>. Ensuite, ... Et enfin, <titre>.") and its list are built from
-the scenes' titles (no LLM); each chapter slides in when the voice names it, the one being named lit
-in the accent colour. Every scene after it shows where it is in the plan, top right ("02 / 05" and
-one bar per chapter). No plan for a video of fewer than three scenes (`PLAN_MIN_CHAPTERS`). The plan
-is a scene of `render_manifest.json` (`"scene_id": "plan"`), so agent007's YouTube chapters, built
-from the rendered start times, include it. agent003 is told not to announce the plan itself.
+**The plan.** Right after the hook (scene 1), agent010 adds a scene of its own, "Au programme". agent003
+writes it in `script.json` (`"plan"`): a spoken narration of 2 or 3 natural sentences, as a teacher
+tells the class where the lesson goes (never a list read aloud), and for each later scene what it
+will show, as written on screen ("Pourquoi une pile a 6 volts sans courant"), with the words of the
+narration that announce it (`cue`). Each line slides in when the voice says them, the one being
+announced lit in the accent colour; the list is centred under the titles. agent003 keeps the plan
+only if it has one line per later scene, in order (`checked_plan`), else `"plan": null`, and agent010
+then builds one from the scenes' titles ("Au programme. D'abord, <titre>. ... Et enfin, <titre>.");
+`render_manifest.json` says which (`plan_source`: `script` or `titles`). Every scene after it shows
+where it is in the plan, top right ("02 / 05" and one bar per chapter). No plan for a video of fewer
+than three scenes (`PLAN_MIN_CHAPTERS`). The plan is a scene of `render_manifest.json`
+(`"scene_id": "plan"`), so agent007's YouTube chapters, built from the rendered start times, include it.
 A title, a subtitle, a label or an axis name written in LaTeX ("10^{-n}", "t_n") is shown with
 Unicode exponents and indices ("10⁻ⁿ", "tₙ") when every character has one (`plain_math`).
 A scene whose free components sit high or low (no graph, no straight move) is moved to the middle of

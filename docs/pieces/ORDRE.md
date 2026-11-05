@@ -44,11 +44,11 @@ Une pièce construite couvre toutes les fiches du catalogue de sa ligne.
 | 37 | OPAMP_CIRCUITS | 2 | P1 | ELEC_OPAMP_CIRCUIT, ELEC_FEEDBACK_LOOP | partiel |
 | 38 | BUS_FRAME | 2 | P1 | ELEC_BUS_DIAGRAM, ELEC_COMM_LINK | à faire |
 | 39 | ADC_DAC | 2 | P1 | ELEC_ADC_DAC | à faire |
-| 40 | FREE_BODY | 2 | P1 | PHYS_FREE_BODY_DIAGRAM | à faire |
-| 41 | KINEMATICS | 2 | P1 | PHYS_KINEMATICS_TRACK | à faire |
-| 42 | COLLISION | 2 | P1 | PHYS_COLLISION_STAGE | à faire |
-| 43 | SPRING_PENDULUM | 2 | P1 | PHYS_SPRING_MASS, PHYS_PENDULUM | à faire |
-| 44 | ORBITS | 2 | P1 | PHYS_GRAVITY_FIELD | partiel |
+| 40 | FREE_BODY | 2 | P1 | PHYS_FREE_BODY_DIAGRAM | fait |
+| 41 | KINEMATICS | 2 | P1 | PHYS_KINEMATICS_TRACK | fait |
+| 42 | COLLISION | 2 | P1 | PHYS_COLLISION_STAGE | fait |
+| 43 | SPRING_PENDULUM | 2 | P1 | PHYS_SPRING_MASS, PHYS_PENDULUM | fait |
+| 44 | ORBITS | 2 | P1 | PHYS_GRAVITY_FIELD | fait |
 | 45 | FLUID_PRESSURE | 2 | P1 | PHYS_PRESSURE_FLUID, PHYS_PIPE_FLOW | à faire |
 | 46 | GAS_CHAMBER | 2 | P1 | PHYS_GAS_CHAMBER | à faire |
 | 47 | THERMO_CYCLE | 2 | P1 | PHYS_HEAT_ENGINE, PHYS_THERMO_CYCLE | à faire |

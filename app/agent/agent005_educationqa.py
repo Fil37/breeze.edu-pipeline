@@ -84,13 +84,13 @@ ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_val
            "emphasize")
 STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go",
               "show", "focus", "points", "forces", "relative", "stretch", "spin", "sun", "mode", "configure",
-              "run", "reconfigure", "bounce", "tunnel", "zoom", "wire", "high", "hot", "step", "mark", "energy", "parts", "fill", "row", "column", "total", "sum", "level", "path", "best", "nash", "output", "cc", "voltage")
+              "run", "reconfigure", "bounce", "tunnel", "zoom", "wire", "high", "hot", "step", "mark", "energy", "parts", "fill", "row", "column", "total", "sum", "level", "path", "best", "nash", "output", "cc", "voltage", "axes", "project", "move", "strobe", "vectors", "graphs", "balance", "graph", "period", "force", "speed", "areas")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
                                    "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
                                    "distance", "distance_unit", "runners", "total", "per", "groups", "rest", "inputs", "gates",
                                    "outputs", "values", "cols", "rows", "design", "design2", "particle", "barrier", "zoom", "instructions", "parts", "nets", "mode", "loops", "columns", "steps", "loop", "events", "parts", "slices", "from", "to", "root", "branches", "a", "b", "both",
-                                   "players", "strategies", "payoffs", "bars", "line", "notes", "current_limit")
+                                   "players", "strategies", "payoffs", "bars", "line", "notes", "current_limit", "body", "mass", "incline", "forces", "v0", "a", "g", "m1", "v1", "m2", "v2", "type", "k", "m", "damping", "x0", "L", "theta0", "e", "central")
 VOCABULARY = "\n".join(f"  * {t.value}: ports {list(p) if p else 'none'}" for t, p in COMPONENT_PORTS.items())
 
 PROMPT = """ROLE: You are the lead pedagogical QA judge of an educational animation studio. You review a

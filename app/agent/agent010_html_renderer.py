@@ -71,7 +71,7 @@ from app.breadboard import breadboard_data
 from app.layout_solver import (TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
                                logic_size, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
-from models.visual_brief_schema import SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
+from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
                                         check_curve, check_function_expression, find_cue,
                                         is_number, is_parametric, is_status_annotation, measured_axis, narration_words, parameter_range,
@@ -514,6 +514,67 @@ def simple_data(kind, state):
     return out
 
 
+def phys_data(kind, state):
+    """The physics pieces, worked out here (resultants, flight times, velocities after a collision,
+    periods): the page moves things with the same exact formulas, the figures shown come from here."""
+    width, height = simple_size(kind, state)
+    out = {"kind": kind, "width": width, "height": height}
+    if kind == "FREE_BODY":
+        m, forces = float(state.get("mass", 1)), state["forces"]
+        sx, sy = sum(f.get("x", 0) for f in forces), sum(f.get("y", 0) for f in forces)
+        biggest = max(math.hypot(f.get("x", 0), f.get("y", 0)) for f in forces)
+        r = math.hypot(sx, sy)
+        out.update(body=state.get("body", "block"), incline=float(state.get("incline", 0)), scale=170 / biggest,
+                   forces=[{"name": plain_math(f["name"]), "symbol": plain_math(str(f.get("symbol") or f["name"][:1])),
+                            "x": f.get("x", 0), "y": f.get("y", 0), "text": f"{figure(math.hypot(f.get('x', 0), f.get('y', 0)), 1)} N"} for f in forces],
+                   sum=[sx, sy], balanced=r < 0.01 * biggest,
+                   sum_text=("ΣF = 0 : équilibre, pas d'accélération" if r < 0.01 * biggest
+                             else f"ΣF = {figure(r, 1)} N  →  a = ΣF / m = {figure(r / m, 2)} m/s²"))
+    elif kind == "KINEMATICS":
+        k, (vx, vy), g, a = state.get("kind", "projectile"), state.get("v0", [10, 5]), float(state.get("g", 9.8)), float(state.get("a", 2))
+        if k == "projectile":
+            T = 2 * vy / g
+            out["text"] = f"Durée {figure(T, 2)} s · portée {figure(vx * T, 1)} m · hauteur max {figure(vy * vy / (2 * g), 1)} m"
+        elif k == "free_fall":
+            T, vx, vy = 2.0, 0.0, 0.0
+            out["text"] = f"En 2 s : chute de {figure(0.5 * g * 4, 1)} m, vitesse {figure(g * 2, 1)} m/s"
+        elif k == "accelerated":
+            T = 4.0
+            out["text"] = f"En 4 s : {figure(vx * T + a * T * T / 2, 1)} m, vitesse {figure(vx + a * T, 1)} m/s"
+        else:
+            T = 4.0
+            out["text"] = f"Vitesse constante {figure(vx, 1)} m/s : {figure(vx * T, 1)} m en 4 s"
+        out.update(motion=k, vx=vx, vy=vy, g=g, a=a, T=T)
+    elif kind == "COLLISION":
+        m1, v1, m2, v2 = (float(state[k]) for k in ("m1", "v1", "m2", "v2"))
+        if state.get("type", "elastic") == "elastic":
+            u1, u2 = ((m1 - m2) * v1 + 2 * m2 * v2) / (m1 + m2), ((m2 - m1) * v2 + 2 * m1 * v1) / (m1 + m2)
+        else:
+            u1 = u2 = (m1 * v1 + m2 * v2) / (m1 + m2)
+        e0, e1 = 0.5 * m1 * v1 ** 2 + 0.5 * m2 * v2 ** 2, 0.5 * m1 * u1 ** 2 + 0.5 * m2 * u2 ** 2
+        out.update(m1=m1, m2=m2, v1=v1, v2=v2, u1=u1, u2=u2, elastic=state.get("type", "elastic") == "elastic",
+                   before=f"Avant : p = {figure(m1 * v1 + m2 * v2, 2)} kg·m/s, Ec = {figure(e0, 2)} J",
+                   after=f"Après : p = {figure(m1 * u1 + m2 * u2, 2)} kg·m/s, Ec = {figure(e1, 2)} J",
+                   verdict="Quantité de mouvement conservée" + (", énergie cinétique conservée" if abs(e1 - e0) < 1e-6 * max(e0, 1)
+                                                                else f", {figure(e0 - e1, 2)} J perdus (déformation, chaleur)"),
+                   speeds=[f"{figure(v, 2)} m/s" for v in (v1, v2, u1, u2)], masses=[f"{figure(m1)} kg", f"{figure(m2)} kg"])
+    elif kind == "OSCILLATOR":
+        if state.get("kind", "spring") == "pendulum":
+            L, g, th = float(state.get("L", 1)), float(state.get("g", 9.8)), float(state.get("theta0", 20))
+            w = math.sqrt(g / L)
+            out.update(osc="pendulum", omega=w, gamma=0.0, amp=th, T=2 * math.pi / w,
+                       period=f"T = 2π √(L / g) = {figure(2 * math.pi / w, 2)} s")
+        else:
+            k, m, d, x0 = float(state.get("k", 100)), float(state.get("m", 1)), float(state.get("damping", 0)), float(state.get("x0", 0.1))
+            w = math.sqrt(k / m)
+            out.update(osc="spring", omega=w, gamma=d * w, amp=x0, T=2 * math.pi / w,
+                       period=f"T = 2π √(m / k) = {figure(2 * math.pi / w, 2)} s")
+    elif kind == "ORBIT":
+        out.update(e=float(state.get("e", 0.5)), central=plain_math(str(state.get("central") or "Terre")),
+                   body=plain_math(str(state.get("body") or "Satellite")))
+    return out
+
+
 def chain_data(state):
     """CHAIN: its boxes' centres (left to right, a second row under the first past four, its arrows
     between them), and the loop back from the last to the first."""
@@ -606,6 +667,8 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["table"] = table_data(state)
     if entity["type"] == "CHAIN":                 # steps or causes, one after the other
         data["chain"] = chain_data(state)
+    if entity["type"] in PHYS_PIECES:             # the physics pieces, worked out here
+        data["phys"] = phys_data(entity["type"], state)
     if entity["type"] in SIMPLE_PIECES:           # the simple catalogue pieces, worked out here
         data["simple"] = simple_data(entity["type"], state)
     if entity["type"] == "WAVE":                  # a rope, the sea, a crowd, a spring: drawn and moved by the page
@@ -2259,6 +2322,217 @@ function seekSimple(e, t) {
     p.cc.style.fill = on && cc ? "#EF4444" : "#7F1D1D";
   }
 }
+// Physics pieces (FREE_BODY, KINEMATICS, COLLISION, OSCILLATOR, ORBIT): their figures worked out in
+// Python (phys_data); here, things move by the same exact formulas, time slowed or sped up so that one
+// motion lasts PHYS_RUN s on screen. Texts from the brief as textContent only.
+const PHYS_RUN = 3.5;
+function arrowSvg(g, x1, y1, x2, y2, color, width = 5) {     // a straight arrow, its head at (x2, y2)
+  const a = Math.atan2(y2 - y1, x2 - x1), h = 16;
+  sv("line", {x1, y1, x2: x2 - Math.cos(a) * h * 0.6, y2: y2 - Math.sin(a) * h * 0.6, stroke: color, "stroke-width": width, "stroke-linecap": "round"}, g);
+  sv("path", {d: `M${x2} ${y2} L${x2 - h * Math.cos(a - 0.4)} ${y2 - h * Math.sin(a - 0.4)} L${x2 - h * Math.cos(a + 0.4)} ${y2 - h * Math.sin(a + 0.4)} Z`, fill: color}, g);
+}
+function physStart(e, key = "go") {             // when the motion starts: its "go", else from the pop
+  return e.states.some(s => s.state && typeof s.state === "object" && key in s.state) ? stateTime(e, key) : (e.spawn || 0) + 0.6;
+}
+function shownFrom(e, key, t, d = 0.5) { const at = stateTime(e, key); return at === null ? 0 : clamp((t - at) / d, 0, 1); }
+function buildPhys(ent) {
+  const z = ent.phys, shape = el("div", "simple"), p = {};
+  Object.assign(shape.style, {width: `${z.width}px`, height: `${z.height}px`});
+  const s = sv("svg", {width: z.width, height: z.height, viewBox: `0 0 ${z.width} ${z.height}`, overflow: "visible"});
+  shape.append(s); p.s = s;
+  if (z.kind === "FREE_BODY") {
+    const cx = z.width / 2 - 80, cy = z.height / 2, rad = -z.incline * Math.PI / 180;
+    p.world = sv("g", {}, s);
+    if (z.incline) sv("path", {d: `M${cx - 330} ${cy + 60 + 330 * Math.tan(-rad)} L${cx + 330} ${cy + 60 - 330 * Math.tan(-rad)} L${cx + 330} ${cy + 60 + 330 * Math.tan(-rad)} Z`,
+                              fill: "color-mix(in srgb, var(--muted) 25%, transparent)", stroke: "var(--muted)", "stroke-width": 3}, s);
+    else sv("line", {x1: cx - 330, y1: cy + 60, x2: cx + 330, y2: cy + 60, stroke: "var(--muted)", "stroke-width": 4}, s);
+    p.body = sv("g", {transform: `translate(${cx} ${cy}) rotate(${-z.incline})`}, s);
+    if (z.body === "ball") sv("circle", {cx: 0, cy: 0, r: 56, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, p.body);
+    else sv("rect", {x: -70, y: -58, width: 140, height: 116, rx: 10, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, p.body);
+    p.centre = [cx, cy];
+    p.axes = sv("g", {opacity: 0, transform: `translate(${cx} ${cy}) rotate(${-z.incline})`}, s);
+    arrowSvg(p.axes, -230, 0, 230, 0, "var(--muted)", 2); arrowSvg(p.axes, 0, 230, 0, -230, "var(--muted)", 2);
+    txt(p.axes, 240, -10, "x", "start", "note"); txt(p.axes, 10, -236, "y", "start", "note");
+    p.forces = z.forces.map((f, i) => { const g = sv("g", {opacity: 0}, s), dx = f.x * z.scale, dy = -f.y * z.scale;
+      arrowSvg(g, cx, cy, cx + dx, cy + dy, SIMPLE_COLORS[i % SIMPLE_COLORS.length]);
+      txt(g, cx + dx * 1.12 + (dx >= 0 ? 10 : -10), cy + dy * 1.12 + 8, `${f.symbol} = ${f.text}`, dx >= 0 ? "start" : "end");
+      // its components along the axes (tilted with the slope): ex = (cos θ, sin θ), ey = (−sin θ, cos θ), y up
+      const proj = sv("g", {opacity: 0}, s), th = z.incline * Math.PI / 180, ex = [Math.cos(th), Math.sin(th)], ey = [-Math.sin(th), Math.cos(th)];
+      const fx = f.x * ex[0] + f.y * ex[1], fy = f.x * ey[0] + f.y * ey[1];
+      const px = [cx + fx * ex[0] * z.scale, cy - fx * ex[1] * z.scale], py = [cx + fy * ey[0] * z.scale, cy - fy * ey[1] * z.scale];
+      sv("line", {x1: cx + dx, y1: cy + dy, x2: px[0], y2: px[1], stroke: SIMPLE_COLORS[i % SIMPLE_COLORS.length], "stroke-width": 2, "stroke-dasharray": "6 6"}, proj);
+      sv("line", {x1: cx + dx, y1: cy + dy, x2: py[0], y2: py[1], stroke: SIMPLE_COLORS[i % SIMPLE_COLORS.length], "stroke-width": 2, "stroke-dasharray": "6 6"}, proj);
+      return {g, proj}; });
+    p.sum = sv("g", {opacity: 0}, s);
+    if (!z.balanced) arrowSvg(p.sum, cx, cy, cx + z.sum[0] * z.scale, cy - z.sum[1] * z.scale, "#EF4444", 7);
+    txt(p.sum, z.width / 2, z.height - 16, z.sum_text, "middle");
+  } else if (z.kind === "KINEMATICS") {
+    const left = 80, bottom = z.height - 70, w = 760, h = z.height - 160, T = z.T;
+    const pos = tt => z.motion === "projectile" ? [z.vx * tt, z.vy * tt - z.g * tt * tt / 2]
+                    : z.motion === "free_fall" ? [0, -z.g * tt * tt / 2]
+                    : z.motion === "accelerated" ? [z.vx * tt + z.a * tt * tt / 2, 0] : [z.vx * tt, 0];
+    const vel = tt => z.motion === "projectile" ? [z.vx, z.vy - z.g * tt] : z.motion === "free_fall" ? [0, -z.g * tt]
+                    : z.motion === "accelerated" ? [z.vx + z.a * tt, 0] : [z.vx, 0];
+    const pts = Array.from({length: 41}, (_, i) => pos(T * i / 40));
+    const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs) || 1, y0 = Math.min(0, ...ys), y1 = Math.max(0, ...ys);
+    const k = Math.min(w / ((x1 - x0) || 1), h / ((y1 - y0) || 1)), base = z.motion === "free_fall" ? left + w / 2 : left;
+    const X = q => base + (q[0] - x0) * (z.motion === "free_fall" ? 0 : k), Y = q => bottom - (q[1] - y0) * k - (z.motion === "free_fall" ? 0 : 0);
+    p.pos = pos; p.vel = vel; p.X = X; p.Y = Y; p.k = Math.min(k, 30);
+    sv("line", {x1: left - 20, y1: bottom, x2: left + w + 20, y2: bottom, stroke: "var(--muted)", "stroke-width": 3}, s);
+    sv("path", {d: "M" + pts.map(q => `${X(q).toFixed(1)} ${Y(q).toFixed(1)}`).join(" L"), fill: "none", stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 8"}, s);
+    p.ghosts = Array.from({length: 8}, (_, i) => sv("circle", {cx: X(pos(T * (i + 1) / 9)), cy: Y(pos(T * (i + 1) / 9)), r: 12, fill: "var(--accent)", opacity: 0}, s));
+    p.dot = sv("circle", {r: 16, fill: "#F59E0B", stroke: "#FDE68A", "stroke-width": 3}, s);
+    p.vecs = sv("g", {opacity: 0}, s);
+    // the graphs on the right: x(t) and v(t)
+    p.graphs = sv("g", {opacity: 0}, s);
+    const gx = left + w + 80, gw = z.width - gx - 30, gh = (z.height - 170) / 2;
+    p.gbox = [gx, gw, gh];
+    [["x(t)", 30], ["v(t)", 60 + gh]].forEach(([name, y]) => {
+      sv("line", {x1: gx, y1: y + gh, x2: gx + gw, y2: y + gh, stroke: "var(--muted)", "stroke-width": 2}, p.graphs);
+      sv("line", {x1: gx, y1: y, x2: gx, y2: y + gh, stroke: "var(--muted)", "stroke-width": 2}, p.graphs);
+      txt(p.graphs, gx + 8, y + 18, name, "start", "note"); });
+    p.gx = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 4}, p.graphs);
+    p.gv = sv("path", {d: "", fill: "none", stroke: "#22C55E", "stroke-width": 4}, p.graphs);
+    const speeds = Array.from({length: 41}, (_, i) => Math.hypot(...vel(T * i / 40)));
+    p.vmax = Math.max(...speeds, 1e-9); p.xmax = Math.max(...pts.map(q => Math.hypot(q[0] - pts[0][0], q[1] - pts[0][1])), 1e-9);
+    txt(s, (left + left + w) / 2, z.height - 16, z.text, "middle", "note");
+  } else if (z.kind === "COLLISION") {
+    const r1 = 30 + 18 * Math.sqrt(z.m1), r2 = 30 + 18 * Math.sqrt(z.m2), y = 190;
+    sv("line", {x1: 40, y1: y + Math.max(r1, r2) + 4, x2: z.width - 40, y2: y + Math.max(r1, r2) + 4, stroke: "var(--muted)", "stroke-width": 3}, s);
+    p.b1 = sv("g", {}, s); sv("circle", {r: r1, fill: "#3B82F6"}, p.b1); txt(p.b1, 0, 9, z.masses[0]).style.fill = "#FFFFFF";
+    p.b2 = sv("g", {}, s); sv("circle", {r: r2, fill: "#F59E0B"}, p.b2); txt(p.b2, 0, 9, z.masses[1]).style.fill = "#111827";
+    p.v1 = sv("g", {}, s); p.v2 = sv("g", {}, s); p.r = [r1, r2]; p.y = y;
+    p.flash = sv("circle", {r: 30, fill: "#FDE68A", opacity: 0}, s);
+    p.balance = sv("g", {opacity: 0}, s);
+    txt(p.balance, z.width / 2, 340, z.before); txt(p.balance, z.width / 2, 384, z.after); txt(p.balance, z.width / 2, 430, z.verdict, "middle", "note");
+  } else if (z.kind === "OSCILLATOR") {
+    if (z.osc === "spring") {
+      sv("rect", {x: 40, y: 120, width: 24, height: 180, fill: "var(--muted)"}, s);
+      sv("line", {x1: 40, y1: 300, x2: 720, y2: 300, stroke: "var(--muted)", "stroke-width": 3}, s);
+      p.spring = sv("path", {d: "", fill: "none", stroke: "var(--ink)", "stroke-width": 4, "stroke-linejoin": "round"}, s);
+      p.mass = sv("rect", {y: 160, width: 120, height: 120, rx: 10, fill: "#3B82F6"}, s);
+      p.rest = sv("line", {x1: 360, y1: 110, x2: 360, y2: 310, stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 6"}, s);
+    } else {
+      sv("rect", {x: 300, y: 36, width: 120, height: 14, fill: "var(--muted)"}, s);
+      p.string = sv("line", {x1: 360, y1: 50, stroke: "var(--ink)", "stroke-width": 3}, s);
+      p.bob = sv("circle", {r: 30, fill: "#3B82F6"}, s);
+      sv("line", {x1: 360, y1: 50, x2: 360, y2: 400, stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 6"}, s);
+    }
+    p.energy = sv("g", {opacity: 0}, s);           // two bars: kinetic, potential
+    txt(p.energy, 830, 420, "Ec", "middle", "note"); txt(p.energy, 930, 420, "Ep", "middle", "note");
+    p.ec = sv("rect", {x: 805, width: 50, fill: "#22C55E"}, p.energy); p.ep = sv("rect", {x: 905, width: 50, fill: "#F59E0B"}, p.energy);
+    p.graph = sv("g", {opacity: 0}, s);
+    sv("line", {x1: 1000, y1: 250, x2: z.width - 20, y2: 250, stroke: "var(--muted)", "stroke-width": 2}, p.graph);
+    txt(p.graph, 1010, 110, z.osc === "spring" ? "x(t)" : "θ(t)", "start", "note");
+    p.curve = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 4}, p.graph);
+    p.period = txt(s, 380, z.height - 20, z.period, "middle", "big"); p.period.setAttribute("opacity", 0);
+  } else if (z.kind === "ORBIT") {
+    const a = 340, b = a * Math.sqrt(1 - z.e * z.e), c = a * z.e, cx = z.width / 2 + c, cy = z.height / 2 - 10;
+    p.geo = {a, b, c, cx, cy};       // the ellipse's centre at (cx - c, cy); the central body at the focus (cx, cy)
+    sv("ellipse", {cx: cx - c, cy, rx: a, ry: b, fill: "none", stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 8"}, s);
+    p.areas = sv("g", {opacity: 0}, s);
+    p.sweeps = [sv("path", {d: "", fill: "#3B82F6", opacity: 0.35}, p.areas), sv("path", {d: "", fill: "#F59E0B", opacity: 0.35}, p.areas)];
+    sv("circle", {cx, cy, r: 46, fill: "#2563EB"}, s); txt(s, cx, cy + 80, z.central, "middle", "note");
+    p.force = sv("g", {}, s); p.speed = sv("g", {}, s);
+    p.sat = sv("circle", {r: 14, fill: "#F59E0B"}, s); p.name = txt(s, 0, 0, z.body, "middle", "note");
+  }
+  ent.physParts = p;
+  return shape;
+}
+function keplerAt(e, M) {           // the eccentric anomaly E for the mean anomaly M: E - e sin E = M (Newton)
+  let E = M;
+  for (let i = 0; i < 8; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  return E;
+}
+function seekPhys(e, t) {
+  const z = e.data.phys, p = e.data.physParts;
+  if (z.kind === "FREE_BODY") {
+    p.forces.forEach((f, i) => { f.g.setAttribute("opacity", clamp((t - inTurn(e, "step", i)) / 0.5, 0, 1));
+      f.proj.setAttribute("opacity", shownFrom(e, "project", t)); });
+    p.axes.setAttribute("opacity", shownFrom(e, "axes", t));
+    p.sum.setAttribute("opacity", shownFrom(e, "sum", t));
+    const move = stateTime(e, "move"), u = move === null || t < move || z.balanced ? 0 : Math.min(t - move, 2.5);
+    const shift = 0.5 * 40 * u * u, len = Math.hypot(...z.sum) || 1;      // drawn moving the way the resultant goes
+    p.body.setAttribute("transform", `translate(${p.centre[0] + shift * z.sum[0] / len} ${p.centre[1] - shift * z.sum[1] / len}) rotate(${-z.incline})`);
+  } else if (z.kind === "KINEMATICS") {
+    const go = physStart(e), slow = z.T / PHYS_RUN, tt = go === null || t < go ? 0 : Math.min((t - go) * slow, z.T);
+    const q = p.pos(tt), v = p.vel(tt);
+    p.dot.setAttribute("cx", p.X(q)); p.dot.setAttribute("cy", p.Y(q));
+    const strobe = stateTime(e, "strobe");
+    p.ghosts.forEach((g, i) => g.setAttribute("opacity", strobe !== null && t >= strobe && tt >= z.T * (i + 1) / 9 ? 0.45 : 0));
+    p.vecs.replaceChildren(); p.vecs.setAttribute("opacity", shownFrom(e, "vectors", t));
+    const vk = 120 / p.vmax, ak = z.motion === "uniform" ? 0 : 70 / Math.max(z.g, Math.abs(z.a), 1e-9);
+    arrowSvg(p.vecs, p.X(q), p.Y(q), p.X(q) + v[0] * vk, p.Y(q) - v[1] * vk, "#22C55E", 5);
+    const acc = z.motion === "projectile" || z.motion === "free_fall" ? [0, -z.g] : z.motion === "accelerated" ? [z.a, 0] : [0, 0];
+    if (ak) arrowSvg(p.vecs, p.X(q), p.Y(q), p.X(q) + acc[0] * ak, p.Y(q) - acc[1] * ak, "#EF4444", 5);
+    p.graphs.setAttribute("opacity", shownFrom(e, "graphs", t));
+    const [gx, gw, gh] = p.gbox, n = 30, x0 = p.pos(0), gpx = [], gpv = [];
+    for (let i = 0; i <= n; i++) { const ti = tt * i / n, qi = p.pos(ti);
+      gpx.push(`${gx + gw * ti / z.T} ${30 + gh - gh * Math.hypot(qi[0] - x0[0], qi[1] - x0[1]) / p.xmax}`);
+      gpv.push(`${gx + gw * ti / z.T} ${60 + 2 * gh - gh * Math.hypot(...p.vel(ti)) / p.vmax}`); }
+    p.gx.setAttribute("d", "M" + gpx.join(" L")); p.gv.setAttribute("d", "M" + gpv.join(" L"));
+  } else if (z.kind === "COLLISION") {
+    // on screen: approach at the bodies' speeds (to scale) until they touch, then their speeds after
+    const go = physStart(e), u = go === null || t < go ? 0 : t - go, vs = 70 / Math.max(Math.abs(z.v1), Math.abs(z.v2), 1e-9);
+    const gap = 520 - p.r[0] - p.r[1], tHit = gap / ((z.v1 - z.v2) * vs);
+    const before = Math.min(u, tHit), after = Math.max(0, u - tHit);
+    let x1 = z.width / 2 - 260 + z.v1 * vs * before, x2 = z.width / 2 + 260 + z.v2 * vs * before;
+    x1 += z.u1 * vs * after; x2 += z.u2 * vs * after;
+    p.b1.setAttribute("transform", `translate(${x1} ${p.y})`); p.b2.setAttribute("transform", `translate(${x2} ${p.y})`);
+    const hit = u >= tHit;
+    p.flash.setAttribute("cx", x1 + p.r[0]); p.flash.setAttribute("cy", p.y);
+    p.flash.setAttribute("opacity", hit ? Math.max(0, 1 - after / 0.4) : 0);
+    for (const [g, x, r, v, text] of [[p.v1, x1, p.r[0], hit ? z.u1 : z.v1, z.speeds[hit ? 2 : 0]], [p.v2, x2, p.r[1], hit ? z.u2 : z.v2, z.speeds[hit ? 3 : 1]]]) {
+      g.replaceChildren();
+      if (Math.abs(v) > 1e-6) arrowSvg(g, x, p.y - r - 26, x + v * vs * 1.6, p.y - r - 26, "#22C55E", 5);
+      txt(g, x, p.y - r - 44, text, "middle", "note");
+    }
+    p.balance.setAttribute("opacity", shownFrom(e, "balance", t));
+  } else if (z.kind === "OSCILLATOR") {
+    const go = physStart(e), shownT = z.T * 2.2, slow = shownT / (PHYS_RUN * 2), u = go === null || t < go ? 0 : (t - go) * slow;
+    const wd = Math.sqrt(Math.max(z.omega * z.omega - z.gamma * z.gamma, 1e-9)), at = tt => Math.exp(-z.gamma * tt) * Math.cos(wd * tt);
+    const f = go === null || t < go ? 1 : at(u);      // released from its start position
+    const v = go === null || t < go ? 0 : -Math.exp(-z.gamma * u) * (z.gamma * Math.cos(wd * u) + wd * Math.sin(wd * u)) / z.omega;
+    if (z.osc === "spring") {
+      const x = 360 + 160 * f, coils = 12, pts = [`64 220`];
+      for (let i = 1; i <= coils; i++) pts.push(`${64 + (x - 64) * (i - 0.5) / coils} ${220 + (i % 2 ? -28 : 28)}`);
+      pts.push(`${x} 220`);
+      p.spring.setAttribute("d", "M" + pts.join(" L")); p.mass.setAttribute("x", x);
+    } else {
+      const th = z.amp * f * Math.PI / 180, L = 300, bx = 360 + L * Math.sin(th), by = 50 + L * Math.cos(th);
+      p.string.setAttribute("x2", bx); p.string.setAttribute("y2", by); p.bob.setAttribute("cx", bx); p.bob.setAttribute("cy", by);
+    }
+    // energies: Ep ~ f², Ec ~ v² (shares of the starting energy, damped as the motion is)
+    const ep = f * f, ec = v * v, H = 260;
+    p.energy.setAttribute("opacity", shownFrom(e, "energy", t));
+    p.ec.setAttribute("y", 400 - H * ec); p.ec.setAttribute("height", H * ec);
+    p.ep.setAttribute("y", 400 - H * ep); p.ep.setAttribute("height", H * ep);
+    p.graph.setAttribute("opacity", shownFrom(e, "graph", t));
+    const gw = z.width - 1030, pts = [];
+    for (let i = 0; i <= 80; i++) { const ti = u * i / 80; pts.push(`${1010 + gw * ti / shownT} ${250 - 110 * at(ti)}`); }
+    p.curve.setAttribute("d", go === null || t < go ? "" : "M" + pts.join(" L"));
+    p.period.setAttribute("opacity", shownFrom(e, "period", t));
+  } else if (z.kind === "ORBIT") {
+    const {a, b, c, cx, cy} = p.geo, go = physStart(e), M = go === null || t < go ? 0 : 2 * Math.PI * (t - go) / (PHYS_RUN * 1.6);
+    const at = Mx => { const E = keplerAt(z.e, Mx); return [cx - c + a * Math.cos(E), cy + b * Math.sin(E)]; };
+    const [x, y] = at(M), [xn, yn] = at(M + 0.01);
+    p.sat.setAttribute("cx", x); p.sat.setAttribute("cy", y);
+    p.name.setAttribute("x", x); p.name.setAttribute("y", y - 26);
+    p.force.replaceChildren(); p.force.setAttribute("opacity", shownFrom(e, "force", t));
+    const r = Math.hypot(x - cx, y - cy), pull = Math.min(160, 60 * (a * (1 - z.e)) ** 2 / (r * r) * 1.6);   // ~ 1 / r²
+    arrowSvg(p.force, x, y, x + (cx - x) / r * pull, y + (cy - y) / r * pull, "#EF4444", 5);
+    p.speed.replaceChildren(); p.speed.setAttribute("opacity", shownFrom(e, "speed", t));
+    const vis = Math.sqrt(2 / r - 1 / a), vmax = Math.sqrt(2 / (a * (1 - z.e)) - 1 / a), len = 130 * vis / vmax;   // vis-viva
+    const dx = xn - x, dy = yn - y, dl = Math.hypot(dx, dy) || 1;
+    arrowSvg(p.speed, x, y, x + dx / dl * len, y + dy / dl * len, "#22C55E", 5);
+    // Kepler's second law: two arcs of equal time, one near the centre, one far: equal areas
+    p.areas.setAttribute("opacity", shownFrom(e, "areas", t));
+    const sector = (m0, m1) => { const pts = []; for (let i = 0; i <= 24; i++) pts.push(at(m0 + (m1 - m0) * i / 24).map(v => v.toFixed(1)).join(" "));
+      return `M${cx} ${cy} L${pts.join(" L")} Z`; };
+    p.sweeps[0].setAttribute("d", sector(-0.35, 0.35)); p.sweeps[1].setAttribute("d", sector(Math.PI - 0.35, Math.PI + 0.35));
+  }
+}
 function tunnelWave(centre, spread, phase) {
   // a wave packet along the tube around `centre`; beyond the wall its height is a third (what gets through)
   const pts = [];
@@ -3058,6 +3332,7 @@ for (const ent of D.entities) {
   else if (ent.table) shape = buildTable(ent);
   else if (ent.chain) shape = buildChain(ent);
   else if (ent.simple) shape = buildSimple(ent);
+  else if (ent.phys) shape = buildPhys(ent);
   else if (ent.mcu) shape = buildMcu(ent);
   else if (ent.breadboard) shape = buildBreadboard(ent);
   else if (ent.logic) shape = buildLogic(ent);
@@ -3455,7 +3730,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.phys || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -4497,7 +4772,7 @@ function seekWater(e, t) {
 const EMPHASIS = {shake: 0.9, pulse: 1.2};
 // A large drawing (tides, a seesaw, a race, a grid of dots, lanes) has no card around it: a ring would
 // draw a rectangle round the whole page; it only beats, gently.
-const bigDrawing = e => e.data.tides || e.data.seesaw || e.data.race || e.data.population || e.data.lanes || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga;
+const bigDrawing = e => e.data.tides || e.data.seesaw || e.data.race || e.data.population || e.data.lanes || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.phys || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga;
 function seekEmphasis(e, t) {
   if (!e.emphases || !e.shape) return;
   const ev = e.emphases.filter(x => x.at <= t && t < x.at + EMPHASIS[x.effect]).pop();
@@ -4698,6 +4973,8 @@ window.seek = function (t) {
       seekChain(e, t);
     } else if (e.data.simple) {
       seekSimple(e, t);
+    } else if (e.data.phys) {
+      seekPhys(e, t);
     } else if (e.data.mcu) {
       seekMcu(e, t);
     } else if (e.data.breadboard) {

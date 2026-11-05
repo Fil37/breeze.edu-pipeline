@@ -96,6 +96,8 @@ def chain_size(state):
     return per_row * CHAIN_BOX[0] + (per_row - 1) * CHAIN_GAP + loop, rows * CHAIN_BOX[1] + (rows - 1) * 70 + loop
 
 
+PHYS_SIZES = {"FREE_BODY": (1000, 600), "KINEMATICS": (1300, 560), "COLLISION": (1300, 470), "OSCILLATOR": (1300, 560),
+              "ORBIT": (1000, 640)}
 SIMPLE_SIZES = {"TIMELINE": (1300, 300), "FRACTION_BAR": (1100, 300), "PIE_CHART": (1000, 560), "UNIT_CONVERTER": (1200, 360),
                 "SET_DIAGRAM": (960, 560), "GAME_MATRIX": (1000, 520), "BAR_CHART": (1100, 560), "POWER_SUPPLY": (300, 230)}
 TREE_LEVEL, TREE_LEAF = 330, 74             # TREE: a level's width, a leaf's height
@@ -115,7 +117,7 @@ def simple_size(kind, state):
         return 200 + TREE_LEVEL * tree_depth(state.get("branches")) + 220, max(300, TREE_LEAF * tree_leaves(state.get("branches")) + 40)
     if kind == "EQUATION_STEPS":
         return 1000, EQUATION_LINE * len(state.get("steps") or [1])
-    return SIMPLE_SIZES[kind]
+    return PHYS_SIZES.get(kind) or SIMPLE_SIZES[kind]
 
 
 WAVE_SIZE = (1300, 420)                    # WAVE: the medium across, its marked point, the energy over it
@@ -351,6 +353,8 @@ def shape_size(entity, graph_count):
         return TUNNEL_SIZE
     if kind == "TABLE":
         return table_size(state)
+    if kind in PHYS_SIZES:
+        return PHYS_SIZES[kind]
     if kind in SIMPLE_SIZES or kind in ("TREE", "EQUATION_STEPS"):
         return simple_size(kind, state)
     if kind == "CHAIN":

@@ -704,7 +704,13 @@ TREE (a path's probability, the product), SET_DIAGRAM (two sets, each region cou
 GAME_MATRIX (best answers, the Nash equilibrium), BAR_CHART (one scale, negatives below, a reference
 line), EQUATION_STEPS (LaTeX lines, what is done on each arrow), POWER_SUPPLY (a bench supply wired
 like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: its mode, a beep under
-30 Ω). Check: `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. agent004 sends back a wave drawn as discs or
+30 Ω). Check: `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
+(exact motions, conservation laws): FREE_BODY (forces to scale, components along the slope, the
+resultant, a = ΣF / m), KINEMATICS (a projectile, a uniform, accelerated or free fall: strobe images,
+v and a, x(t) and v(t)), COLLISION (velocities after an elastic or inelastic collision, momentum and
+energy before / after), OSCILLATOR (a damped spring or a pendulum: the motion, Ec / Ep, x(t), the
+period), ORBIT (Kepler's equation solved each frame: faster near the centre, the pull in 1/r², equal
+areas). Check: `python tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
 icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
 A scene with a drawing as wide as the screen (WAVE, TIDES, TUNNEL, BREADBOARD, LOGIC_CIRCUIT...) stays
 "circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python tests/test_wave.py`.

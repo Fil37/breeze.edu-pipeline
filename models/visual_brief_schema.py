@@ -69,6 +69,11 @@ class ComponentType(str, Enum):
     BAR_CHART = "BAR_CHART"                  # values as bars to one scale, growing in turn, a reference line
     EQUATION_STEPS = "EQUATION_STEPS"        # an equation solved line after line, what is done to both sides on each arrow
     POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
+    FREE_BODY = "FREE_BODY"                  # a body and the forces on it, to scale: axes, projections, the resultant, the motion
+    KINEMATICS = "KINEMATICS"                # a moving body: its path, strobe images, velocity and acceleration, x(t) and v(t)
+    COLLISION = "COLLISION"                  # two bodies colliding on a line: momentum kept, energy kept or lost
+    OSCILLATOR = "OSCILLATOR"                # a mass on a spring or a pendulum: the motion, the energies, x(t), the period
+    ORBIT = "ORBIT"                          # a body on its Kepler orbit: faster near the centre, the pull, equal areas
     WAVE = "WAVE"                            # a mechanical wave: a rope, the sea, a crowd (ola), a spring (sound); the medium stays
     TUNNEL = "TUNNEL"                        # a zoom into a tube, a dot and a wall as a line across it: it bounces back, or tunnels through
     # Schematic parts (standard symbols), for circuits built step by step: wired by their ports
@@ -123,6 +128,11 @@ COMPONENT_PORTS = {
     ComponentType.TUNNEL: (),
     ComponentType.WAVE: (),
     ComponentType.TABLE: (),
+    ComponentType.FREE_BODY: (),
+    ComponentType.KINEMATICS: (),
+    ComponentType.COLLISION: (),
+    ComponentType.OSCILLATOR: (),
+    ComponentType.ORBIT: (),
     ComponentType.TIMELINE: (),
     ComponentType.FRACTION_BAR: (),
     ComponentType.PIE_CHART: (),
@@ -491,6 +501,69 @@ def simple_piece_problem(kind, state):
         if not (_number(v) and 0 <= v <= 60 and _number(limit) and 0 < limit <= 20):
             return f'POWER_SUPPLY "voltage" 0 to 60 V, "current_limit" up to 20 A, got {v!r}, {limit!r}'
         return None
+    return None
+
+
+# Physics pieces (docs/pieces/ORDRE.md), worked out by the renderer from the data (exact solutions,
+# conservation laws), never from figures in the brief:
+#   FREE_BODY {"body": "block" | "ball", "mass": 2, "incline": 30, "forces": [{"name": "Poids", "symbol": "P",
+#     "x": 0, "y": -19.6}, ...]} 1 to 5 forces in N (x right, y up); {"step": n} the first n forces, {"axes":
+#     true} the axes (along the slope on an incline), {"project": true} each force's components, {"sum":
+#     true} the resultant and a = ΣF / m (or the balance), {"move": true} the body moving as it says.
+#   KINEMATICS {"kind": "projectile" | "uniform" | "accelerated" | "free_fall", "v0": [10, 5], "a": 2, "g":
+#     9.8}; {"go": true}, {"strobe": true} images at equal times, {"vectors": true} v (green) and a (red),
+#     {"graphs": true} x(t) and v(t) traced.
+#   COLLISION {"m1": 2, "v1": 5, "m2": 3, "v2": -2, "type": "elastic" | "inelastic"} (kg, m/s); {"go": true},
+#     {"balance": true} momentum and kinetic energy before and after.
+#   OSCILLATOR {"kind": "spring", "k": 100, "m": 1, "damping": 0.1, "x0": 0.1} or {"kind": "pendulum", "L": 1,
+#     "theta0": 20, "g": 9.8}; {"go": true}, {"energy": true} kinetic and potential energies, {"graph":
+#     true} x(t) traced, {"period": true} the period, worked out.
+#   ORBIT {"e": 0.5, "central": "Terre", "body": "Satellite"} (eccentricity 0 to 0.8); {"go": true},
+#     {"force": true} the pull towards the centre, {"speed": true} the velocity (faster near the centre),
+#     {"areas": true} two equal areas swept in equal times (Kepler's second law).
+PHYS_PIECES = ("FREE_BODY", "KINEMATICS", "COLLISION", "OSCILLATOR", "ORBIT")
+
+
+def phys_piece_problem(kind, state):
+    """Why a physics piece's initial_state is wrong (see above), or None."""
+    num = _number
+    if kind == "FREE_BODY":
+        forces = state.get("forces")
+        if not (isinstance(forces, list) and 1 <= len(forces) <= 5 and all(isinstance(f, dict) and isinstance(f.get("name"), str)
+                and num(f.get("x", 0)) and num(f.get("y", 0)) and (f.get("x", 0) or f.get("y", 0)) for f in forces)):
+            return f'FREE_BODY "forces": 1 to 5 {{"name": "Poids", "symbol": "P", "x": 0, "y": -19.6}} (N, not both 0), got {forces!r}'[:300]
+        if not (num(state.get("mass", 1)) and state.get("mass", 1) > 0 and num(state.get("incline", 0)) and 0 <= state.get("incline", 0) < 80):
+            return 'FREE_BODY "mass" > 0 kg, "incline" 0 to 80 degrees'
+        return None
+    if kind == "KINEMATICS":
+        if state.get("kind", "projectile") not in ("projectile", "uniform", "accelerated", "free_fall"):
+            return f'KINEMATICS "kind" is projectile, uniform, accelerated or free_fall, got {state.get("kind")!r}'
+        v0 = state.get("v0", [10, 5])
+        if not (isinstance(v0, list) and len(v0) == 2 and all(num(v) for v in v0) and 0 <= abs(v0[0]) + abs(v0[1]) <= 200):
+            return f'KINEMATICS "v0": [vx, vy] in m/s, got {v0!r}'
+        if state.get("kind") == "projectile" and v0[1] <= 0:
+            return "KINEMATICS: a projectile is thrown upwards (vy > 0)"
+        return None
+    if kind == "COLLISION":
+        if not all(num(state.get(k)) for k in ("m1", "v1", "m2", "v2")) or state["m1"] <= 0 or state["m2"] <= 0:
+            return 'COLLISION needs "m1", "m2" (kg, > 0), "v1", "v2" (m/s)'
+        if state["v1"] - state["v2"] <= 0:
+            return "COLLISION: the bodies must close in (v1 > v2: 1 on the left, 2 on the right)"
+        if state.get("type", "elastic") not in ("elastic", "inelastic"):
+            return 'COLLISION "type" is elastic or inelastic'
+        return None
+    if kind == "OSCILLATOR":
+        if state.get("kind", "spring") == "pendulum":
+            if not (num(state.get("L", 1)) and state.get("L", 1) > 0 and num(state.get("theta0", 20)) and 0 < state.get("theta0", 20) <= 80):
+                return 'OSCILLATOR pendulum: "L" > 0 m, "theta0" 0 to 80 degrees'
+            return None
+        if not (num(state.get("k", 100)) and state.get("k", 100) > 0 and num(state.get("m", 1)) and state.get("m", 1) > 0
+                and num(state.get("damping", 0)) and 0 <= state.get("damping", 0) < 1):
+            return 'OSCILLATOR spring: "k" > 0 N/m, "m" > 0 kg, "damping" 0 to 1'
+        return None
+    if kind == "ORBIT":
+        e = state.get("e", 0.5)
+        return None if num(e) and 0 <= e <= 0.8 else f'ORBIT "e" (eccentricity) 0 to 0.8, got {e!r}'
     return None
 
 
@@ -1139,6 +1212,8 @@ class VisualEntity(StrictModel):
             raise ValueError(f"{self.id}: {breadboard_problem(self.initial_state)}")
         if self.type == ComponentType.MICROCONTROLLER and mcu_problem(self.initial_state):
             raise ValueError(f"{self.id}: {mcu_problem(self.initial_state)}")
+        if self.type.value in PHYS_PIECES and phys_piece_problem(self.type.value, self.initial_state):
+            raise ValueError(f"{self.id}: {phys_piece_problem(self.type.value, self.initial_state)}")
         if self.type.value in SIMPLE_PIECES and simple_piece_problem(self.type.value, self.initial_state):
             raise ValueError(f"{self.id}: {simple_piece_problem(self.type.value, self.initial_state)}")
         for kind, check in ((ComponentType.TABLE, table_problem), (ComponentType.CHAIN, chain_problem)):

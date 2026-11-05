@@ -179,6 +179,17 @@ STATES = {
     ComponentType.POWER_SUPPLY: '{"output": true} its output on, {"voltage": v} turned to v, {"cc": true} limiting the '
                                 'current (the CC light); ports negative, positive; initial_state {"voltage": 12, '
                                 '"current_limit": 2, "label": "Alimentation"}',
+    ComponentType.FREE_BODY: '{"step": n} the first n forces, {"axes": true}, {"project": true} components, {"sum": true} the '
+                             'resultant and a = ΣF/m (worked out), {"move": true}; initial_state {"body": "block", "mass": 2, '
+                             '"incline": 30, "forces": [{"name": "Poids", "symbol": "P", "x": 0, "y": -19.6}, ...]} (N, y up)',
+    ComponentType.KINEMATICS: '{"go": true}, {"strobe": true}, {"vectors": true} v and a, {"graphs": true} x(t) v(t); '
+                              'initial_state {"kind": "projectile" | "uniform" | "accelerated" | "free_fall", "v0": [10, 5], "a": 2}',
+    ComponentType.COLLISION: '{"go": true}, {"balance": true} momentum and energy before / after (worked out); initial_state '
+                             '{"m1": 2, "v1": 5, "m2": 3, "v2": -2, "type": "elastic" | "inelastic"}',
+    ComponentType.OSCILLATOR: '{"go": true}, {"energy": true}, {"graph": true} x(t), {"period": true} (worked out); initial_state '
+                              '{"kind": "spring", "k": 100, "m": 1, "damping": 0.1, "x0": 0.1} or {"kind": "pendulum", "L": 1, "theta0": 20}',
+    ComponentType.ORBIT: '{"go": true}, {"force": true} the pull, {"speed": true} faster near the centre, {"areas": true} '
+                         'equal areas in equal times; initial_state {"e": 0.5, "central": "Terre", "body": "Satellite"}',
     ComponentType.WAVE: '{"go": true} sends the wave (never given: from its pop), {"mark": true} picks out one point '
                         'that only goes up and down (back and forth for a spring), {"energy": true} an arrow "Énergie" '
                         'travelling with it; initial_state {"mode": "rope" | "water" | "crowd" | "spring", "kind": '
@@ -456,6 +467,11 @@ STRICT RULES:
     sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
     results. A resistance measured ("à l'ohmmètre", "continuité") is a "measure" with "unit": "Ω"
     (circuit off): the multimeter shows Ω and beeps under 30 Ω.
+  * mechanics, drawn by the program from the data (exact motions, never figures given): forces on a
+    body ("le poids", "la réaction", "sur un plan incliné") ONE FREE_BODY; a motion (lancer, chute,
+    trajectoire, vitesse, accélération) ONE KINEMATICS; a collision (choc, quantité de mouvement) ONE
+    COLLISION; a spring or a pendulum (oscillation, période) ONE OSCILLATOR; an orbit (satellite,
+    planète, Kepler) ONE ORBIT. Not BODY discs and arrows placed by hand for these.
   * a mechanical wave (une onde, une vague, une corde qu'on secoue, une ola, le son, un ressort, "la
     perturbation avance, le milieu reste"): ONE WAVE in the mode the narration takes (rope, water with
     its buoy, crowd for an ola, spring for sound), {{"mark": true}} on the words that say a point only

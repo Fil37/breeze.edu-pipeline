@@ -31,6 +31,8 @@ import time
 
 import requests
 
+from app import costs
+
 try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
@@ -78,6 +80,15 @@ LETTER_NAMES = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F": "e
                 "J": "ji", "K": "ka", "L": "elle", "M": "emme", "N": "enne", "O": "o", "P": "pé", "Q": "ku", "R": "erre",
                 "S": "esse", "T": "té", "U": "u", "V": "vé", "W": "double vé", "X": "ixe", "Y": "i grec", "Z": "zède",
                 "x": "ixe", "n": "enne"}
+# Words the voice says wrong, written as they sound (the screen keeps the real spelling).
+PRONUNCIATIONS = {"quantum": "kwantome", "quanta": "kwanta"}
+# Words written in capitals that are words, not acronyms (the logic gates ET, OU, NON, NON-ET): said as words.
+CAPITAL_WORDS = ("ET", "OU", "NON", "OUI")
+# A spelled acronym: each letter as it sounds, joined by hyphens ("FPGA" -> "èf-pé-jé-a"), so the voice
+# reads one word letter by letter (its letter names written out, "effe pé gé a", came out garbled).
+ACRONYM_LETTERS = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F": "èf", "G": "jé", "H": "ach", "I": "i",
+                   "J": "ji", "K": "ka", "L": "èl", "M": "èm", "N": "èn", "O": "o", "P": "pé", "Q": "ku", "R": "èr",
+                   "S": "ès", "T": "té", "U": "u", "V": "vé", "W": "doublevé", "X": "ix", "Y": "igrec", "Z": "zèd"}
 # Acronyms said as words: left alone; any other 2 to 4 capitals ("IPC", "PIB", "ISS") are spelled.
 SPOKEN_ACRONYMS = {"NASA", "ONU", "OTAN", "OPEP", "UNESCO", "UNICEF", "CAC", "SMIC", "LED", "OK"}
 UNITS = {"V": "volts", "mV": "millivolts", "kV": "kilovolts", "A": "ampères", "mA": "milliampères", "W": "watts",
@@ -91,6 +102,11 @@ def power(written):
 
 
 TTS_RULES = [
+    (re.compile(r"(\d)\s*°\s*C\b"), r"\1 degrés Celsius"),                    # 37 °C -> 37 degrés Celsius
+    (re.compile(r"(\d)\s*°(?!\w)"), r"\1 degrés"),                              # 90° -> 90 degrés
+    (re.compile(r"(?<![\w-])(" + "|".join(PRONUNCIATIONS) + r")(?![\w-])", re.IGNORECASE),
+     lambda m: PRONUNCIATIONS[m.group(1).lower()]),                       # quantum -> kwantome
+    (re.compile(r"(?<![\w'’])(" + "|".join(CAPITAL_WORDS) + r")(?![\w'’])"), lambda m: m.group(1).lower()),   # porte ET -> et
     (re.compile(r"\^\s*\{([^{}]{1,8})\}|\^\s*(\([^()]{1,8}\)|-?\w+)|([⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺ⁿˣ]+)"),
      lambda m: power(m.group(1) or m.group(2) or m.group(3))),              # 10⁻ⁿ, x^2, 10^{-n}
     (re.compile(r"(?<![\w\\])([A-Za-z])_\{?([A-Za-z0-9]{1,3})\}?(?![\w])"), r"\1 indice \2"),   # t_n, t_{n}
@@ -119,8 +135,8 @@ TTS_RULES = [
     (re.compile(rf"(?:{NUM_LEFT}|{VAR_LEFT})\s*/\s*(?:{NUM_RIGHT}|{VAR_RIGHT})"), " sur "),
     (re.compile(rf"{NUM_LEFT}\s*-\s*(?:{NUM_RIGHT}|{VAR_RIGHT})|{VAR_LEFT}\s*-\s*{NUM_RIGHT}"
                 rf"|{VAR_LEFT}\s+-\s+{VAR_RIGHT}|(?<![\w-])-(?=\s*\d)"), " moins "),
-    (re.compile(r"(?<![\w-])([A-Z]{2,4})(?![\w'’-])"),                    # l'IPC -> l'i pé cé (not NASA)
-     lambda m: m.group(1) if m.group(1) in SPOKEN_ACRONYMS else " ".join(LETTER_NAMES[c] for c in m.group(1))),
+    (re.compile(r"(?<![\w-])([A-Z]{2,4})(?![\w'’-])"),                    # l'IPC -> l'i-pé-cé (not NASA)
+     lambda m: m.group(1) if m.group(1) in SPOKEN_ACRONYMS else "-".join(ACRONYM_LETTERS[c] for c in m.group(1))),
     (re.compile(r"(?<![\w'’-])([A-Zxn])(?![\w'’-])"), lambda m: LETTER_NAMES[m.group(1)]),   # I -> i, R -> erre
 ]
 
@@ -135,7 +151,8 @@ def normalize_text_for_tts(text: str) -> str:
     stuck together are split; a decimal comma is "virgule"; a unit after a number is its name (6 V ->
     6 volts); = + × * / - are "égal", "plus", "fois", "sur", "moins" (/ and - only in a calculation,
     see TTS_RULES); a capital letter alone, and x or n, by its French name; 2 to 4 capitals spelled
-    (IPC -> i pé cé), but for the acronyms said as words (SPOKEN_ACRONYMS)."""
+    (IPC -> i-pé-cé, FPGA -> èf-pé-jé-a), but for the acronyms said as words (SPOKEN_ACRONYMS) and
+    the logic gates' words in capitals (ET, OU, NON, NON-ET: said as words, CAPITAL_WORDS)."""
     text = str(text or "")
     for pattern, replacement in TTS_RULES:
         text = pattern.sub(replacement, text)
@@ -274,6 +291,7 @@ def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None):
         spoken[:] = words or []
     if engine is not None:
         engine.update(used=used, fallback=fallback)
+    costs.record_tts(used, len(text))          # ElevenLabs bills the characters sent (app/costs.py)
     return media_duration(mp3_path)
 
 

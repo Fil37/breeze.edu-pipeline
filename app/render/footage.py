@@ -18,7 +18,9 @@ Where a clip comes from, in this order:
      It is downloaded once from Pixabay's CDN (https://cdn.pixabay.com, at most MAX_BYTES), never
      hot-linked.
 index.json keeps, for every clip used, where it comes from (Pixabay id, page, author, tags, the
-query, the day it was fetched): the licence's trace. Nothing is ever deleted here.
+query, the day it was fetched): the licence's trace. Nothing is ever deleted here. "rejected" lists, by
+hand, clips seen to be wrong ({"pixabay:159674": "an electrician at a panel, for a chip factory"}):
+never offered again, nor taken from the cache.
 """
 
 import json
@@ -173,7 +175,8 @@ def pixabay_clip(query, key, index, choose=None):
     the first MAX_CANDIDATES (choose(query, [{"tags", "duration"}]) -> their index, or None: none fits),
     downloaded and indexed."""
     hits = search_pixabay(query, key)
-    candidates = [hit for hit in hits if allowed(hit) is None][:MAX_CANDIDATES]
+    rejected = index.get("rejected") or {}
+    candidates = [hit for hit in hits if allowed(hit) is None and f"pixabay:{hit.get('id')}" not in rejected][:MAX_CANDIDATES]
     if choose is not None and candidates:
         pick = choose(query, [{"tags": str(h.get("tags", ""))[:300], "duration": h.get("duration")} for h in candidates])
         if type(pick) is not int or not 0 <= pick < len(candidates):
@@ -211,7 +214,8 @@ def find_clip(query, choose=None):
     if found:
         return found
     index = load_index()
-    cached = index["clips"].get(index["queries"].get(query, ""))
+    cached_id = index["queries"].get(query, "")
+    cached = None if cached_id in (index.get("rejected") or {}) else index["clips"].get(cached_id)
     if cached and os.path.isfile(os.path.join(FOOTAGE_DIR, cached["file"])) \
             and (choose is None or query in index.get("checked", [])):
         return {**cached, "file": os.path.join(FOOTAGE_DIR, cached["file"])}

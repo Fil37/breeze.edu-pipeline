@@ -42,7 +42,8 @@ RULES = [
     ("1/(1 − 1/10)", "1 sur (1 moins 1 sur 10)"),
     ("6 V, 0,5 A, 12 Ω", "6 volts, 0 virgule 5 ampères, 12 ohms"),
     ("I = U / R", "i égal u sur erre"),
-    ("l'IPC et le PIB", "l'i pé cé et le pé i bé"),
+    ("l'IPC et le PIB", "l'i-pé-cé et le pé-i-bé"),
+    ("Un FPGA", "Un èf-pé-jé-a"),
     ("la NASA, l'ONU", "la NASA, l'ONU"),
     # French text that must stay as it is
     ("c'est-à-dire", "c'est-à-dire"),

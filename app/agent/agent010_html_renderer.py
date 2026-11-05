@@ -67,7 +67,9 @@ from app.render.asset_resolver import BASE_DIR, AssetResolver
 from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
-from app.layout_solver import annotation_targets, target_first_timing
+from app.breadboard import breadboard_data
+from app.layout_solver import (FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
+                               logic_size, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
                                         check_curve, check_function_expression, find_cue,
@@ -328,6 +330,46 @@ def race_data(state, ink):
                      f"fois plus rapide"}
 
 
+GATE_NAMES = {"AND": "ET", "OR": "OU", "NOT": "NON", "XOR": "OU exclusif", "NAND": "NON-ET", "NOR": "NON-OU"}
+
+
+def logic_data(state):
+    """LOGIC_CIRCUIT laid out: each input, gate and output at its column (its depth: logic_depths) and
+    row, the wires from what feeds to what is fed (which input pin), the gates in their order (a
+    program's steps, in sequential mode). The page draws it and computes the 0s and 1s."""
+    width, height = logic_size(state)
+    depth = logic_depths(state)
+    items = [("input", i) for i in state["inputs"]] + [("gate", g) for g in state["gates"]] + [("output", o) for o in state["outputs"]]
+    columns = {}
+    for _, item in items:
+        columns.setdefault(depth[item["id"]], []).append(item["id"])
+    nodes = {}
+    for kind, item in items:
+        column = columns[depth[item["id"]]]
+        nodes[item["id"]] = {"kind": kind, "x": 150 + depth[item["id"]] * LOGIC_COL,
+                             "y": round(50 + (height - 100) * (column.index(item["id"]) + 0.5) / len(column)),
+                             "label": plain_math(item.get("label") or (GATE_NAMES.get(item.get("type")) if kind == "gate" else item["id"])),
+                             **({"type": item["type"], "name": GATE_NAMES[item["type"]]} if kind == "gate" else {})}
+    wires = [{"from": f, "to": g["id"], "pin": k, "pins": len(g["in"])} for g in state["gates"] for k, f in enumerate(g["in"])]
+    wires += [{"from": o["from"], "to": o["id"], "pin": 0, "pins": 1} for o in state["outputs"]]
+    program = None
+    if state.get("program"):           # the same circuit as a program: one instruction per gate, then the outputs
+        name = lambda i: nodes[i]["label"] if nodes[i]["kind"] == "input" else f"r{[g['id'] for g in state['gates']].index(i) + 1}"
+        lines = [f"r{k + 1} = NON {name(g['in'][0])}" if g["type"] == "NOT"
+                 else f"r{k + 1} = {name(g['in'][0])} {GATE_NAMES[g['type']]} {name(g['in'][1])}" for k, g in enumerate(state["gates"])]
+        lines += [f"{nodes[o['id']]['label']} = {name(o['from'])}" for o in state["outputs"]]
+        program = {"x": width - PROGRAM_W + 30, "width": PROGRAM_W, "top": PROGRAM_TOP, "line": PROGRAM_LINE, "lines": lines}
+    return {"width": width, "height": height, "nodes": nodes, "wires": wires, "gates": [g["id"] for g in state["gates"]], "program": program,
+            "feeds": {g["id"]: g["in"] for g in state["gates"]}, "outputs": {o["id"]: o["from"] for o in state["outputs"]},
+            "values": {i["id"]: int(bool(state.get("values", {}).get(i["id"], 0))) for i in state["inputs"]}}
+
+
+def fpga_data(state):
+    """FPGA_GRID: its size and the two designs (labels shown as text by the page)."""
+    return {"cols": int(state["cols"]), "rows": int(state["rows"]), "cell": FPGA_CELL,
+            "design": [plain_math(d) for d in state["design"]], "design2": [plain_math(d) for d in state.get("design2") or []]}
+
+
 POPULATION_COLORS = ("#DC2626", "#F59E0B", "#2563EB", "#10B981")   # a group's colour when the brief gives none
 
 
@@ -389,6 +431,23 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["population"] = population_data(state)
     if entity["type"] == "TIDES":                 # the Earth in its ocean, the Moon: drawn and labelled by the page
         data["tides"] = True
+    if entity["type"] == "BREADBOARD":            # laid out by app/breadboard.py: parts, jumpers, rails in pixels
+        data["breadboard"] = breadboard_data(state)
+    if entity["type"] == "SUPPLY_RAIL":           # its voltage written over its bar, no caption under it
+        data["rail"], data["label"] = plain_math(state.get("label") or "+12 V"), None
+    if entity["type"] == "MICROCONTROLLER":       # its program and its one unit
+        data["mcu"] = {"label": plain_math(state.get("label") or "Microcontrôleur"),
+                       "instructions": [plain_math(i) for i in state.get("instructions")
+                                        or ["lire Bouton 1", "lire Bouton 2", "calculer ET", "allumer Lampe"]]}
+    if entity["type"] == "WAVE":                  # a rope, the sea, a crowd, a spring: drawn and moved by the page
+        data["wave"] = {"mode": state.get("mode", "rope"), "kind": state.get("kind", "pulse"), "loops": int(state.get("loops", 3))}
+    if entity["type"] == "TUNNEL":                # a dot in a tube, the wall a line across it
+        data["tunnel"] = {"particle": str(state.get("particle") or "Particule"), "barrier": str(state.get("barrier") or "Mur"),
+                          "zoom": state.get("zoom") is not False}
+    if entity["type"] == "LOGIC_CIRCUIT":         # inputs, gates and outputs, laid out here, computed by the page
+        data["logic"] = logic_data(state)
+    if entity["type"] == "FPGA_GRID":             # logic blocks and routing
+        data["fpga"] = fpga_data(state)
     if entity["type"] == "ARROW_ANNOTATION":     # a pill badge; the position is where its short arrow points
         direction = vector_direction(state.get("direction", "DOWN"), "DOWN")
         data["annotation"] = {"direction": direction, "angle": direction_degrees(direction),
@@ -697,6 +756,9 @@ def centre_content(entities, brief, horizontal=True):
 
 def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circuit", panel_titles=None,
               style=None, scene_number=1):
+    with_program(brief)
+    split_rails(brief)
+    place_schematic(brief)
     by_id = {e["id"]: e for e in brief["entities"]}
     overlay = brief.get("text_overlay") or {}
     style = style or dict(DEFAULT_STYLE)
@@ -806,6 +868,9 @@ PAGE_TEMPLATE = r"""<!doctype html>
   html, body { margin:0; width:@@WIDTH@@px; height:@@HEIGHT@@px; overflow:hidden; background:var(--bg);
                font-family:"Inter", "DejaVu Sans", "Liberation Sans", sans-serif; color:var(--text); }
   #stage { position:relative; width:100%; height:100%; }
+  /* the camera (zoom_in / zoom_out): every drawn thing, not the titles, subtitles or background */
+  #world { position:absolute; inset:0; transform-origin:0 0; }
+  .zoom-frame { position:absolute; border:5px dashed var(--accent); border-radius:18px; pointer-events:none; opacity:0; }
   /* The theme's background (built by buildBackground from D.style.background, moved by seek(t)): its
      colour, a grid or stars, soft glows, a vignette. The tokens come from D.style.tokens. */
   :root { --accent:#3B82F6; --grid:#0F172A; --glow1:#F97316; --glow2:#8B5CF6; --ring:#FFFFFF; }
@@ -889,8 +954,35 @@ PAGE_TEMPLATE = r"""<!doctype html>
                      font-size:30px; font-weight:700; }
   /* TIDES: the Earth in its ocean on the left, the Moon on the right (sizes in app/layout_solver.py). */
   .tides { position:relative; width:1300px; height:600px; }
-  .tides text { font-size:24px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:6px; stroke-linejoin:round; }
-  .tides text.tide-note { font-size:22px; font-weight:500; fill:var(--muted); }
+  .tunnel { position:relative; width:1300px; height:440px; }
+  .wave { position:relative; width:1300px; }
+  .wave text { font-size:26px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:5px; }
+  .wave text.tide-note { font-size:24px; font-weight:500; fill:var(--muted); }
+  .mcu { position:relative; width:760px; height:480px; }
+  .bb { position:relative; width:1080px; height:560px; }
+  .bb text { font-size:17px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:4px; }
+  .bb text.bb-note { font-size:22px; fill:var(--muted); }
+  .bb text.bb-chip { font-size:15px; fill:#E5E7EB; stroke:none; font-weight:700; letter-spacing:1px; }
+  .part { position:relative; }
+  .part text.part-mark { font-size:22px; font-weight:700; fill:var(--ink); stroke:none; }
+  .mcu text { font-size:24px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:5px; stroke-linejoin:round; }
+  .mcu text.tide-note { font-size:21px; font-weight:500; fill:var(--muted); }
+  .mcu text.mcu-code { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:21px; font-weight:600; }
+  .tides text, .tunnel text { font-size:24px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:6px; stroke-linejoin:round; }
+  .tides text.tide-note, .tunnel text.tide-note { font-size:22px; font-weight:500; fill:var(--muted); }
+  .tunnel text { font-size:32px; }
+  .tunnel text.tide-note { font-size:28px; }
+  /* LOGIC_CIRCUIT and FPGA_GRID: drawn in SVG with the tides' text style; sizes in app/layout_solver.py. */
+  .logic, .fpga { position:relative; }
+  .logic text, .fpga text { font-size:27px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120);
+                            stroke-width:6px; stroke-linejoin:round; }
+  .fpga text.fpga-file { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:18px; font-weight:600; fill:var(--accent); stroke-width:3px; }
+  .fpga text.fpga-bits { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:24px; font-weight:700; fill:var(--accent); }
+  .logic text.tide-note, .fpga text.tide-note { font-size:22px; font-weight:500; fill:var(--muted); }
+  .logic text.logic-value { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:30px; font-weight:700; }
+  .logic .logic-program text:not(.tide-note) { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:26px; font-weight:600; }
+  .logic text.logic-bit { font-family:"Fira Code", "DejaVu Sans Mono", monospace; font-size:26px; font-weight:700; }
+  .logic .logic-ink { stroke:var(--ink); } .logic .logic-hole { fill:var(--card); }
   /* POPULATION: how many people on top, the grid of dots, the legend (a swatch, a group, its count). */
   .population { position:relative; width:700px; }
   .pop-head { height:44px; line-height:44px; text-align:center; font-size:26px; font-weight:600; color:var(--muted); }
@@ -1319,6 +1411,431 @@ function buildTides(ent) {
   ent.tideParts = z;
   return shape;
 }
+// TUNNEL: first a small circuit, a dashed frame around a bit of its wire ("Vue agrandie"); the view
+// zooms into that frame until the frame is the tube: a blue dot in it, the wall a vertical line across
+// it. {"bounce": true}: the dot runs into the wall and comes back (a ball); {"tunnel": true}: near the
+// wall the dot becomes a wave, most of it stays on its side, a weaker part goes on beyond the wall,
+// and the dot comes out whole on the other side, the wall untouched. Never given a state: zoom, then
+// tunnel. Every text but the two names is the page's.
+const TUN_W = 1300, TUN_H = 440, TUN_Y = 225, TUN_WALL = 650, TUN_FROM = 150, TUN_TO = 1150, TUN_ZOOM = 2.2;
+const TUN_RUN = 1.6, TUN_CROSS = 1.4, TUN_OUT = 1.4, TUN_K0 = 0.16;
+const TUN_LOOP = {left: -1400, right: 2700, bottom: 1150};    // the circuit, in the zoomed-in frame
+function buildTunnel(ent) {
+  const shape = el("div", "tunnel"), z = ent.tunnel, p = {};
+  const s = sv("svg", {width: TUN_W, height: TUN_H, viewBox: `0 0 ${TUN_W} ${TUN_H}`, overflow: "visible"});
+  const clip = `tun-${String(ent.id).replace(/[^\w-]/g, "_")}-clip`;    // the zoom stays inside the drawing
+  sv("rect", {x: 0, y: 0, width: TUN_W, height: TUN_H}, sv("clipPath", {id: clip}, sv("defs", {}, s)));
+  p.zoom = sv("g", {}, sv("g", {"clip-path": `url(#${clip})`}, s));
+  // the circuit around the tube, drawn at the zoomed-in scale (seen small before the zoom)
+  p.ctx = sv("g", {}, p.zoom);
+  const {left, right, bottom} = TUN_LOOP, wire = {fill: "none", stroke: "var(--muted)", "stroke-width": 26, "stroke-linejoin": "round"};
+  sv("path", {d: `M60 ${TUN_Y} H${left} V${TUN_Y + bottom} H${right} V${TUN_Y} H${TUN_W - 60}`, ...wire}, p.ctx);
+  sv("circle", {cx: right, cy: TUN_Y + bottom / 2, r: 200, fill: "var(--card)", stroke: "var(--text)", "stroke-width": 26}, p.ctx);
+  sv("line", {x1: (left + right) / 2 - 60, y1: TUN_Y + bottom - 200, x2: (left + right) / 2 - 60, y2: TUN_Y + bottom + 100,
+              stroke: "var(--text)", "stroke-width": 30}, p.ctx);
+  sv("line", {x1: (left + right) / 2 + 60, y1: TUN_Y + bottom - 130, x2: (left + right) / 2 + 60, y2: TUN_Y + bottom + 40,
+              stroke: "var(--text)", "stroke-width": 30}, p.ctx);
+  sv("rect", {x: 20, y: TUN_Y - 110, width: TUN_W - 40, height: 220, rx: 30, fill: "none", stroke: "var(--accent)",
+              "stroke-width": 26, "stroke-dasharray": "70 50"}, p.ctx);
+  p.caption = tideText(p.ctx, TUN_W / 2, TUN_Y - 190, "Vue agrandie du fil");
+  p.caption.style.fontSize = "170px";
+  // the tube, the wall, the dot
+  p.view = sv("g", {}, p.zoom);
+  sv("rect", {x: 60, y: TUN_Y - 60, width: TUN_W - 120, height: 120, rx: 60, fill: "color-mix(in srgb, #3B82F6 10%, transparent)",
+              stroke: "var(--muted)", "stroke-width": 4}, p.view);
+  p.wave = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 5, "stroke-linecap": "round", opacity: 0}, p.view);
+  p.wall = sv("line", {x1: TUN_WALL, y1: TUN_Y - 85, x2: TUN_WALL, y2: TUN_Y + 85, stroke: "var(--text)", "stroke-width": 9,
+                       "stroke-linecap": "round"}, p.view);
+  tideText(p.view, TUN_WALL, TUN_Y - 100, z.barrier);       // LLM text: textContent only
+  p.dot = sv("circle", {cx: TUN_FROM, cy: TUN_Y, r: 22, fill: "#3B82F6", stroke: "#BFDBFE", "stroke-width": 3}, p.view);
+  p.name = tideText(p.view, TUN_FROM, TUN_Y + 105, z.particle);
+  p.note = tideText(s, TUN_W / 2, TUN_H - 12, "", "middle", "tide-note");
+  shape.append(s);
+  ent.tunnelParts = p;
+  return shape;
+}
+// MICROCONTROLLER: a chip (pins all round), inside it the program memory (numbered instructions) and
+// ONE unit. Running (set_state {"run": true}, or from its pop when never given "run"): a pointer goes
+// down the program, MCU_STEP s per instruction: the instruction travels along the bus to the unit,
+// which then does it (lit, the instruction written in it); after the last, again from the top. The
+// count under the chip: "Une instruction à la fois : 2 / 4". Its label is the usual caption under it.
+const MCU_W = 760, MCU_H = 480, MCU_STEP = 1.2, MCU_LINE = 31, MCU_TOP = 158;
+function buildMcu(ent) {
+  const z = ent.mcu, shape = el("div", "mcu"), p = {};
+  const s = sv("svg", {width: MCU_W, height: MCU_H, viewBox: `0 0 ${MCU_W} ${MCU_H}`, overflow: "visible"});
+  for (let i = 0; i < 9; i++) {         // pins
+    const x = 90 + i * 72;
+    sv("line", {x1: x, y1: 8, x2: x, y2: 30, stroke: "var(--ink)", "stroke-width": 6}, s);
+    sv("line", {x1: x, y1: 410, x2: x, y2: 432, stroke: "var(--ink)", "stroke-width": 6}, s);
+  }
+  sv("rect", {x: 40, y: 30, width: 680, height: 380, rx: 18, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 5}, s);
+  sv("rect", {x: 72, y: 96, width: 320, height: 290, rx: 12, fill: "none", stroke: "var(--muted)", "stroke-width": 3}, s);
+  tideText(s, 232, 126, "Mémoire : le programme", "middle", "tide-note");
+  p.pointer = sv("rect", {x: 80, y: 0, width: 304, height: MCU_LINE - 3, rx: 6, opacity: 0,
+                          fill: "color-mix(in srgb, var(--accent) 25%, transparent)", stroke: "var(--accent)", "stroke-width": 2}, s);
+  z.instructions.forEach((text, i) => {
+    tideText(s, 92, MCU_TOP + i * MCU_LINE, String(i + 1), "start", "tide-note");
+    tideText(s, 122, MCU_TOP + i * MCU_LINE, text, "start", "mcu-code");      // LLM text: textContent only
+  });
+  tideArrow(s, 396, 240, 470, "var(--muted)");
+  p.unit = sv("rect", {x: 476, y: 160, width: 220, height: 160, rx: 14, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
+  tideText(s, 586, 194, "Unité de calcul", "middle", "tide-note");
+  p.doing = tideText(s, 586, 258, "", "middle", "mcu-code");
+  p.token = sv("g", {opacity: 0}, s);
+  sv("rect", {x: -16, y: -14, width: 32, height: 28, rx: 6, fill: "var(--accent)"}, p.token);
+  p.count = tideText(s, MCU_W / 2, 466, "", "middle", "tide-note");
+  shape.append(s);
+  ent.mcuParts = p;
+  return shape;
+}
+function seekMcu(e, t) {
+  const z = e.data.mcu, p = e.data.mcuParts, n = z.instructions.length;
+  const given = e.states.some(s => s.at >= 0 && s.state && typeof s.state === "object" && "run" in s.state);
+  const start = given ? stateTime(e, "run") : (e.spawn || 0) + 0.8;
+  const stop = given ? (e.states.find(s => s.at >= 0 && s.at > (start ?? Infinity) && s.state && s.state.run === false) || {}).at : undefined;
+  const running = start !== null && t >= start && (stop === undefined || t < stop);
+  const at = running ? t - start : stop !== undefined && start !== null && t >= stop ? stop - start : -1;
+  const step = at < 0 ? -1 : Math.floor(at / MCU_STEP) % n, u = at < 0 ? 0 : (at / MCU_STEP) % 1;
+  p.pointer.setAttribute("opacity", step >= 0 ? 1 : 0);
+  if (step >= 0) p.pointer.setAttribute("y", MCU_TOP - 23 + step * MCU_LINE);
+  // the instruction travels along the bus, then the unit does it
+  const travel = running && u < 0.4 ? u / 0.4 : -1;
+  p.token.setAttribute("opacity", travel >= 0 ? 1 : 0);
+  p.token.setAttribute("transform", `translate(${396 + 74 * Math.max(0, travel)} 240)`);
+  const busy = step >= 0 && (u >= 0.4 || !running);
+  p.unit.style.stroke = busy ? "var(--accent)" : "var(--ink)";
+  p.unit.style.fill = busy && running ? `color-mix(in srgb, var(--accent) ${Math.round(18 + 14 * Math.sin(Math.PI * (u - 0.4) / 0.6))}%, var(--card))` : "var(--card)";
+  p.doing.textContent = busy ? z.instructions[step] : "";           // LLM text: textContent only
+  p.doing.style.fontSize = busy && z.instructions[step].length > 14 ? `${Math.max(14, Math.round(21 * 14 / z.instructions[step].length))}px` : "";
+  p.count.textContent = step >= 0 ? `Une instruction à la fois : ${step + 1} / ${n}` : "";
+}
+// BREADBOARD: laid out in app/breadboard.py (every coordinate); drawn here: the board, its holes, the
+// red (+) and blue (0 V) rails fed by the supply on the left, the parts as they look (a resistor's
+// colour bands, the CTN's bead, the trimmer, the DIP-8 op-amp across the gap, the TO-220 MOSFET, the
+// LED's dome, the heating resistor's cement body) and the jumpers arching between holes. The parts
+// go in one by one (set_state {"step": n}, else one a second): each drops into its holes, then the
+// jumpers of what is in. {"on": [ids]}: the LED lit, the heater glowing.
+const BB_DROP = 0.45, BB_AUTO = 1.0, BB_STAGGER = 0.6;
+function buildBreadboard(ent) {
+  const z = ent.breadboard, shape = el("div", "bb"), p = {parts: [], jumpers: []};
+  const s = sv("svg", {width: z.width, height: z.height, viewBox: `0 0 ${z.width} ${z.height}`, overflow: "visible"});
+  const b = z.board;
+  sv("rect", {x: b.x, y: b.y, width: b.w, height: b.h, rx: 14, fill: "#F3F1EA", stroke: "#CFCBBE", "stroke-width": 3}, s);
+  sv("rect", {x: b.x + 10, y: (z.rows[4] + z.rows[5]) / 2 - 7, width: b.w - 20, height: 14, rx: 4, fill: "#E2DED2"}, s);   // the gap
+  for (const [key, y] of Object.entries(z.rails)) {
+    const plus = key.endsWith("+");
+    sv("line", {x1: b.x + 16, y1: y - 13, x2: b.x + b.w - 16, y2: y - 13, stroke: plus ? "#EF4444" : "#2563EB", "stroke-width": 3}, s);
+    tideText(s, b.x + 4, y + 6, plus ? "+" : "−", "start", "bb-note").style.fill = plus ? "#EF4444" : "#2563EB";
+    for (let c = 0; c < z.cols; c++) if (c % 6 !== 5) sv("rect", {x: z.x0 + c * z.pitch - 4, y: y - 4, width: 8, height: 8, rx: 2, fill: "#3F3F46"}, s);
+  }
+  for (const y of z.rows) for (let c = 0; c < z.cols; c++)
+    sv("rect", {x: z.x0 + c * z.pitch - 4, y: y - 4, width: 8, height: 8, rx: 2, fill: "#3F3F46"}, s);
+  // the supply on the left, its leads to the top rails
+  sv("rect", {x: 6, y: 64, width: 110, height: 92, rx: 10, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 3}, s);
+  tideText(s, 61, 100, "Alim", "middle"); tideText(s, 61, 126, z.supply, "middle");       // LLM text: textContent only
+  sv("path", {d: `M116 ${z.rails["top,+"] ?? 80} H${z.x0 - 4}`, stroke: "#EF4444", "stroke-width": 5, fill: "none"}, s);
+  sv("path", {d: `M116 ${(z.rails["top,-"] ?? 104)} H${z.x0 - 4}`, stroke: "#1E3A8A", "stroke-width": 5, fill: "none"}, s);
+  if (z.bridge) for (const [from, to, color] of [["top,+", "bottom,+", "#EF4444"], ["top,-", "bottom,-", "#1E3A8A"]]) {
+    const x = z.x0 + (z.cols - 1) * z.pitch + 22;
+    sv("path", {d: `M${x - 22} ${z.rails[from]} H${x} V${z.rails[to]} H${x - 22}`, stroke: color, "stroke-width": 5, fill: "none"}, s);
+  }
+  const layer = sv("g", {}, s), tops = sv("g", {}, s);
+  for (const j of z.jumpers) {
+    const lift = Math.min(60, 18 + Math.hypot(j.x2 - j.x1, j.y2 - j.y1) / 5), mx = (j.x1 + j.x2) / 2, my = Math.min(j.y1, j.y2) - lift;
+    const path = sv("path", {d: `M${j.x1} ${j.y1} Q${mx} ${my} ${j.x2} ${j.y2}`, fill: "none", stroke: j.color, "stroke-width": 6,
+                             "stroke-linecap": "round", opacity: 0}, layer);
+    p.jumpers.push({path, step: j.step, length: 0});
+  }
+  for (const part of z.parts) p.parts.push(bbPart(tops, part));
+  p.step = tideText(s, 61, 196, "", "middle", "bb-note");           // under the supply: "Étape 3"
+  p.note = tideText(s, 61, 224, "", "middle");                       // and the part that went in
+  shape.append(s);
+  ent.bbParts = p;
+  return shape;
+}
+function bbPart(svg, part) {
+  // one part drawn over its leads, its label outside the board (above the top half, below the bottom)
+  const g = sv("g", {opacity: 0}, svg), L = part.leads, legs = {stroke: "#9CA3AF", "stroke-width": 4, fill: "none", "stroke-linecap": "round"};
+  const cx = L.reduce((a, l) => a + l.x, 0) / L.length, cy = Math.min(...L.map(l => l.y)), xs = L.map(l => l.x);
+  const ref = {g, part, glow: null};
+  if (part.kind === "OPAMP") {
+    const pins = L.map(l => l.x), x1 = Math.min(...pins) - 16, x2 = x1 + 4 * 29 + 4, top = L.find(l => l.name === "vcc").y;
+    sv("rect", {x: x1, y: top + 2, width: x2 - x1, height: 36, rx: 4, fill: "#18181B"}, g);
+    sv("path", {d: `M${x1} ${top + 12} a8 8 0 0 1 0 16`, fill: "#3F3F46"}, g);
+    tideText(g, (x1 + x2) / 2 + 4, top + 26, part.label.slice(0, 10), "middle", "bb-chip");       // LLM text: textContent only
+  } else if (L.length === 3) {
+    for (const l of L) sv("path", {d: `M${l.x} ${l.y} V${l.y - 18}`, ...legs}, g);
+    if (part.kind === "POTENTIOMETER") {
+      sv("rect", {x: cx - 26, y: cy - 66, width: 52, height: 50, rx: 6, fill: "#2563EB"}, g);
+      sv("circle", {cx, cy: cy - 41, r: 15, fill: "#F3F4F6"}, g);
+      sv("path", {d: `M${cx - 9} ${cy - 41} H${cx + 9} M${cx} ${cy - 50} V${cy - 32}`, stroke: "#6B7280", "stroke-width": 3}, g);
+    } else {           // a TO-220 MOSFET: black body, metal tab with its hole
+      sv("rect", {x: cx - 24, y: cy - 84, width: 48, height: 22, rx: 3, fill: "#9CA3AF"}, g);
+      sv("circle", {cx, cy: cy - 73, r: 6, fill: "#F3F1EA"}, g);
+      sv("rect", {x: cx - 24, y: cy - 62, width: 48, height: 44, rx: 3, fill: "#18181B"}, g);
+    }
+  } else {
+    const [a, b] = L, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    sv("path", {d: `M${a.x} ${a.y} L${mx - 26} ${my} M${b.x} ${b.y} L${mx + 26} ${my}`, ...legs}, g);
+    if (part.kind === "RESISTOR") {
+      sv("rect", {x: mx - 28, y: my - 9, width: 56, height: 18, rx: 8, fill: "#E8D3A9"}, g);
+      (part.bands || []).forEach((c, i) => sv("rect", {x: mx - 18 + i * 9 + (i === 3 ? 6 : 0), y: my - 9, width: 5, height: 18, fill: c}, g));
+    } else if (part.kind === "THERMISTOR") {
+      sv("circle", {cx: mx, cy: my - 4, r: 13, fill: "#1F2937"}, g);
+    } else if (part.kind === "DIODE") {
+      sv("rect", {x: mx - 20, y: my - 8, width: 40, height: 16, rx: 6, fill: "#18181B"}, g);
+      sv("rect", {x: mx + 10, y: my - 8, width: 6, height: 16, fill: "#D1D5DB"}, g);
+    } else if (part.kind === "LED") {
+      ref.glow = sv("circle", {cx: mx, cy: my - 6, r: 30, fill: "#EF4444", opacity: 0}, g);
+      ref.dome = sv("circle", {cx: mx, cy: my - 6, r: 14, fill: "#7F1D1D", stroke: "#EF4444", "stroke-width": 3}, g);
+    } else {           // HEATER: a cement power resistor
+      ref.glow = sv("rect", {x: mx - 56, y: my - 24, width: 112, height: 40, rx: 10, fill: "#F97316", opacity: 0}, g);
+      ref.dome = sv("rect", {x: mx - 46, y: my - 15, width: 92, height: 26, rx: 4, fill: "#F3F4F6", stroke: "#9CA3AF", "stroke-width": 2}, g);
+    }
+  }
+  const above = part.half === "top", ly = part.label_y;
+  sv("path", {d: `M${cx} ${above ? ly + 6 : ly - 18} V${above ? cy - 30 : Math.max(...L.map(l => l.y)) + 14}`, stroke: "var(--muted)",
+              "stroke-width": 1.5, "stroke-dasharray": "3 4", fill: "none"}, g);
+  tideText(g, cx, ly, part.label);                                  // LLM text: textContent only
+  return ref;
+}
+function seekBreadboard(e, t) {
+  const p = e.data.bbParts, spawn = e.spawn || 0;
+  const stepped = e.states.filter(s => s.at >= 0 && s.state && typeof s.state === "object" && Number.isInteger(s.state.step));
+  const shownAt = k => {               // when part k (1-based) goes in: several on one step, one after the other
+    if (!stepped.length) return spawn + 0.5 + (k - 1) * BB_AUTO;
+    const i = stepped.findIndex(s => s.state.step >= k);
+    if (i < 0) return Infinity;
+    const before = i ? stepped[i - 1].state.step : 0;
+    return stepped[i].at + Math.max(0, k - before - 1) * BB_STAGGER;
+  };
+  const lit = (stateAt(e, t) || {}).state;
+  const on = new Set(lit && typeof lit === "object" && Array.isArray(lit.on) ? lit.on : []);
+  let newest = null;
+  p.parts.forEach(ref => {
+    const at = shownAt(ref.part.step), k = clamp((t - at) / BB_DROP, 0, 1);
+    ref.g.setAttribute("opacity", k);
+    ref.g.setAttribute("transform", `translate(0 ${-30 * (1 - easeInOut(k))})`);
+    if (k > 0 && (!newest || at > newest.at || (at === newest.at && ref.part.step > newest.ref.part.step))) newest = {at, ref};
+    if (ref.glow) {
+      const heat = on.has(ref.part.id) ? 1 : 0;
+      ref.glow.setAttribute("opacity", heat * (ref.part.kind === "LED" ? 0.45 : 0.35 + 0.15 * Math.sin(t * 4)));
+      if (ref.part.kind === "LED") ref.dome.style.fill = heat ? "#EF4444" : "#7F1D1D";
+      else ref.dome.style.fill = heat ? "#FDBA74" : "#F3F4F6";
+    }
+  });
+  p.jumpers.forEach(j => {
+    const at = shownAt(j.step) + BB_DROP, k = clamp((t - at) / 0.5, 0, 1);
+    if (!j.length) j.length = j.path.getTotalLength();
+    j.path.setAttribute("opacity", k > 0 ? 1 : 0);
+    j.path.setAttribute("stroke-dasharray", j.length);
+    j.path.setAttribute("stroke-dashoffset", j.length * (1 - easeInOut(k)));
+  });
+  p.step.textContent = newest ? `Étape ${newest.ref.part.step}` : "";
+  p.note.textContent = newest ? newest.ref.part.label : "";         // LLM label: textContent only
+}
+// WAVE: a mechanical wave across WAVE_W px, its medium drawn as it is: a rope (a line through its
+// points), the sea (a surface over blue water, a buoy), a crowd (a row of spectators standing up and
+// sitting down: an ola), a spring (coils squeezed and spread: longitudinal, compressions named). A
+// pulse (a bump crossing, again and again) or a continuous wave (a sine). The marked point (the buoy,
+// one spectator, one coil) only moves up and down (or back and forth): its path is drawn beside it.
+// "energy": an arrow travelling with the crest. Every text is the page's own.
+const WAVE_W = 1300, WAVE_Y = 210, WAVE_X0 = 70, WAVE_X1 = 1230, WAVE_A = 80, WAVE_SPEED = 260, WAVE_LEN = 300;
+const WAVE_COUNT = {rope: 24, water: 80, crowd: 14, spring: 46};
+// A standing wave: z.loops loops (its harmonic) between the rope's two tied ends; drawn STANDING_DOWN px
+// lower, the two waves it is the sum of on their own ropes over it ("parts"): one going right, one left.
+const STANDING_DOWN = 200, STANDING_H = 620, PART_Y = [70, 175], PART_A = 34;
+function waveShift(z, x, u) {        // the medium's displacement at x, u s after the wave set off
+  if (z.kind === "standing") {
+    const k = (z.loops || 3) * Math.PI / (WAVE_X1 - WAVE_X0);
+    return Math.sin(k * (x - WAVE_X0)) * Math.cos(2 * Math.PI * u * 0.8);
+  }
+  if (z.kind === "continuous") return Math.sin(2 * Math.PI * ((x - WAVE_X0) / WAVE_LEN - u * WAVE_SPEED / WAVE_LEN)) * (u * WAVE_SPEED > x - WAVE_X0 ? 1 : 0);
+  const span = WAVE_X1 - WAVE_X0 + 260, front = WAVE_X0 - 130 + (u * WAVE_SPEED) % span;     // a bump, crossing again and again
+  return Math.exp(-(((x - front) / 70) ** 2));
+}
+function buildWave(ent) {
+  const z = ent.wave, shape = el("div", "wave"), p = {pts: []}, standing = z.kind === "standing", H = standing ? STANDING_H : 420;
+  shape.style.height = `${H}px`;
+  const svg = sv("svg", {width: WAVE_W, height: H, viewBox: `0 0 ${WAVE_W} ${H}`, overflow: "visible"});
+  if (standing) {                    // the two waves going opposite ways, each on its own rope, then "=" their sum
+    p.lanes = sv("g", {opacity: 0}, svg);
+    p.partsDrawn = PART_Y.map((y, j) => {
+      sv("line", {x1: WAVE_X0, y1: y, x2: WAVE_X1, y2: y, stroke: "var(--muted)", "stroke-width": 1.5, "stroke-dasharray": "4 8"}, p.lanes);
+      tideText(p.lanes, j ? WAVE_X1 : WAVE_X0, y - PART_A - 14, j ? "← Onde qui revient" : "Onde qui va →", j ? "end" : "start", "tide-note");
+      return sv("path", {d: "", fill: "none", stroke: j ? "#F472B6" : "#38BDF8", "stroke-width": 5, "stroke-linecap": "round"}, p.lanes);
+    });
+    tideText(p.lanes, 30, (PART_Y[0] + PART_Y[1]) / 2 + 10, "+");
+    tideText(p.lanes, 30, PART_Y[1] + 72, "=");
+  }
+  const s = standing ? sv("g", {transform: `translate(0 ${STANDING_DOWN})`}, svg) : svg;   // the rope itself
+  const n = WAVE_COUNT[z.mode] || 28;
+  p.xs = Array.from({length: n}, (_, i) => WAVE_X0 + i * (WAVE_X1 - WAVE_X0) / (n - 1));
+  p.mark = Math.round(n * 0.55);
+  if (z.mode === "water") {
+    p.sea = sv("path", {d: "", fill: "color-mix(in srgb, #3B82F6 35%, transparent)", stroke: "#60A5FA", "stroke-width": 4}, s);
+    p.buoy = sv("g", {}, s);
+    sv("circle", {cx: 0, cy: -16, r: 18, fill: "#F59E0B", stroke: "#FDE68A", "stroke-width": 3}, p.buoy);
+  } else if (z.mode === "crowd") {
+    sv("line", {x1: WAVE_X0 - 40, y1: WAVE_Y + 110, x2: WAVE_X1 + 40, y2: WAVE_Y + 110, stroke: "var(--muted)", "stroke-width": 4}, s);
+    p.people = p.xs.map(x => { const g = sv("g", {}, s);
+      sv("circle", {cx: 0, cy: -58, r: 14, fill: "var(--ink)"}, g);
+      sv("path", {d: "M0 -44 V8 M0 8 L-14 40 M0 8 L14 40", ...INK, "stroke-width": 6}, g);
+      const arms = sv("path", {d: "", ...INK, "stroke-width": 6}, g);
+      return {g, arms}; });
+  } else if (z.mode === "spring") {
+    p.coils = p.xs.map(() => sv("line", {y1: WAVE_Y - 50, y2: WAVE_Y + 50, stroke: "var(--ink)", "stroke-width": 4, "stroke-linecap": "round"}, s));
+    sv("line", {x1: WAVE_X0, y1: WAVE_Y, x2: WAVE_X1, y2: WAVE_Y, stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 8"}, s);
+    p.squeeze = tideText(s, 0, WAVE_Y + 92, "Compression", "middle", "tide-note");
+    p.spread = tideText(s, 0, WAVE_Y - 66, "Dilatation", "middle", "tide-note");
+  } else {
+    if (standing) {                  // its tied ends (the rope cannot move there), its nodes and antinodes named
+      const loops = z.loops || 3, step = (WAVE_X1 - WAVE_X0) / loops;
+      for (const x of [WAVE_X0, WAVE_X1]) sv("rect", {x: x - 12, y: WAVE_Y - 50, width: 24, height: 100, rx: 4, fill: "var(--muted)"}, s);
+      tideText(s, WAVE_X0, WAVE_Y + 82, "Fixée", "middle", "tide-note"); tideText(s, WAVE_X1, WAVE_Y + 82, "Fixée", "middle", "tide-note");
+      p.nodes = Array.from({length: loops + 1}, (_, i) => WAVE_X0 + i * step);
+      p.nodes.forEach((x, i) => { sv("circle", {cx: x, cy: WAVE_Y, r: 10, fill: "#22C55E"}, s);
+        if (i && i < loops) tideText(s, x, WAVE_Y + 110, "Nœud", "middle", "tide-note"); });
+      for (let i = 0; i < loops; i++) tideText(s, WAVE_X0 + (i + 0.5) * step, WAVE_Y - WAVE_A - 34, "Ventre", "middle", "tide-note");
+    }
+    p.rope = sv("path", {d: "", ...INK, "stroke-width": 6}, s);
+    p.dots = p.xs.map(() => sv("circle", {r: 7, fill: "var(--ink)"}, s));
+  }
+  // the marked point's own path: a short line it goes up and down (or back and forth) along
+  p.track = sv("line", {stroke: "#F59E0B", "stroke-width": 3, "stroke-dasharray": "6 6", opacity: 0}, s);
+  p.dot = sv("circle", {r: 13, fill: "#F59E0B", stroke: "#FDE68A", "stroke-width": 3, opacity: 0}, s);
+  p.note = tideText(svg, WAVE_W / 2, H - 12, "", "middle", "tide-note");
+  p.energy = sv("g", {opacity: 0}, s);
+  tideArrow(p.energy, -70, 0, 70, "#EF4444");
+  tideText(p.energy, 0, -22, "Énergie");
+  shape.append(svg);
+  ent.waveParts = p;
+  return shape;
+}
+function seekWave(e, t) {
+  const z = e.data.wave, p = e.data.waveParts, spawn = e.spawn || 0;
+  const given = e.states.filter(s => s.at >= 0 && s.state && typeof s.state === "object" && "go" in s.state);
+  const go = given.length ? stateTime(e, "go") : spawn + 0.5;
+  const stop = given.length ? (given.find(s => s.state.go === false && s.at > (go ?? Infinity)) || {}).at : undefined;
+  const u = go === null || t < go ? -1 : (stop !== undefined && t > stop ? stop : t) - go;
+  const shift = x => u < 0 ? 0 : waveShift(z, x, u);
+  const marked = !e.states.some(s => s.at >= 0 && s.state && typeof s.state === "object" && "mark" in s.state) || stateTime(e, "mark") !== null && t >= stateTime(e, "mark");
+  const mx = p.xs[p.mark];
+  let markXY = [mx, WAVE_Y];
+  if (z.mode === "water") {
+    const top = p.xs.map(x => [x, WAVE_Y - 50 * shift(x)]);
+    p.sea.setAttribute("d", `M${WAVE_X0} 380 L${top.map(q => q.join(" ")).join(" L")} L${WAVE_X1} 380 Z`);
+    markXY = [mx, WAVE_Y - 50 * shift(mx)];
+    p.buoy.setAttribute("transform", `translate(${markXY[0]} ${markXY[1]})`);
+  } else if (z.mode === "crowd") {
+    p.people.forEach((person, i) => {
+      const up = shift(p.xs[i]);
+      person.g.setAttribute("transform", `translate(${p.xs[i]} ${WAVE_Y + 70 - 60 * up})`);
+      person.arms.setAttribute("d", up > 0.5 ? "M0 -30 L-22 -78 M0 -30 L22 -78" : "M0 -30 L-18 0 M0 -30 L18 0");
+      person.g.querySelector("circle").style.fill = i === p.mark && marked ? "#F59E0B" : "var(--ink)";
+    });
+    markXY = [mx, WAVE_Y + 12 - 60 * shift(mx)];
+  } else if (z.mode === "spring") {
+    let squeeze = null, spread = null, most = 0, least = 0;
+    p.coils.forEach((c, i) => {
+      const x = p.xs[i] + 22 * shift(p.xs[i]);
+      c.setAttribute("x1", x); c.setAttribute("x2", x);
+      c.style.stroke = i === p.mark && marked ? "#F59E0B" : "";
+      if (i) { const gap = x - (p.xs[i - 1] + 22 * shift(p.xs[i - 1])), d = gap - (p.xs[1] - p.xs[0]);
+               if (d < most) { most = d; squeeze = x; } if (d > least) { least = d; spread = x; } }
+    });
+    p.squeeze.setAttribute("x", squeeze ?? -999); p.squeeze.setAttribute("opacity", most < -4 ? 1 : 0);
+    p.spread.setAttribute("x", spread ?? -999); p.spread.setAttribute("opacity", least > 4 ? 1 : 0);
+    markXY = [mx + 22 * shift(mx), WAVE_Y];
+  } else {
+    const pts = p.xs.map(x => [x, WAVE_Y - WAVE_A * shift(x)]), fine = [];       // the rope: a smooth curve, its points on it
+    for (let x = WAVE_X0; x <= WAVE_X1; x += 6) fine.push(`${x} ${(WAVE_Y - WAVE_A * shift(x)).toFixed(1)}`);
+    p.rope.setAttribute("d", "M" + fine.join(" L"));
+    if (p.partsDrawn) {              // the two waves going opposite ways, each on its own rope: their sum is the rope below
+      const k = (z.loops || 3) * Math.PI / (WAVE_X1 - WAVE_X0), w = 2 * Math.PI * 0.8 * Math.max(u, 0), on = stateTime(e, "parts");
+      p.partsDrawn.forEach((path, j) => {
+        const pts = [];
+        for (let x = WAVE_X0; x <= WAVE_X1; x += 8) pts.push(`${x} ${(PART_Y[j] - PART_A * Math.sin(k * (x - WAVE_X0) + (j ? w : -w))).toFixed(1)}`);
+        path.setAttribute("d", "M" + pts.join(" L"));
+      });
+      p.lanes.setAttribute("opacity", on !== null && t >= on ? clamp((t - on) / 0.5, 0, 1) : 0);
+    }
+    p.dots.forEach((d, i) => { d.setAttribute("cx", pts[i][0]); d.setAttribute("cy", pts[i][1]); });
+    markXY = pts[p.mark];
+  }
+  // the marked point and its path: up and down (or back and forth), never along
+  if (z.kind === "standing") p.mark = Math.round((p.xs.length - 1) / (2 * (z.loops || 3)));     // on the first antinode
+  const vertical = z.mode !== "spring", reach = z.mode === "crowd" ? 60 : z.mode === "water" ? 50 : z.mode === "spring" ? 22 : WAVE_A;
+  p.dot.setAttribute("opacity", marked && z.mode !== "crowd" && z.mode !== "water" ? 1 : 0);
+  p.dot.setAttribute("cx", markXY[0]); p.dot.setAttribute("cy", z.mode === "spring" ? WAVE_Y - 62 : markXY[1]);
+  const base = z.mode === "crowd" ? WAVE_Y + 12 : WAVE_Y;
+  if (vertical) { p.track.setAttribute("x1", mx + 34); p.track.setAttribute("x2", mx + 34);
+                  p.track.setAttribute("y1", base + 10); p.track.setAttribute("y2", base - reach - 10); }
+  else { p.track.setAttribute("x1", mx - 10); p.track.setAttribute("x2", mx + reach + 10);
+         p.track.setAttribute("y1", WAVE_Y - 62); p.track.setAttribute("y2", WAVE_Y - 62); }
+  p.track.setAttribute("opacity", marked ? 1 : 0);
+  p.note.textContent = !marked ? "" : z.mode === "crowd" ? "Chaque spectateur se lève puis se rassoit, à sa place"
+                     : z.mode === "spring" ? "Chaque spire va et vient, à sa place : la compression, elle, avance"
+                     : z.mode === "water" ? "La bouée monte et descend : l'eau n'avance pas"
+                     : z.kind === "standing" ? "Les nœuds ne bougent jamais, les ventres oscillent le plus : rien n'avance"
+                     : "Le point monte et descend : il n'avance pas";
+  // the energy: an arrow with the crest
+  const shown = z.kind === "standing" ? null : stateTime(e, "energy");   // a standing wave carries no energy along
+  if (shown !== null && t >= shown && u >= 0) {
+    // with the bump (a pulse), or at the front of a continuous wave: where the energy has got to
+    let crest = Math.min(WAVE_X1, WAVE_X0 + u * WAVE_SPEED) - 40, top = -Infinity;
+    if (z.kind !== "continuous") for (let x = WAVE_X0; x <= WAVE_X1; x += 10) { const v = shift(x); if (v > top) { top = v; crest = x; } }
+    p.energy.setAttribute("opacity", clamp((t - shown) / 0.4, 0, 1));
+    p.energy.setAttribute("transform", `translate(${crest} ${z.mode === "spring" ? WAVE_Y - 110 : WAVE_Y - WAVE_A - 70})`);
+  } else p.energy.setAttribute("opacity", 0);
+}
+function tunnelWave(centre, spread, phase) {
+  // a wave packet along the tube around `centre`; beyond the wall its height is a third (what gets through)
+  const pts = [];
+  for (let x = Math.max(70, centre - spread); x <= Math.min(TUN_W - 70, centre + spread); x += 6) {
+    const envelope = Math.exp(-(((x - centre) / (spread / 2.2)) ** 2)), side = x > TUN_WALL ? 0.33 : 1;
+    pts.push(`${x.toFixed(1)},${(TUN_Y - 44 * envelope * side * Math.sin((x - phase) / 14)).toFixed(1)}`);
+  }
+  return pts.length > 1 ? "M" + pts.join(" L") : "";
+}
+function seekTunnel(e, t) {
+  const z = e.data.tunnel, p = e.data.tunnelParts, spawn = e.spawn || 0;
+  const given = e.states.some(s => s.at >= 0 && s.state && typeof s.state === "object");
+  // the zoom: from the circuit seen whole into its dashed frame, which becomes the tube
+  const zoom = z.zoom ? easeInOut(clamp((t - spawn - 0.6) / (TUN_ZOOM - 0.6), 0, 1)) : 1, k = TUN_K0 + (1 - TUN_K0) * zoom;
+  p.zoom.setAttribute("transform", `translate(${TUN_W / 2} ${TUN_Y}) scale(${k}) translate(${-TUN_W / 2} ${-TUN_Y})`);
+  p.ctx.setAttribute("opacity", z.zoom ? 1 - clamp((zoom - 0.55) / 0.35, 0, 1) : 0);
+  p.caption.setAttribute("opacity", 1 - clamp(zoom / 0.3, 0, 1));     // gone before it grows big
+  p.view.setAttribute("opacity", z.zoom ? clamp(zoom / 0.4, 0, 1) : 1);
+  const bounce = given ? stateTime(e, "bounce") : null, through = given ? stateTime(e, "tunnel") : spawn + TUN_ZOOM + 0.5;
+  // the run playing now: the last one started
+  const runs = [["bounce", bounce], ["tunnel", through]].filter(([, a]) => a !== null && t >= a).sort((a, b) => a[1] - b[1]);
+  const [kind, from] = runs.length ? runs[runs.length - 1] : [null, 0], u = t - from;
+  const near = TUN_WALL - 34, far = TUN_WALL + 34;
+  let x = TUN_FROM, wave = 0, note = "";
+  if (kind === "bounce") {
+    x = u < TUN_RUN ? TUN_FROM + (near - TUN_FROM) * easeInOut(u / TUN_RUN)
+      : near - (near - TUN_FROM) * easeInOut(clamp((u - TUN_RUN) / TUN_RUN, 0, 1));
+    note = "Ce qu'on attend : il rebondit sur le mur";
+  } else if (kind === "tunnel") {
+    if (u < TUN_RUN) x = TUN_FROM + (near - TUN_FROM) * easeInOut(u / TUN_RUN);
+    else if (u < TUN_RUN + TUN_CROSS) { const q = (u - TUN_RUN) / TUN_CROSS; x = near + (far - near) * q; wave = Math.sin(Math.PI * q); }
+    else x = far + (TUN_TO - far) * easeInOut(clamp((u - TUN_RUN - TUN_CROSS) / TUN_OUT, 0, 1));
+    note = u < TUN_RUN ? "" : u < TUN_RUN + TUN_CROSS ? "Une onde, pas une bille : une petite partie passe le mur"
+                                                    : "Effet tunnel : il passe de l'autre côté, le mur reste intact";
+  }
+  // near the wall the dot gives way to its wave
+  p.dot.setAttribute("cx", x);
+  p.dot.setAttribute("opacity", 1 - 0.85 * wave);
+  p.wave.setAttribute("d", wave > 0 ? tunnelWave(x, 120 + 200 * wave, t * 90) : "");
+  p.wave.setAttribute("opacity", wave);
+  p.name.setAttribute("x", x);
+  // the wall flashes when the dot meets it
+  const hit = kind === "bounce" ? Math.max(0, 1 - Math.abs(u - TUN_RUN) / 0.3) : wave;
+  p.wall.style.stroke = hit > 0 ? `color-mix(in srgb, #F59E0B ${Math.round(100 * hit)}%, var(--text))` : "";
+  p.note.textContent = note;
+  p.note.setAttribute("opacity", note ? clamp((u - (kind === "tunnel" ? TUN_RUN : 0)) / 0.4, 0, 1) : 0);
+}
 function seekTides(e, t) {
   const z = e.data.tideParts, [ex, ey] = TIDE_E, R = TIDE_R;
   const given = e.states.some(s => s.at >= 0 && s.state && typeof s.state === "object");
@@ -1353,6 +1870,305 @@ function seekTides(e, t) {
   z.portName.setAttribute("x", (ex + (R + 50) * Math.cos(a)).toFixed(1)); z.portName.setAttribute("y", (ey + (R + 50) * Math.sin(a) + 8).toFixed(1));
   const highs = turn < 0 ? 0 : Math.floor(turn / 180) + 1;
   z.count.textContent = turn >= 270 ? "En un jour : 2 marées hautes" : `Marées hautes au port : ${highs}`;
+}
+// LOGIC_CIRCUIT: inputs (a box showing 0 or 1, its label on the left), gates in their standard shapes
+// (ET, OU, NON...: their French name under them, their value beside their output), outputs as lamps;
+// laid out in Python (logic_data). A wire at 1 glows green, at 0 is grey. Each gate shows the result of
+// the inputs as they were LOGIC_LAG s ago (a circuit: all at once), or, from set_state {"mode":
+// "sequential"}, (k + 1) x LOGIC_STEP s ago for the k-th gate (a program: one step after the other,
+// the gate at work outlined). set_state {"<input id>": 1 | 0} sets an input.
+const LOGIC_STEP = 0.8, LOGIC_LAG = 0.3, GATE_W = 120, GATE_H = 90, LOGIC_ON = "#22C55E";
+const gateOut = type => ({AND: 45, NAND: 45, OR: 52, NOR: 52, XOR: 52, NOT: 32}[type] + (["NAND", "NOR", "NOT"].includes(type) ? 14 : 0));
+function gatePath(type, cx, cy) {
+  const l = cx - GATE_W / 2, t = cy - GATE_H / 2, b = cy + GATE_H / 2;
+  if (type === "AND" || type === "NAND") return `M${l} ${t} H${cx} A${GATE_H / 2} ${GATE_H / 2} 0 0 1 ${cx} ${b} H${l} Z`;
+  if (type === "NOT") return `M${l} ${t} L${cx + 32} ${cy} L${l} ${b} Z`;
+  return `M${l} ${t} Q${cx - 22} ${cy} ${l} ${b} Q${cx + 12} ${b} ${cx + 52} ${cy} Q${cx + 12} ${t} ${l} ${t} Z`;   // OR, NOR, XOR
+}
+function logicPoint(z, id, side, pin = 0, pins = 1) {   // where a wire leaves a node (side "out") or enters it ("in")
+  const n = z.nodes[id];
+  if (side === "out") return n.kind === "input" ? [n.x + 36, n.y] : [n.x + gateOut(n.type), n.y];
+  if (n.kind === "output") return [n.x - 26, n.y];
+  return [n.x - GATE_W / 2 + (n.type === "XOR" ? -4 : 0), n.y + (pins === 2 ? (pin ? 24 : -24) : 0)];
+}
+function buildLogic(ent) {
+  const z = ent.logic, shape = el("div", "logic");
+  Object.assign(shape.style, {width: `${z.width}px`, height: `${z.height}px`});
+  const s = sv("svg", {width: z.width, height: z.height, viewBox: `0 0 ${z.width} ${z.height}`, overflow: "visible"});
+  const parts = {wires: [], nodes: {}};
+  z.wires.forEach((w, i) => {
+    const [sx, sy] = logicPoint(z, w.from, "out"), [ex, ey] = logicPoint(z, w.to, "in", w.pin, w.pins);
+    const mx = Math.round((sx + ex) / 2 + (w.pin - (w.pins - 1) / 2) * 14);
+    const path = sv("path", {d: `M${sx} ${sy} H${mx} V${ey} H${ex}`, fill: "none", "stroke-width": 6, "stroke-linejoin": "round"}, s);
+    parts.wires.push({path, from: w.from});
+  });
+  for (const [id, n] of Object.entries(z.nodes)) {
+    const g = sv("g", {}, s), p = {g};
+    if (n.kind === "input") {
+      p.box = sv("rect", {x: n.x - 36, y: n.y - 24, width: 72, height: 48, rx: 10, "stroke-width": 4}, g);
+      p.value = tideText(g, n.x, n.y + 11, "0");
+      p.value.classList.add("logic-value");
+      tideText(g, n.x - 48, n.y + 8, n.label || id, "end");
+    } else if (n.kind === "gate") {
+      p.body = sv("path", {d: gatePath(n.type, n.x, n.y), "stroke-width": 5, "stroke-linejoin": "round"}, g);
+      if (n.type === "XOR") sv("path", {d: `M${n.x - GATE_W / 2 - 10} ${n.y - GATE_H / 2} Q${n.x - 34} ${n.y} ${n.x - GATE_W / 2 - 10} ${n.y + GATE_H / 2}`,
+                                       fill: "none", "stroke-width": 5, class: "logic-ink"}, g);
+      if (["NAND", "NOR", "NOT"].includes(n.type)) sv("circle", {cx: n.x + gateOut(n.type) - 7, cy: n.y, r: 7, "stroke-width": 4, class: "logic-ink logic-hole"}, g);
+      tideText(g, n.x, n.y + GATE_H / 2 + 30, n.name);
+      p.value = tideText(g, n.x + gateOut(n.type) + 8, n.y - 14, "0", "start");
+      p.value.classList.add("logic-bit");
+    } else {
+      p.lamp = sv("circle", {cx: n.x, cy: n.y, r: 26, "stroke-width": 4}, g);
+      tideText(g, n.x, n.y + 56, n.label || id);
+    }
+    parts.nodes[id] = p;
+  }
+  z.note = tideText(s, 0, 4, "", "start", "tide-note");
+  if (z.program) {                 // the program: one line per gate, a pointer on the line at work
+    const pr = z.program, g = sv("g", {class: "logic-program"}, s);
+    tideText(g, pr.x, pr.top - 50, "Programme : une ligne à la fois", "start", "tide-note");
+    parts.pointer = sv("rect", {x: pr.x - 14, y: pr.top - 34, width: pr.width - 40, height: pr.line - 6, rx: 8, opacity: 0,
+                                fill: "color-mix(in srgb, var(--accent) 22%, transparent)", stroke: "var(--accent)", "stroke-width": 2}, g);
+    parts.lines = pr.lines.map((text, i) => {
+      tideText(g, pr.x, pr.top + i * pr.line, String(i + 1), "start", "tide-note");
+      return tideText(g, pr.x + 40, pr.top + i * pr.line, text, "start");       // LLM labels: textContent only
+    });
+  }
+  shape.append(s);
+  ent.logicParts = parts;
+  return shape;
+}
+function seekLogic(e, t) {
+  const z = e.data.logic, parts = e.data.logicParts, given = e.states.filter(s => s.at >= 0 && s.state && typeof s.state === "object");
+  const input = (id, at) => { let v = z.values[id]; for (const s of given) if (s.at <= at && id in s.state) v = s.state[id] ? 1 : 0; return v; };
+  const mode = (given.filter(s => s.at <= t && (s.state.mode === "sequential" || s.state.mode === "parallel")).pop() || {state: {mode: "parallel"}}).state.mode;
+  const compute = at => {           // every value with the inputs as they were at `at`
+    const v = {};
+    for (const id of Object.keys(z.values)) v[id] = input(id, at);
+    for (const g of z.gates) {
+      const [a, b] = z.feeds[g].map(f => v[f]), type = z.nodes[g].type;
+      v[g] = type === "AND" ? a & b : type === "OR" ? a | b : type === "XOR" ? a ^ b : type === "NAND" ? 1 - (a & b)
+           : type === "NOR" ? 1 - (a | b) : 1 - a;
+    }
+    return v;
+  };
+  const shown = {};
+  for (const id of Object.keys(z.values)) shown[id] = input(id, t);
+  z.gates.forEach((g, k) => { shown[g] = compute(t - (mode === "sequential" ? (k + 1) * LOGIC_STEP : LOGIC_LAG))[g]; });
+  for (const [o, f] of Object.entries(z.outputs)) shown[o] = shown[f];
+  // the step at work: since the last input change, one gate per LOGIC_STEP
+  const change = Math.max(-Infinity, ...given.filter(s => s.at <= t && Object.keys(s.state).some(k => k in z.values)).map(s => s.at));
+  const working = mode === "sequential" ? Math.floor((t - change) / LOGIC_STEP) : -1;
+  for (const w of parts.wires) w.path.style.stroke = shown[w.from] ? LOGIC_ON : "color-mix(in srgb, var(--muted) 70%, transparent)";
+  for (const [id, n] of Object.entries(z.nodes)) {
+    const p = parts.nodes[id], on = shown[id];
+    if (n.kind === "input") {
+      p.value.textContent = String(on);
+      p.box.style.fill = on ? `color-mix(in srgb, ${LOGIC_ON} 25%, var(--card))` : "var(--card)";
+      p.box.style.stroke = on ? LOGIC_ON : "var(--ink)";
+    } else if (n.kind === "gate") {
+      p.value.textContent = String(on);
+      p.value.style.fill = on ? LOGIC_ON : "var(--muted)";
+      p.body.style.fill = "var(--card)";
+      p.body.style.stroke = z.gates.indexOf(id) === working ? "var(--accent)" : "var(--ink)";
+      p.body.style.strokeWidth = z.gates.indexOf(id) === working ? 8 : 5;
+    } else {
+      p.lamp.style.fill = on ? "#FDE047" : "var(--card)";
+      p.lamp.style.stroke = on ? "#F59E0B" : "var(--ink)";
+      p.lamp.style.filter = on ? "drop-shadow(0 0 18px rgba(251, 191, 36, .9))" : "none";
+    }
+  }
+  if (parts.pointer) {             // the line at work: gate k's, then the outputs' (one step for them all)
+    const line = working < 0 || !Number.isFinite(change) ? -1 : working < z.gates.length ? working
+               : working === z.gates.length ? z.gates.length : -1;
+    parts.pointer.setAttribute("opacity", line >= 0 ? 1 : 0);
+    parts.pointer.setAttribute("height", (line === z.gates.length ? parts.lines.length - z.gates.length : 1) * z.program.line - 6);
+    if (line >= 0) parts.pointer.setAttribute("y", z.program.top - 34 + line * z.program.line);
+    parts.lines.forEach((l, i) => { l.style.opacity = mode === "sequential" ? 1 : 0.45; });
+  }
+  z.note.textContent = given.some(s => s.state.mode) ? (mode === "sequential" ? "Pas à pas : une porte après l'autre" : "Circuit : toutes les portes en même temps") : "";
+}
+// FPGA_GRID: a grid of logic blocks, routing channels between them. {"configure": true}: the bitstream
+// slides in and "design" fills the blocks one by one (FPGA_PLACE s apart), the routing between
+// consecutive blocks lit; functions beyond the blocks are listed in red, "ressources insuffisantes".
+// {"run": true}: signals run along every lit route at once, the blocks beating together.
+// {"reconfigure": true}: the blocks empty, then "design2" fills them the same way.
+// {"zoom": "ET"} (a function's name, or a block's number from 0): the view zooms on that block and
+// shows what is inside: the gate drawn for ET, OU, NON..., a small table (LUT) whose bits come from
+// the bitstream for any other function; {"zoom": false} zooms back out. {"wire": true}: the
+// interconnect: a switch at each crossing of the channels closes, one route after the other, and
+// the signal runs along the routes (given "wire", the routes light then, not as the blocks fill).
+const FPGA_PLACE = 0.6, FPGA_FLY = 0.45, FPGA_X0 = 170, FPGA_Y0 = 40, FPGA_BLOCK = 110, FPGA_ZOOM = 3.2, FPGA_ZOOM_SEC = 1.1;
+const FPGA_SWITCH = 0.35;           // s between two routes' switches closing
+const FPGA_GATES = {"et": "AND", "ou": "OR", "non": "NOT", "ou exclusif": "XOR", "non-et": "NAND", "non-ou": "NOR"};
+function fpgaGate(name) { return FPGA_GATES[String(name || "").toLowerCase().replace(/^porte\s+/, "").trim()] || null; }
+function fpgaInside(g, name) {
+  // what a block holds, drawn small in its centre (seen once zoomed): a gate, or a LUT and its bits
+  g.replaceChildren();
+  const type = fpgaGate(name), ink = {fill: "none", stroke: "var(--text)", "stroke-width": 6, "stroke-linecap": "round"};
+  if (type) {
+    const out = gateOut(type);
+    for (const y of type === "NOT" ? [0] : [-24, 24]) sv("line", {x1: -GATE_W / 2 - 50, y1: y, x2: -GATE_W / 2, y2: y, ...ink}, g);
+    sv("line", {x1: out, y1: 0, x2: out + 50, y2: 0, ...ink}, g);
+    if (type === "XOR") sv("path", {d: `M${-GATE_W / 2 - 10} ${-GATE_H / 2} Q-34 0 ${-GATE_W / 2 - 10} ${GATE_H / 2}`, ...ink}, g);
+    sv("path", {d: gatePath(type, 0, 0), ...ink, fill: "var(--card)"}, g);
+    if (["NAND", "NOR", "NOT"].includes(type)) sv("circle", {cx: out - 7, cy: 0, r: 7, ...ink, fill: "var(--card)"}, g);
+    tideText(g, 0, 105, `Porte ${name}`).style.fontSize = "38px";
+  } else {
+    const bits = ["0", "1", "1", "0"];
+    ["00", "01", "10", "11"].forEach((row, i) => {
+      sv("rect", {x: -90, y: -78 + i * 34, width: 180, height: 34, fill: "var(--card)", stroke: "var(--muted)", "stroke-width": 3}, g);
+      tideText(g, -40, -52 + i * 34, row).style.fontSize = "26px";
+      tideText(g, 45, -52 + i * 34, bits[i]).style.fontSize = "26px";
+    });
+    tideText(g, 0, 105, "Table (LUT)").style.fontSize = "38px";
+  }
+}
+function fpgaZoom(e, t, design, n) {
+  // {block, k}: the block zoomed on (or null) and how far in, from the "zoom" values in the states
+  let block = null, k = 0, prev;
+  for (const s of e.states) {
+    if (s.at < 0 || s.at > t || !s.state || typeof s.state !== "object") continue;
+    const v = s.state.zoom;
+    if (v === prev) continue;
+    const zoomed = block !== null ? k : 0;
+    if (v === undefined || v === false || v === null) { if (block !== null) k = zoomed * (1 - easeInOut(clamp((t - s.at) / FPGA_ZOOM_SEC, 0, 1))); }
+    else {
+      const name = String(v).toLowerCase(), byName = design.findIndex(d => String(d).toLowerCase() === name);
+      block = typeof v === "number" ? clamp(Math.round(v), 0, n - 1) : byName >= 0 ? byName
+            : Math.max(0, design.findIndex(d => String(d).toLowerCase().includes(name)));
+      k = easeInOut(clamp((t - s.at) / FPGA_ZOOM_SEC, 0, 1));
+    }
+    prev = v;
+  }
+  return {block, k};
+}
+function fpgaSwitches(z, i) {     // the channel crossings the route into block i passes
+  const [ax, ay] = fpgaCentre(z, i - 1), [bx, by] = fpgaCentre(z, i), mx = ax + z.cell / 2;
+  return ay === by ? [[mx, ay]] : [[mx, ay], [bx, by - z.cell / 2]];
+}
+function fpgaCentre(z, i) { const c = i % z.cols, r = Math.floor(i / z.cols);
+  return [FPGA_X0 + c * z.cell + z.cell / 2, FPGA_Y0 + r * z.cell + z.cell / 2]; }
+function buildFpga(ent) {
+  const z = ent.fpga, shape = el("div", "fpga"), n = z.cols * z.rows;
+  const W = z.cols * z.cell + 300, H = z.rows * z.cell + 150;
+  Object.assign(shape.style, {width: `${W}px`, height: `${H}px`});
+  const svg = sv("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`, overflow: "visible"});
+  // everything zooms inside the drawing's own frame (clipped), but the red "ressources" line
+  const clip = `fpga-${String(ent.id).replace(/[^\w-]/g, "_")}-clip`;
+  sv("rect", {x: -120, y: -20, width: W + 120, height: H + 20}, sv("clipPath", {id: clip}, sv("defs", {}, svg)));
+  const s = sv("g", {}, sv("g", {"clip-path": `url(#${clip})`}, svg));
+  const chan = sv("g", {stroke: "color-mix(in srgb, var(--muted) 35%, transparent)", "stroke-width": 3, "stroke-dasharray": "6 8"}, s);
+  for (let c = 0; c <= z.cols; c++) sv("line", {x1: FPGA_X0 + c * z.cell, y1: FPGA_Y0, x2: FPGA_X0 + c * z.cell, y2: FPGA_Y0 + z.rows * z.cell}, chan);
+  for (let r = 0; r <= z.rows; r++) sv("line", {x1: FPGA_X0, y1: FPGA_Y0 + r * z.cell, x2: FPGA_X0 + z.cols * z.cell, y2: FPGA_Y0 + r * z.cell}, chan);
+  const routes = sv("g", {}, s), parts = {blocks: [], routes: []};
+  for (let i = 1; i < n; i++) {     // block i-1 to block i, along the channels: right, then down the channel, then in
+    const [ax, ay] = fpgaCentre(z, i - 1), [bx, by] = fpgaCentre(z, i), mx = ax + z.cell / 2;
+    const d = ay === by ? `M${ax} ${ay} H${bx}` : `M${ax} ${ay} H${mx} V${by - z.cell / 2} H${bx} V${by}`;
+    parts.routes.push(sv("path", {d, fill: "none", stroke: "var(--accent)", "stroke-width": 6, "stroke-linecap": "round", opacity: 0}, routes));
+  }
+  parts.switches = [];
+  for (let i = 1; i < n; i++) parts.switches.push(fpgaSwitches(z, i).map(([x, y]) =>
+    sv("circle", {cx: x, cy: y, r: 11, fill: "var(--card)", stroke: "var(--accent)", "stroke-width": 4, opacity: 0}, s)));
+  for (let i = 0; i < n; i++) {
+    const [cx, cy] = fpgaCentre(z, i), g = sv("g", {}, s);
+    const rect = sv("rect", {x: cx - FPGA_BLOCK / 2, y: cy - FPGA_BLOCK / 2, width: FPGA_BLOCK, height: FPGA_BLOCK, rx: 12, "stroke-width": 4}, g);
+    const label = tideText(g, cx, cy + 9, ""), label2 = tideText(g, cx, cy + 24, "");
+    const inside = sv("g", {transform: `translate(${cx} ${cy - 6}) scale(0.28)`, opacity: 0}, g);
+    parts.blocks.push({rect, label, label2, cy, cx, inside, holds: null});
+  }
+  tideText(s, FPGA_X0 + z.cols * z.cell / 2, FPGA_Y0 + z.rows * z.cell + 34, "Blocs logiques et routage", "middle", "tide-note");
+  // the bitstream: a file (a page, its corner folded) of bits, left of the grid
+  parts.bits = sv("g", {opacity: 0}, s);
+  sv("path", {d: "M-44 -60 H24 L44 -40 V60 H-44 Z", fill: "var(--card)", stroke: "var(--accent)", "stroke-width": 3}, parts.bits);
+  sv("path", {d: "M24 -60 V-40 H44", fill: "none", stroke: "var(--accent)", "stroke-width": 3}, parts.bits);
+  ["1011", "0010", "1101"].forEach((bits, i) => tideText(parts.bits, 0, -14 + i * 28, bits, "middle", "fpga-file"));
+  tideText(parts.bits, 0, -74, "Bitstream", "middle", "tide-note");
+  // a packet of the bitstream's bits flies to each block as it gets its function
+  parts.packet = tideText(s, 0, 0, "", "middle", "fpga-bits");
+  parts.wireNote = tideText(svg, FPGA_X0 + z.cols * z.cell / 2, FPGA_Y0 + z.rows * z.cell + 84, "", "middle", "tide-note");
+  parts.world = s;
+  parts.size = [W, H];
+  parts.over = tideText(svg, FPGA_X0, FPGA_Y0 + z.rows * z.cell + 84, "", "start");
+  parts.over.style.fill = "#EF4444";
+  shape.append(svg);
+  ent.fpgaParts = parts;
+  return shape;
+}
+function fpgaLines(text) {
+  // a long name with a space ("Portes logiques") on two lines, cut at the space nearest the middle
+  const spaces = [...text.matchAll(/ /g)].map(m => m.index);
+  if (text.length <= 9 || !spaces.length) return [text, ""];
+  const cut = spaces.reduce((a, b) => Math.abs(b - text.length / 2) < Math.abs(a - text.length / 2) ? b : a);
+  return [text.slice(0, cut), text.slice(cut + 1)];
+}
+function seekFpga(e, t) {
+  const z = e.data.fpga, p = e.data.fpgaParts, n = z.cols * z.rows;
+  const configured = stateTime(e, "configure"), reconfigured = stateTime(e, "reconfigure"), running = stateTime(e, "run");
+  // the phase now: the first design from "configure", the second from "reconfigure" (after a clear)
+  const phase = reconfigured !== null && t >= reconfigured && z.design2.length ? {at: reconfigured + 0.6, design: z.design2, clear: reconfigured}
+              : configured !== null && t >= configured ? {at: configured, design: z.design} : null;
+  const placedAt = i => phase ? phase.at + 0.9 + i * FPGA_PLACE : Infinity;
+  const zoom = fpgaZoom(e, t, phase ? phase.design : [], n);
+  const clearing = phase && phase.clear !== undefined ? 1 - clamp((t - phase.clear) / 0.5, 0, 1) : 0;
+  p.blocks.forEach((b, i) => {
+    const k = phase && i < phase.design.length ? clamp((t - placedAt(i)) / 0.3, 0, 1) : 0;
+    const beat = running !== null && t >= running && k ? 0.5 + 0.5 * Math.sin((t - running) * 2 * Math.PI) : 0;
+    b.rect.style.fill = k ? `color-mix(in srgb, var(--accent) ${Math.round(18 + 22 * k + 25 * beat)}%, var(--card))`
+                          : clearing ? `color-mix(in srgb, var(--accent) ${Math.round(40 * clearing)}%, var(--card))` : "var(--card)";
+    b.rect.style.stroke = k ? "var(--accent)" : "var(--ink)";
+    const [line1, line2] = k ? fpgaLines(phase.design[i]) : ["", ""], longest = Math.max(line1.length, line2.length);
+    b.label.textContent = line1;      // LLM text: textContent only
+    b.label2.textContent = line2;
+    b.label.setAttribute("y", line2 ? b.cy - 6 : b.cy + 9);
+    const name = k ? phase.design[i] : null, seen = zoom.block === i ? zoom.k : 0;
+    if (b.holds !== name) { fpgaInside(b.inside, name); b.holds = name; }     // LLM text: textContent only
+    b.inside.setAttribute("opacity", clamp((seen - 0.5) / 0.4, 0, 1));
+    for (const l of [b.label, b.label2]) {
+      l.style.fontSize = longest > 7 ? `${Math.max(15, Math.round(24 * 7 / longest))}px` : "";
+      l.style.opacity = k * (1 - clamp(seen / 0.5, 0, 1));
+    }
+  });
+  const wired = stateTime(e, "wire"), closeAt = i => wired + 0.5 + i * FPGA_SWITCH;
+  p.routes.forEach((r, i) => {     // the route into block i + 1, once both ends are placed (given "wire": once its switches close)
+    const used = phase && i + 1 < Math.min(phase.design.length, n);
+    const lit = !used ? 0 : wired === null ? clamp((t - placedAt(i + 1)) / 0.3, 0, 1)
+              : Math.min(clamp((t - closeAt(i)) / 0.3, 0, 1), clamp((t - placedAt(i + 1)) / 0.3, 0, 1));
+    r.setAttribute("opacity", lit);
+    p.switches[i].forEach(c => {
+      c.setAttribute("opacity", used && wired !== null && t >= wired ? clamp((t - wired) / 0.4, 0, 1) : 0);
+      c.style.fill = used && wired !== null && t >= closeAt(i) ? "#10B981" : "var(--card)";
+    });
+    const flowing = (running !== null && t >= running) || (wired !== null && t >= closeAt(i) + 0.3);
+    if (flowing && lit) { r.setAttribute("stroke-dasharray", "14 12"); r.setAttribute("stroke-dashoffset", String(-t * 90)); }
+    else r.removeAttribute("stroke-dasharray");
+  });
+  const slide = phase ? clamp((t - (phase.clear !== undefined ? phase.clear + 0.6 : phase.at)) / 0.9, 0, 1) : 0;
+  const last = phase ? placedAt(Math.min(phase.design.length, n) - 1) : 0;
+  p.bits.setAttribute("opacity", phase ? Math.max(0, 1 - Math.max(0, t - last - 1) / 0.6) : 0);
+  p.bits.setAttribute("transform", `translate(${40 + 50 * slide} ${FPGA_Y0 + z.cell / 2})`);
+  // the packet on its way to the block being configured (FPGA_FLY s before it gets its function)
+  const flying = phase ? p.blocks.findIndex((b, i) => i < Math.min(phase.design.length, n) && t >= placedAt(i) - FPGA_FLY && t < placedAt(i)) : -1;
+  if (flying >= 0) {
+    const q = easeInOut((t - placedAt(flying) + FPGA_FLY) / FPGA_FLY), [bx, by] = fpgaCentre(z, flying), [sx, sy] = [134, FPGA_Y0 + z.cell / 2 + 8];
+    p.packet.textContent = ["1011", "0110", "1101", "0010", "1110", "0101"][flying % 6];
+    p.packet.setAttribute("x", sx + (bx - sx) * q);
+    p.packet.setAttribute("y", sy + (by + 8 - sy) * q);
+    p.packet.setAttribute("opacity", 1);
+  } else p.packet.setAttribute("opacity", 0);
+  const configuring = phase && t < placedAt(Math.min(phase.design.length, n) - 1) + 2;
+  p.wireNote.textContent = wired !== null && t >= wired ? "Interconnexions : des interrupteurs programmables relient les blocs"
+                         : configuring ? "Le bitstream : le fichier qui dit à chaque bloc quelle fonction faire" : "";
+  p.over.setAttribute("y", FPGA_Y0 + z.rows * z.cell + (p.wireNote.textContent ? 110 : 84));
+  // the zoom on one block: its centre to the middle, FPGA_ZOOM times bigger
+  const [W, H] = p.size;
+  if (zoom.block !== null && zoom.k > 0) {
+    const [cx, cy] = fpgaCentre(z, zoom.block), kk = 1 + (FPGA_ZOOM - 1) * zoom.k;
+    const tx = cx + (W / 2 - cx) * zoom.k, ty = cy + (H / 2 - 30 - cy) * zoom.k;
+    p.world.setAttribute("transform", `translate(${tx} ${ty}) scale(${kk}) translate(${-cx} ${-cy})`);
+  } else p.world.removeAttribute("transform");
+  const extra = phase ? phase.design.slice(n) : [];
+  p.over.textContent = extra.length && t >= placedAt(n - 1) + 0.4 ? `Ressources insuffisantes : ${extra.join(", ")} sans bloc` : "";
 }
 // POPULATION: "total" dots in a grid, each standing for "per" people; the groups' dots first, in order,
 // the others grey. A group is coloured in, dot after dot (POP_SHOW), at its set_state {"show": id},
@@ -1490,6 +2306,88 @@ function floatOffset(e, t) {
   if (at === null || t < at) return 0;
   return 100 * easeInOut(progress(t, at, 3)) + 12 * Math.sin(1.7 * (t - at)) * Math.min(1, (t - at) / 1.5);
 }
+// Schematic parts: standard symbols (IEC, as in French schools), drawn in SVG at their size in
+// app/layout_solver.py SHAPES, their ports in PORTS. States: LED {"on"} lit; HEATER {"on"} red, heat
+// rising; OPAMP {"high"} its output at the high level; MOSFET {"on"} conducting; THERMISTOR {"hot"}.
+const INK = {fill: "none", stroke: "var(--ink)", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round"};
+const PART_SYMBOLS = {
+  SUPPLY_RAIL: [70, 50, (g, p) => {         // the supply: a bar on a lead, its voltage over it
+    sv("path", {d: "M35 50 V18 M14 18 H56", ...INK}, g);
+    tideText(g, 35, 8, p.label, "middle", "part-mark"); }],
+  RESISTOR: [140, 44, (g, p) => {
+    sv("path", {d: "M0 22 H30 M110 22 H140", ...INK}, g);
+    p.body = sv("rect", {x: 30, y: 10, width: 80, height: 24, ...INK}, g); }],
+  POTENTIOMETER: [140, 80, (g, p) => {
+    sv("path", {d: "M0 20 H30 M110 20 H140 M70 80 V40", ...INK}, g);
+    sv("path", {d: "M62 46 L70 34 L78 46 Z", ...INK, fill: "var(--ink)"}, g);
+    p.body = sv("rect", {x: 30, y: 8, width: 80, height: 24, ...INK}, g); }],
+  THERMISTOR: [140, 64, (g, p) => {
+    sv("path", {d: "M0 28 H30 M110 28 H140", ...INK}, g);
+    p.body = sv("rect", {x: 30, y: 16, width: 80, height: 24, ...INK}, g);
+    sv("path", {d: "M22 54 H36 L104 4", ...INK}, g);
+    tideText(g, 120, 60, "−θ", "middle", "part-mark"); }],
+  OPAMP: [170, 160, (g, p) => {
+    p.body = sv("path", {d: "M20 10 L160 80 L20 150 Z", ...INK, fill: "var(--card)"}, g);
+    sv("path", {d: "M0 48 H20 M0 112 H20 M80 0 V40 M80 120 V160", ...INK}, g);
+    p.out = sv("path", {d: "M160 80 H170", ...INK}, g);
+    tideText(g, 36, 57, "−", "middle", "part-mark"); tideText(g, 36, 121, "+", "middle", "part-mark");
+    tideText(g, 80, 88, "AOP", "middle", "part-mark"); }],
+  MOSFET: [120, 140, (g, p) => {
+    sv("path", {d: "M0 90 H40 M40 40 V110 M52 46 H90 V0 M52 104 H90 V140 M52 75 H90 V104", ...INK}, g);
+    p.channel = [36, 64, 94].map(y => sv("path", {d: `M52 ${y} V${y + 20}`, ...INK}, g));
+    sv("path", {d: "M58 75 L70 68 L70 82 Z", ...INK, fill: "var(--ink)"}, g); }],
+  DIODE: [120, 50, (g, p) => {
+    sv("path", {d: "M0 25 H40 M74 25 H120 M74 8 V42", ...INK}, g);
+    p.body = sv("path", {d: "M40 8 L74 25 L40 42 Z", ...INK, fill: "var(--ink)"}, g); }],
+  LED: [120, 70, (g, p) => {
+    sv("path", {d: "M0 40 H40 M74 40 H120 M74 23 V57", ...INK}, g);
+    p.body = sv("path", {d: "M40 23 L74 40 L40 57 Z", ...INK, fill: "var(--card)"}, g);
+    for (const x of [62, 78]) {
+      sv("path", {d: `M${x} 18 L${x + 14} 4`, ...INK, "stroke-width": 3}, g);
+      sv("path", {d: `M${x + 16} 2 L${x + 6} 4 L${x + 14} 12 Z`, ...INK, "stroke-width": 2, fill: "var(--ink)"}, g); }
+  }],
+  HEATER: [150, 96, (g, p) => {
+    sv("path", {d: "M0 65 H30 M120 65 H150", ...INK}, g);
+    p.body = sv("rect", {x: 30, y: 50, width: 90, height: 30, ...INK}, g);
+    for (let x = 42; x < 120; x += 14) sv("path", {d: `M${x} 78 L${x + 10} 52`, ...INK, "stroke-width": 2}, g);
+    p.heat = sv("g", {opacity: 0}, g);
+    for (const x of [50, 75, 100]) sv("path", {d: `M${x} 44 q-8 -7 0 -14 q8 -7 0 -14 q-8 -7 0 -14`, fill: "none", stroke: "#F97316",
+                                                "stroke-width": 4, "stroke-linecap": "round"}, p.heat);
+  }],
+};
+function buildPart(ent) {
+  const [w, h, draw] = PART_SYMBOLS[ent.type], shape = el("div", "part");
+  Object.assign(shape.style, {width: `${w}px`, height: `${h}px`});
+  const svg = sv("svg", {width: w, height: h, viewBox: `0 0 ${w} ${h}`, overflow: "visible"});
+  ent.partParts = {label: ent.rail || ""};      // a supply's voltage (LLM text: textContent only)
+  draw(svg, ent.partParts);
+  shape.append(svg);
+  return shape;
+}
+function seekPart(e, t) {
+  const p = e.data.partParts, s = stateAt(e, t), k = s ? easeInOut(progress(t, s.at, 0.4)) : 0, type = e.data.type;
+  const on = key => is(s, key) ? k : 0;      // lit as its state says, fading in over 0.4 s
+  if (type === "LED") {
+    const v = on("on");
+    p.body.style.fill = v ? `color-mix(in srgb, #EF4444 ${Math.round(100 * v)}%, var(--card))` : "var(--card)";
+    p.body.style.filter = v ? `drop-shadow(0 0 ${Math.round(16 * v)}px rgba(239, 68, 68, .95))` : "none";
+  } else if (type === "HEATER") {
+    const v = on("on");
+    p.body.style.fill = v ? `color-mix(in srgb, #EF4444 ${Math.round(55 * v)}%, transparent)` : "none";
+    p.heat.setAttribute("opacity", v);
+    p.heat.setAttribute("transform", `translate(0 ${-((t * 18) % 14)})`);
+  } else if (type === "OPAMP") {
+    const v = on("high");
+    p.body.style.fill = v ? `color-mix(in srgb, #22C55E ${Math.round(22 * v)}%, var(--card))` : "var(--card)";
+    p.out.style.stroke = v ? "#22C55E" : "";
+  } else if (type === "MOSFET") {
+    const v = on("on");
+    p.channel.forEach(c => { c.style.stroke = v ? "#22C55E" : ""; });
+  } else if (type === "THERMISTOR") {
+    const v = on("hot");
+    p.body.style.fill = v ? `color-mix(in srgb, #F97316 ${Math.round(45 * v)}%, transparent)` : "none";
+  }
+}
 function buildLamp(shape) {                 // a bulb with a filament and a radial glow behind it
   const s = sv("svg", {viewBox: "-125 -125 250 250"});
   const halo = sv("circle", {r: 122, fill: "url(#lampGlow)", opacity: 0}, s);
@@ -1611,13 +2509,15 @@ if (STYLE.title === "kinetic") String(D.title || "").split(/(\s+)/).forEach(part
   const w = el("span", "word", part); TITLE.append(w); TITLE_WORDS.push(w); });
 else TITLE.textContent = D.title || "";
 SUBTITLE.textContent = (STYLE.subtitle === "code" && !D.plan ? `// étape ${String(D.scene_number || 1).padStart(2, "0")} : ` : "") + (D.subtitle || "");
-const PLAN = [];
+// The plan: one row per chapter, PLAN_PAGE rows a page; the next page takes the place of the last one
+// when its first chapter is named (ten chapters no longer run over the titles).
+const PLAN = [], PLAN_PAGE = 6;
 if (Array.isArray(D.plan)) {
   const list = el("div"); list.id = "plan"; stage.append(list);
-  for (const item of D.plan) {
+  D.plan.forEach((item, i) => {
     const row = el("div", "plan-item"); row.append(el("span", "num", String(item.number).padStart(2, "0")), el("span", "", String(item.title)));
-    list.append(row); PLAN.push({row, at: +item.at || 0});
-  }
+    list.append(row); PLAN.push({row, at: +item.at || 0, page: Math.floor(i / PLAN_PAGE)});
+  });
 }
 // The end of the video (D.ending, on its last scene): the picture fades to the background.
 let FADE = null;
@@ -1665,6 +2565,7 @@ for (const ent of D.entities) {
     jacks.append(el("div", "jack black"), el("div", "jack red"));
     shape.append(head, el("div", "dmm-screen", "0,00 V"), jacks, el("div", "dmm-pins", ""));   // where its probes touch
   }
+  else if (PART_SYMBOLS[ent.type]) shape = buildPart(ent);     // a schematic symbol (resistor, AOP, MOSFET...)
   else if (ent.annotation) shape = el("div", "pill", ent.label || "");   // its arrow is drawn once it is placed
   else if (ent.type === "WIRE_BUS") shape = el("div", "junction");
   else if (ent.type === "EARTH_GROUND" || ent.type === "CHASSIS_MASS") { shape = el("div", "ground"); buildGround(shape, ent.type); }
@@ -1682,6 +2583,12 @@ for (const ent of D.entities) {
   else if (ent.race) shape = buildRace(ent);
   else if (ent.population) shape = buildPopulation(ent);
   else if (ent.tides) shape = buildTides(ent);
+  else if (ent.tunnel) shape = buildTunnel(ent);
+  else if (ent.wave) shape = buildWave(ent);
+  else if (ent.mcu) shape = buildMcu(ent);
+  else if (ent.breadboard) shape = buildBreadboard(ent);
+  else if (ent.logic) shape = buildLogic(ent);
+  else if (ent.fpga) shape = buildFpga(ent);
   else if (ent.sphere) shape = el("div", `sphere ${ent.sphere}`);
   else if (ent.icon) {
     shape = el("div", "card icon");
@@ -1821,7 +2728,10 @@ for (const ev of D.events) {
   const e = E[ev.target];
   if (ev.action === "spawn" && e && e.spawn === null) e.spawn = ev.at;
   if (ev.action === "fade_out" && e) e.out = ev.at;
-  if (ev.action === "set_state" && e) e.states.push({at: ev.at, state: ev.state});
+  if (ev.action === "set_state" && e) {
+    const {values, ...rest} = ev.state && typeof ev.state === "object" ? ev.state : {};   // LOGIC_CIRCUIT's {"values": {"b": 1}} as {"b": 1}
+    e.states.push({at: ev.at, state: values && typeof values === "object" && e.data.logic ? {...rest, ...values} : ev.state});
+  }
   if (ev.action === "set_value" && e && typeof ev.value === "number") {
     e.values.push({at: ev.at, value: ev.value, unit: ev.unit || "", tone: ev.tone,
                    decimals: Number.isInteger(ev.decimals) ? ev.decimals : decimalsOf(ev.value)});
@@ -1887,17 +2797,28 @@ const grow = (r, m) => ({l: r.l - m, t: r.t - m, r: r.r + m, b: r.b + m});
 function hits(p, q, r) {           // axis-aligned segment p-q touches rectangle r
   return Math.min(p[0], q[0]) <= r.r && Math.max(p[0], q[0]) >= r.l && Math.min(p[1], q[1]) <= r.b && Math.max(p[1], q[1]) >= r.t;
 }
-function runsAlong(pts, other) {   // a segment lies on, or less than LANE px beside, a segment of another wire
+function runsAlong(pts, other, besideOnly = false) {   // a segment lies on (unless besideOnly), or less than LANE px beside, another's
   for (let i = 1; i < pts.length; i++) for (let j = 1; j < other.length; j++) {
     const [p, q, u, v] = [pts[i - 1], pts[i], other[j - 1], other[j]];
     for (const [a, o] of [[1, 0], [0, 1]]) {
-      if (Math.abs(p[a] - q[a]) < 1 && Math.abs(u[a] - v[a]) < 1 && Math.abs(p[a] - u[a]) < LANE) {
+      const gap = Math.abs(p[a] - u[a]);
+      if (Math.abs(p[a] - q[a]) < 1 && Math.abs(u[a] - v[a]) < 1 && gap < LANE && !(besideOnly && gap < 1)) {
         const lo = Math.max(Math.min(p[o], q[o]), Math.min(u[o], v[o])), hi = Math.min(Math.max(p[o], q[o]), Math.max(u[o], v[o]));
         if (hi - lo > 4) return true;
       }
     }
   }
   return false;
+}
+function sharedLength(pts, other) {   // how long two wires run on top of each other
+  let n = 0;
+  for (let i = 1; i < pts.length; i++) for (let j = 1; j < other.length; j++) {
+    const [p, q, u, v] = [pts[i - 1], pts[i], other[j - 1], other[j]];
+    for (const [a, o] of [[1, 0], [0, 1]])
+      if (Math.abs(p[a] - q[a]) < 1 && Math.abs(u[a] - v[a]) < 1 && Math.abs(p[a] - u[a]) < 1)
+        n += Math.max(0, Math.min(Math.max(p[o], q[o]), Math.max(u[o], v[o])) - Math.max(Math.min(p[o], q[o]), Math.min(u[o], v[o])));
+  }
+  return n;
 }
 function crossings(pts, other) {  // how many times two wires cross at a right angle
   let n = 0;
@@ -1929,6 +2850,15 @@ const PORTS = {
   CHAIN_LINK: {in: [0, 0.5, LEFT], out: [1, 0.5, RIGHT]},
   WIRE_BUS: {in: [0, 0.5, LEFT], out: [1, 0.5, RIGHT]},
   EARTH_GROUND: {terminal: [0.5, 0, UP]},
+  SUPPLY_RAIL: {terminal: [0.5, 1, DOWN]},
+  RESISTOR: {left: [0, 0.5, LEFT], right: [1, 0.5, RIGHT]},
+  POTENTIOMETER: {left: [0, 0.25, LEFT], right: [1, 0.25, RIGHT], wiper: [0.5, 1, DOWN]},
+  THERMISTOR: {left: [0, 28 / 64, LEFT], right: [1, 28 / 64, RIGHT]},
+  OPAMP: {in_minus: [0, 48 / 160, LEFT], in_plus: [0, 112 / 160, LEFT], out: [1, 0.5, RIGHT], vcc: [80 / 170, 0, UP], gnd: [80 / 170, 1, DOWN]},
+  MOSFET: {gate: [0, 90 / 140, LEFT], drain: [90 / 120, 0, UP], source: [90 / 120, 1, DOWN]},
+  DIODE: {anode: [0, 0.5, LEFT], cathode: [1, 0.5, RIGHT]},
+  LED: {anode: [0, 40 / 70, LEFT], cathode: [1, 40 / 70, RIGHT]},
+  HEATER: {left: [0, 65 / 96, LEFT], right: [1, 65 / 96, RIGHT]},
   CHASSIS_MASS: {terminal: [0.5, 0, UP]},
   PEDAL_CRANK: {rim: [1, 0.5, RIGHT]},
   SPROCKET: {rim: [1, 0.5, RIGHT]},
@@ -1959,7 +2889,7 @@ function stubLength(e, end) {
   const label = labelOf(e);
   return end.dir[1] > 0 && label ? Math.max(STUB, label.b - end.pt[1] + MARGIN + 6) : STUB;
 }
-function route(a, b, ends, placed) {
+function route(a, b, ends, placed, net) {
   const A = shapeOf(a), B = shapeOf(b), [ea, eb] = ends;
   const pa = ea.pt, pb = eb.pt, da = ea.dir, db = eb.dir, sa = stubLength(a, ea), sb = stubLength(b, eb);
   const oa = [pa[0] + da[0] * sa, pa[1] + da[1] * sa], ob = [pb[0] + db[0] * sb, pb[1] + db[1] * sb];
@@ -2002,7 +2932,11 @@ function route(a, b, ends, placed) {
               || (path[path.length - 2][0] - ob[0]) * db[0] + (path[path.length - 2][1] - ob[1]) * db[1] < -0.5;
     cost += back ? BACK : 0;
     for (let i = 1; i < path.length; i++) cost += BLOCKED * obstacles.filter(r => hits(path[i - 1], path[i], r)).length;
-    for (const w of placed) cost += CROSS * crossings(path, w.pts) + (runsAlong(path, w.pts) ? ALONG : 0);
+    for (const w of placed) {
+      // a wire of the same node may share its way (one wire, then a junction where they part); beside it, never
+      if (net !== undefined && w.net === net) cost += (runsAlong(path, w.pts, true) ? ALONG : 0) - 0.7 * sharedLength(path, w.pts);
+      else cost += CROSS * crossings(path, w.pts) + (runsAlong(path, w.pts) ? ALONG : 0);
+    }
     if (cost < bestCost) { best = path; bestCost = cost; }
   }
   return simplify([pa, ...best, pb]);
@@ -2047,7 +2981,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides || e.data.tunnel || e.data.wave || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -2130,6 +3064,39 @@ function spreadOut() {
   }
 }
 
+// Still overlapping once spread out (the frame too small for them all): the bigger of the two (never a
+// graph, whose curves are drawn from its measures) is made 15 % smaller, and they are spread out again.
+const SHRINK = 0.85, SHRINK_ROUNDS = 4;
+function shrink(e, k) {
+  if (!e.shape.classList.contains("fit")) {
+    const wrap = el("div", "fit");
+    Object.assign(wrap.style, {width: `${e.shape.offsetWidth}px`, height: `${e.shape.offsetHeight}px`});
+    e.shape.replaceWith(wrap); wrap.append(e.shape);
+    Object.assign(e.shape.style, {transformOrigin: "0 0"});
+    e.shape = wrap;
+  }
+  const inner = e.shape.firstElementChild, scale = (parseFloat(inner.style.scale) || 1) * k;
+  inner.style.scale = String(scale);
+  Object.assign(e.shape.style, {width: `${inner.offsetWidth * scale}px`, height: `${inner.offsetHeight * scale}px`});
+}
+function shrinkToFit() {
+  const boxed = Object.values(E).filter(e => e.box && !e.inSide && !e.data.annotation && !e.data.placed && !e.data.rides
+                                             && !(e.data.body && e.data.body.anchor));
+  for (let round = 0; round < SHRINK_ROUNDS; round++) {
+    const smaller = new Set();
+    for (let i = 0; i < boxed.length; i++) for (let j = i + 1; j < boxed.length; j++) {
+      const A = groupBox(boxed[i]), B = groupBox(boxed[j]);
+      if (Math.min(A.r, B.r) - Math.max(A.l, B.l) <= 1 || Math.min(A.b, B.b) - Math.max(A.t, B.t) <= 1) continue;
+      const area = r => (r.r - r.l) * (r.b - r.t);
+      const pick = [boxed[i], boxed[j]].filter(e => !e.data.axes && !ownAxes(e.data) && e.shape)
+                                       .sort((a, b) => area(groupBox(b)) - area(groupBox(a)))[0];
+      if (pick) smaller.add(pick);
+    }
+    if (!smaller.size) return;
+    for (const e of smaller) shrink(e, SHRINK);
+    spreadOut();
+  }
+}
 function orthogonalD(pts) {        // "M x y" then only H and V commands: every wire segment is straight across or down
   let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
   for (let i = 1; i < pts.length; i++) {
@@ -2140,12 +3107,18 @@ function orthogonalD(pts) {        // "M x y" then only H and V commands: every 
 }
 // Wires: from the exact source port to the exact target port; an end without a known port name
 // takes the side facing the other component.
-const W = [], F = [];
+const W = [], F = [], J = [];
+function wireNets() {               // "id.port" -> the node it belongs to (leads joined by wires)
+  const up = {}, find = k => up[k] === undefined || up[k] === k ? (up[k] = k) : (up[k] = find(up[k]));
+  for (const [a, ap, b, bp] of D.connections) up[find(`${a}.${ap}`)] = find(`${b}.${bp}`);
+  return find;
+}
 function drawWires() {
+  const netOf = wireNets();
   for (const [a, ap, b, bp, dashed] of D.connections) {
     if (!E[a] || !E[b] || !E[a].box || !E[b].box) continue;
     const ea = anchor(E[a], ap) || sideAnchor(E[a], E[b].data.xy), eb = anchor(E[b], bp) || sideAnchor(E[b], E[a].data.xy);
-    const pts = route(E[a], E[b], [ea, eb], W), d = orthogonalD(pts);
+    const net = netOf(`${a}.${ap}`), pts = route(E[a], E[b], [ea, eb], W, net), d = orthogonalD(pts);
     const path = sv("path", {d, fill: "none", "stroke-width": 7, "stroke-linejoin": "round", "stroke-linecap": "round"}, svg);
     path.style.stroke = "var(--wire)";
     // A dashed (optional) wire keeps its 6,4 dashes: it draws itself in through a mask instead.
@@ -2156,8 +3129,33 @@ function drawWires() {
       Object.entries({"stroke-dasharray": "6,4", "stroke-linecap": "butt", mask: `url(#reveal-${W.length})`})
         .forEach(([k, v]) => path.setAttribute(k, v));
     }
-    W.push({a, b, pts, path, reveal, length: path.getTotalLength(), start: Math.max(E[a].spawn, E[b].spawn) + 0.4});
+    // drawn once both ends are there, or on its own words: {"action": "connect", "source_id", "target_id"}
+    const said = D.events.find(ev => ev.action === "connect" && ((ev.source_id === a && ev.target_id === b)
+                                                                || (ev.source_id === b && ev.target_id === a)));
+    const ready = Math.max(E[a].spawn, E[b].spawn) + 0.4;
+    W.push({a, b, ap, bp, net, pts, path, reveal, length: path.getTotalLength(), start: said ? Math.max(said.at, ready) : ready});
   }
+  // a junction dot where two wires or more leave the same port: joined, not just crossing
+  const ends = {};
+  W.forEach(w => {
+    for (const [id, pt, port] of [[w.a, w.pts[0], w.ap], [w.b, w.pts[w.pts.length - 1], w.bp]]) {
+      const key = `${id}.${port}|${Math.round(pt[0])},${Math.round(pt[1])}`;
+      (ends[key] = ends[key] || {pt, starts: []}).starts.push(w.start);
+    } });
+  // and where two wires of one node part: a bend of one lying on the other's way
+  for (const w of W) for (const o of W) {
+    if (w === o || w.net !== o.net) continue;
+    for (const pt of w.pts.slice(1, -1)) {
+      const onIt = o.pts.some((u, j) => j && (Math.abs(u[0] - o.pts[j - 1][0]) < 1 ? Math.abs(pt[0] - u[0]) < 1 && pt[1] > Math.min(u[1], o.pts[j - 1][1]) + 1 && pt[1] < Math.max(u[1], o.pts[j - 1][1]) - 1
+                                                                                  : Math.abs(pt[1] - u[1]) < 1 && pt[0] > Math.min(u[0], o.pts[j - 1][0]) + 1 && pt[0] < Math.max(u[0], o.pts[j - 1][0]) - 1));
+      if (onIt) {
+        const key = `fork|${Math.round(pt[0])},${Math.round(pt[1])}`;
+        (ends[key] = ends[key] || {pt, starts: [o.start]}).starts.push(w.start);
+      }
+    }
+  }
+  for (const j of Object.values(ends)) if (j.starts.length > 1)
+    J.push({dot: sv("circle", {cx: j.pt[0], cy: j.pt[1], r: 8, fill: "var(--wire)", opacity: 0}, svg), at: Math.min(...j.starts.slice().sort((x, y) => x - y).slice(1)) + 0.5});
 }
 // Annotations: a pill badge and a short arrow (ARROW_MAX px) onto what it points at (aimOf): the
 // edge of a component (from below, onto its label: the label hangs under the drawing), or a point
@@ -2167,7 +3165,7 @@ function drawWires() {
 const ARROW_MAX = 50, TIP_GAP = 6, HEAD = 10, NEAR = 60, CURVE_SPOTS = 24, FARTHER = 0.5;   // FARTHER: cost per px
 // With no clear side at 50 px, a longer arrow (110, then 170 px) takes the badge past what is in the
 // way; LONGER, the cost of each step, stays well under that of covering something (1000).
-const ARROW_LENGTHS = [ARROW_MAX, ARROW_MAX + 60, ARROW_MAX + 120], LONGER = 150;
+const ARROW_LENGTHS = [ARROW_MAX, ARROW_MAX + 60, ARROW_MAX + 120, ARROW_MAX + 200, ARROW_MAX + 300], LONGER = 150;   // longer ones: further off, rather than over another badge
 function plotOf(host) {            // a graph's plot (its axes' SVG), without the legend under it
   const s = shapeOf(host), l = s.l + (s.r - s.l - GRAPH_W) / 2;   // .graph: a centred column, the SVG first
   return {l, t: s.t, r: l + GRAPH_W, b: s.t + (host.data.axes.line ? NUMBER_LINE_H : GRAPH_H)};
@@ -2840,6 +3838,17 @@ function drawProbe(color) {        // pointing down: tip at (0, 0), body above i
   sv("rect", {x: -12, y: -NEEDLE - 30, width: 24, height: 7, rx: 3, fill: "rgba(255, 255, 255, .35)"}, g);   // grip ring
   return g;
 }
+function boardLead(pin) {
+  // "<board>.<part>.<lead>" or "<board>.<part>": that lead's hole on the board, in stage pixels, and its name
+  const [board, partId, leadName] = String(pin).split(".");
+  const b = E[board];
+  if (!b || !b.data.breadboard || !partId) return null;
+  const part = b.data.breadboard.parts.find(q => q.id === partId);
+  if (!part) return null;
+  const lead = part.leads.find(l => l.name === leadName) || part.leads[0];
+  const r = rectIn(b, b.shape.querySelector("svg")), k = (r.r - r.l) / b.data.breadboard.width;
+  return {pt: [r.l + lead.x * k, r.t + lead.y * k], name: `${part.label} (${lead.name})`};
+}
 function buildProbes() {
   for (const e of Object.values(E)) {
     if (e.data.type !== "VOLTMETER_PROBES" || !e.box) continue;
@@ -2852,6 +3861,8 @@ function buildProbes() {
       const names = {};
       for (const [which, key] of [["a", "target_pin_a"], ["b", "target_pin_b"]]) {
         const pin = String(m[key] ?? ""), dot = pin.lastIndexOf("."), id = pin.slice(0, dot), port = pin.slice(dot + 1);
+        const lead = boardLead(pin);         // a lead of a part on a breadboard
+        if (lead) { pins[which] = lead.pt; names[which] = lead.name; continue; }
         const end = dot > 0 && E[id] && E[id].box ? anchor(E[id], port) : null;
         if (!end) continue;
         // on a battery terminal, the tip lands on its sign (+ or −), so the viewer sees which one
@@ -3003,12 +4014,20 @@ function seekWater(e, t) {
 // "emphasize": a shake (a contradiction: 0.9 s, fading, the drawing flashing red) or a pulse (a result:
 // two beats over 1.2 s, a ring in its tone's colour). On the shape, after its own state is set.
 const EMPHASIS = {shake: 0.9, pulse: 1.2};
+// A large drawing (tides, a seesaw, a race, a grid of dots, lanes) has no card around it: a ring would
+// draw a rectangle round the whole page; it only beats, gently.
+const bigDrawing = e => e.data.tides || e.data.seesaw || e.data.race || e.data.population || e.data.lanes || e.data.tunnel || e.data.wave || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga;
 function seekEmphasis(e, t) {
   if (!e.emphases || !e.shape) return;
   const ev = e.emphases.filter(x => x.at <= t && t < x.at + EMPHASIS[x.effect]).pop();
-  if (!ev) { e.shape.style.transform = ""; return; }
+  if (!ev) { e.shape.style.transform = ""; if (bigDrawing(e)) e.shape.style.boxShadow = ""; return; }
   const k = (t - ev.at) / EMPHASIS[ev.effect];
-  if (ev.effect === "shake") {
+  if (bigDrawing(e)) {
+    const beat = Math.sin(Math.PI * ((k * 2) % 1)), fade = 1 - k;
+    e.shape.style.transform = ev.effect === "shake" ? `translateX(${Math.sin((t - ev.at) * 2 * Math.PI * 7) * 10 * fade}px)`
+                                                    : `scale(${1 + 0.03 * beat})`;
+    e.shape.style.boxShadow = "";
+  } else if (ev.effect === "shake") {
     const fade = 1 - k, dx = Math.sin((t - ev.at) * 2 * Math.PI * 7) * 14 * fade;
     e.shape.style.transform = `translateX(${dx}px) rotate(${dx * 0.12}deg)`;
     e.shape.style.borderColor = "var(--tone-wrong)";
@@ -3020,6 +4039,67 @@ function seekEmphasis(e, t) {
   }
 }
 // ---- the only function the renderer calls: draw everything as it is at time t (seconds)
+// The camera. {"action": "zoom_in", "target": id}: a dashed frame around the thing, the view zooms
+// on it until it fills the screen, then fades: the next scene shows its inside, arriving from the zoom
+// (D.arrive: it grows in from the middle, a dashed frame around it). {"action": "zoom_out", "target":
+// id} (a scene's start): the view begins zoomed on the thing and pulls back to the whole. Titles,
+// subtitles and the background never move.
+const ZOOM_SEC = 1.6, ZOOM_MAX = 7, ARRIVE_SEC = 1.2;
+let WORLD = null, CAMERA = [];
+function buildCamera() {
+  const keep = new Set(["bg", "title", "subtitle", "plan", "fade", "subs"]);
+  WORLD = el("div"); WORLD.id = "world";
+  for (const child of [...stage.children]) if (!keep.has(child.id) && child !== PROGRESS) WORLD.append(child);
+  stage.insertBefore(WORLD, document.getElementById("title"));
+  const room = stage.getBoundingClientRect();
+  for (const ev of D.events) {
+    if (ev.action !== "zoom_in" && ev.action !== "zoom_out") continue;
+    const e = E[ev.target], node = e && (e.box || e.shape);
+    if (!node) continue;
+    const r = node.getBoundingClientRect(), pad = 18;
+    const rect = {l: r.left - room.left, t: r.top - room.top, w: r.width, h: r.height};
+    const frame = el("div", "zoom-frame");
+    Object.assign(frame.style, {left: `${rect.l - pad}px`, top: `${rect.t - pad}px`, width: `${rect.w + 2 * pad}px`, height: `${rect.h + 2 * pad}px`});
+    WORLD.append(frame);
+    CAMERA.push({kind: ev.action, at: ev.at, rect, frame});
+  }
+  if (D.arrive && !CAMERA.some(c => c.kind === "zoom_out")) {
+    const frame = el("div", "zoom-frame");
+    Object.assign(frame.style, {left: "60px", top: "150px", width: `${D.width - 120}px`, height: `${D.height - 300}px`});
+    WORLD.append(frame);
+    CAMERA.push({kind: "arrive", at: 0, frame});
+  }
+}
+function cameraOn(rect, q) {      // the transform that brings `rect` q of the way to filling the screen
+  const K = Math.min(0.8 * D.width / Math.max(rect.w, 1), 0.7 * D.height / Math.max(rect.h, 1), ZOOM_MAX);
+  const k = 1 + (Math.max(K, 1) - 1) * q, cx = rect.l + rect.w / 2, cy = rect.t + rect.h / 2;
+  const tx = cx + (D.width / 2 - cx) * q - k * cx, ty = cy + (D.height / 2 + 20 - cy) * q - k * cy;
+  return `translate(${tx}px, ${ty}px) scale(${k})`;
+}
+function seekCamera(t) {
+  if (!WORLD) return;
+  let transform = "", opacity = 1;
+  for (const c of CAMERA) c.frame.style.opacity = 0;
+  const out = CAMERA.find(c => c.kind === "zoom_out"), arrive = CAMERA.find(c => c.kind === "arrive");
+  const zin = CAMERA.filter(c => c.kind === "zoom_in" && t >= c.at).pop();
+  if (zin) {
+    const p = easeInOut(progress(t, zin.at, ZOOM_SEC));
+    transform = cameraOn(zin.rect, p);
+    opacity = 1 - clamp((p - 0.7) / 0.3, 0, 1);
+    zin.frame.style.opacity = easeInOut(progress(t, zin.at, 0.3));
+  } else if (out) {
+    const q = 1 - (t < out.at ? 0 : easeInOut(progress(t, out.at, ZOOM_SEC)));
+    transform = q > 0 ? cameraOn(out.rect, q) : "";
+    out.frame.style.opacity = q;
+  } else if (arrive) {
+    const p = 1 - Math.pow(1 - progress(t, 0, ARRIVE_SEC), 3), k = 0.3 + 0.7 * p;
+    transform = p < 1 ? `translate(${D.width / 2 * (1 - k)}px, ${D.height / 2 * (1 - k)}px) scale(${k})` : "";
+    opacity = Math.min(1, 0.2 + p);
+    arrive.frame.style.opacity = 1 - p;
+  }
+  WORLD.style.transform = transform;
+  WORLD.style.opacity = opacity;
+}
 window.seek = function (t) {
   const title = TITLE, subtitle = SUBTITLE;
   const ti = easeInOut(progress(t, 0, 0.6));
@@ -3035,7 +4115,9 @@ window.seek = function (t) {
     if (SUBS.textContent !== text) SUBS.textContent = text;
     SUBS.style.opacity = cue ? 1 : 0;
   }
+  const page = Math.max(0, ...PLAN.filter(p => t >= p.at).map(p => p.page));
   PLAN.forEach((p, i) => {             // each chapter slides in when it is named; the one named last is lit
+    p.row.hidden = p.page !== page;    // only this page's rows
     const k = easeInOut(progress(t, p.at, 0.5));
     p.row.style.opacity = k; p.row.style.transform = `translateX(${(1 - k) * -40}px)`;
     p.row.classList.toggle("now", t >= p.at && !(PLAN[i + 1] && t >= PLAN[i + 1].at));
@@ -3125,6 +4207,20 @@ window.seek = function (t) {
       seekPopulation(e, t);
     } else if (e.data.tides) {
       seekTides(e, t);
+    } else if (e.data.tunnel) {
+      seekTunnel(e, t);
+    } else if (e.data.wave) {
+      seekWave(e, t);
+    } else if (e.data.mcu) {
+      seekMcu(e, t);
+    } else if (e.data.breadboard) {
+      seekBreadboard(e, t);
+    } else if (e.data.partParts) {
+      seekPart(e, t);
+    } else if (e.data.logic) {
+      seekLogic(e, t);
+    } else if (e.data.fpga) {
+      seekFpga(e, t);
     } else if (!e.data.axes) {
       const active = is(s, "on") || is(s, "active") || is(s, "closed");
       if (e.data.icon && !e.data.sphere) {
@@ -3143,6 +4239,7 @@ window.seek = function (t) {
     drawn.setAttribute("stroke-dasharray", w.length); drawn.setAttribute("stroke-dashoffset", w.length * (1 - p));
     w.path.style.opacity = t >= Math.min(E[w.a].out ?? Infinity, E[w.b].out ?? Infinity) ? 0 : 1;
   }
+  for (const j of J) j.dot.setAttribute("opacity", t >= j.at ? 1 : 0);   // once the second wire reaches it
   seekProbes(t);
   for (const f of F) {               // electrons move at 260 px/s and pulse, each a little out of step
     const on = t >= f.start && t < f.stop;
@@ -3154,6 +4251,7 @@ window.seek = function (t) {
       dot.style.opacity = Math.min(1, (t - f.start) / 0.3);
     });
   }
+  seekCamera(t);
   return footageReady;               // the renderer's evaluate waits for the film's frame (null without one)
 };
 // Layout needs the real size of every box, KaTeX formulas included: wait for the fonts.
@@ -3162,6 +4260,7 @@ window.seek = function (t) {
 function layoutConflicts() {
   const found = [], header = below(D.subtitle ? 200 : 150);
   const items = Object.values(E).filter(e => e.box && !e.inSide && !e.placedForMotion).map(e => ({id: e.data.id, r: boxOf(e),
+    shown: [e.spawn ?? 0, e.out ?? Infinity],
     origin: e.ann ? e.ann.tip : (e.anchorHost ? e.data.xy : null), rides: e.data.rides, badge: !!e.ann,
     // a graph's drawn part: its axes and curves, without the empty margins around them (a badge may sit there)
     plot: e.data.axes ? (p => ({l: p.l + PAD / 2, t: p.t + PAD / 2, r: p.r - PAD / 2, b: p.b - PAD / 2}))(plotOf(e)) : null}));   // an anchored body or object sits in its graph on purpose
@@ -3176,15 +4275,17 @@ function layoutConflicts() {
     const holds = (x, p) => p && p[0] >= x.r.l - 40 && p[0] <= x.r.r + 40 && p[1] >= x.r.t - 40 && p[1] <= x.r.b + 40;
     if (holds(a, b.origin) || holds(b, a.origin)) continue;      // an arrow's label next to what it points at
     if (a.rides === b.id || b.rides === a.id) continue;          // a passenger beside its host, on purpose (placePassengers)
-    const ra = a.plot && b.badge ? a.plot : a.r, rb = b.plot && a.badge ? b.plot : b.r;
+    if (a.shown && b.shown && (a.shown[1] <= b.shown[0] || b.shown[1] <= a.shown[0])) continue;   // never on screen together
+    const ra = a.plot && !b.plot ? a.plot : a.r, rb = b.plot && !a.plot ? b.plot : b.r;   // a graph's empty margins may hold anything
     if (Math.min(ra.r, rb.r) > Math.max(ra.l, rb.l) + 1 && Math.min(ra.b, rb.b) > Math.max(ra.t, rb.t) + 1)
       found.push(`${a.id} overlaps ${b.id}`);
   }
   return found;
 }
 document.fonts.ready.then(() => {
-  locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
+  locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); shrinkToFit(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
   window.layoutConflicts = layoutConflicts();
+  buildCamera();
   window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });
 </script></body></html>
@@ -3358,6 +4459,17 @@ def plan_times(items, spoken, voice):
     return times
 
 
+def once_zoomed(brief, zoomed_in):
+    """A TUNNEL zooms in from its circuit in the first scene showing one; later ones start zoomed in
+    (their initial_state "zoom" set to false). Returns whether one has zoomed in by now."""
+    for entity in brief.get("entities") or []:
+        if entity.get("type") == "TUNNEL":
+            if zoomed_in:
+                entity["initial_state"] = {**(entity.get("initial_state") or {}), "zoom": False}
+            zoomed_in = zoomed_in or (entity.get("initial_state") or {}).get("zoom") is not False
+    return zoomed_in
+
+
 def plan_page_data(plan, spoken, voice, total, style):
     brief = {"entities": [], "actions": [], "connections": [], "text_overlay": {"title": PLAN_TITLE, "subtitle": PLAN_SUBTITLE}}
     data = page_data(brief, total, None, None, DEFAULT_LAYOUT, None, style, 0)
@@ -3430,6 +4542,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": WIDTH, "height": HEIGHT})
             number = 0
+            zoomed_in = False           # a TUNNEL zooms in the first time only, not again in later scenes
+            arrive = False              # the scene before ended on a zoom_in: this one (its inside) arrives from it
             for job in jobs:
                 try:
                     html_path = os.path.join(temp_dir, job["name"] + ".html")
@@ -3441,15 +4555,19 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                             f.write(build_page(data))
                         job["sounds"] = [(item["at"], "pop") for item in data["plan"]]
                         job["entry"]["layout_conflicts"] = render_html_visual(page, html_path, job["total"], job["visual"])
+                        arrive = False
                         continue
                     number += 1
                     layout, note = scene_layout(job["scene"])
                     job["entry"]["layout_template"] = layout
                     if note:
                         warnings.append(f"{job['name']}: {note}")
+                    zoomed_in = once_zoomed(job["scene"]["visual_brief"], zoomed_in)
                     data = page_data(job["scene"]["visual_brief"], job["total"],
                                      scene_field(job["source"], "duration_sec", "duration_seconds"), job["spoken"],
                                      layout, job["scene"].get("panel_titles"), style, number)
+                    data["arrive"], arrive = arrive, any(isinstance(a, dict) and a.get("action") == "zoom_in"
+                                                         for a in job["scene"]["visual_brief"].get("actions") or [])
                     if burn_subtitles:
                         data["subtitles"] = job["subtitles"]
                     if job.get("footage"):

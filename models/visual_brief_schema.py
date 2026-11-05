@@ -54,6 +54,22 @@ class ComponentType(str, Enum):
     SPEED_RACE = "SPEED_RACE"                # speeds compared on one track, to one scale: who arrives, how long the others would take
     POPULATION = "POPULATION"                # a population as a grid of dots, its groups coloured: shares of people seen at a glance
     TIDES = "TIDES"                          # the Earth, its ocean and the Moon: the pull at three points, the ocean stretched, the Earth turning
+    LOGIC_CIRCUIT = "LOGIC_CIRCUIT"          # inputs, logic gates (ET, OU, NON...) and outputs wired together, 0 and 1 on the wires
+    FPGA_GRID = "FPGA_GRID"                  # an FPGA's logic blocks and routing: configured by a bitstream, reconfigured, out of room
+    MICROCONTROLLER = "MICROCONTROLLER"      # a microcontroller's inside: its program in memory, one unit doing one instruction at a time
+    WAVE = "WAVE"                            # a mechanical wave: a rope, the sea, a crowd (ola), a spring (sound); the medium stays
+    TUNNEL = "TUNNEL"                        # a zoom into a tube, a dot and a wall as a line across it: it bounces back, or tunnels through
+    # Schematic parts (standard symbols), for circuits built step by step: wired by their ports
+    BREADBOARD = "BREADBOARD"                # the same circuit built on a breadboard: real parts plugged in, jumpers, rails
+    SUPPLY_RAIL = "SUPPLY_RAIL"              # a supply symbol ("+12 V"), put beside each part fed by it (as CHASSIS_MASS for 0 V)
+    RESISTOR = "RESISTOR"                    # a resistor (its value in its label: "R1 10 kΩ")
+    POTENTIOMETER = "POTENTIOMETER"          # a potentiometer: its two ends and its wiper (a setpoint, a divider)
+    THERMISTOR = "THERMISTOR"                # a thermistor (CTN): its resistance falls as it warms
+    OPAMP = "OPAMP"                          # an operational amplifier (AOP): + and − inputs, output, supply
+    MOSFET = "MOSFET"                        # an N-channel MOSFET: gate, drain, source (a switch driven by a voltage)
+    DIODE = "DIODE"                          # a diode: anode, cathode
+    LED = "LED"                              # a light-emitting diode: anode, cathode; lit when on
+    HEATER = "HEATER"                        # a heating resistor: heat rising from it when on
     # Instruments: drawn as a device beside the diagram, never wired; they act through actions
     VOLTMETER_PROBES = "VOLTMETER_PROBES"    # digital multimeter + red/black probes ("measure")
 
@@ -90,6 +106,21 @@ COMPONENT_PORTS = {
     ComponentType.SPEED_RACE: (),
     ComponentType.POPULATION: (),
     ComponentType.TIDES: (),
+    ComponentType.LOGIC_CIRCUIT: (),
+    ComponentType.FPGA_GRID: (),
+    ComponentType.TUNNEL: (),
+    ComponentType.WAVE: (),
+    ComponentType.MICROCONTROLLER: (),
+    ComponentType.SUPPLY_RAIL: ("terminal",),
+    ComponentType.BREADBOARD: (),
+    ComponentType.RESISTOR: ("left", "right"),
+    ComponentType.POTENTIOMETER: ("left", "right", "wiper"),
+    ComponentType.THERMISTOR: ("left", "right"),
+    ComponentType.OPAMP: ("in_plus", "in_minus", "out", "vcc", "gnd"),
+    ComponentType.MOSFET: ("gate", "drain", "source"),
+    ComponentType.DIODE: ("anode", "cathode"),
+    ComponentType.LED: ("anode", "cathode"),
+    ComponentType.HEATER: ("left", "right"),
     ComponentType.VOLTMETER_PROBES: (),   # its probes touch other components' ports ("measure")
 }
 
@@ -203,6 +234,213 @@ RACE_LABEL_MAX = 24
 #   {"sun": "aligned"}  the Sun in line (bigger bulges: vives-eaux), {"sun": "square"} at a right
 #                       angle (smaller: mortes-eaux)
 # Never given any of them, it plays them in that order from its pop (the Sun left out).
+# BREADBOARD: a circuit as it is built on a breadboard, laid out by the renderer (never coordinates
+# from the brief): initial_state {"parts": [{"id": "r1", "kind": "RESISTOR", "label": "R1 10 kΩ"}, ...],
+# "nets": [["+12 V", "r1.left", "op.vcc"], ["r1.right", "ctn.left", "op.in_minus"], ["0 V", "ctn.right"]]}.
+# kinds and their leads in BB_KINDS (OPAMP: an 8-pin DIP, LM358 pinout); a net joins leads ("id.lead"),
+# a net led by a supply name ("+12 V", "+5 V", "0 V", "GND") is on the board's red or blue rail. The
+# parts go in, in their order: set_state {"step": n} shows the first n parts and their jumpers (never
+# given: one part a second from its pop).
+BB_KINDS = {"RESISTOR": ("left", "right"), "THERMISTOR": ("left", "right"), "DIODE": ("anode", "cathode"),
+            "LED": ("anode", "cathode"), "HEATER": ("left", "right"), "POTENTIOMETER": ("left", "wiper", "right"),
+            "MOSFET": ("gate", "drain", "source"), "OPAMP": ("out", "in_minus", "in_plus", "gnd", "vcc")}
+BB_RAIL = re.compile(r"\+\s?\d{1,2}(?:[.,]\d)?\s?V|0\s?V|GND")
+BB_PARTS = (0, 12)            # 0: the board alone, its rails fed (the supply stage)
+BB_LABEL_MAX = 24             # a label longer than this is shortened on the board (app/breadboard.py)
+BB_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,15}")
+
+
+def breadboard_problem(state):
+    """Why a BREADBOARD initial_state is wrong (see above), or None."""
+    parts, nets = state.get("parts"), state.get("nets")
+    if not isinstance(parts, list) or not BB_PARTS[0] <= len(parts) <= BB_PARTS[1]:
+        return f'BREADBOARD needs "parts": {BB_PARTS[0]} to {BB_PARTS[1]} parts {{"id", "kind", "label"}}, got {parts!r}'[:300]
+    ids = []
+    for p in parts:
+        if not isinstance(p, dict) or not BB_ID.fullmatch(str(p.get("id", ""))) or p.get("kind") not in BB_KINDS:
+            return f'BREADBOARD part {p!r}: "id" (letters, digits), "kind" one of {sorted(BB_KINDS)}'[:300]
+        if p.get("label") is not None and not isinstance(p["label"], str):      # a long one is shortened when drawn
+            return f'BREADBOARD part {p["id"]}: "label" is a text'
+        ids.append(p["id"])
+    if len(set(ids)) != len(ids):
+        return f"BREADBOARD parts with the same id: {ids}"
+    kinds = {p["id"]: p["kind"] for p in parts}
+    if not parts and nets in (None, []):
+        return None
+    if not isinstance(nets, list) or not nets:
+        return 'BREADBOARD needs "nets": lists of leads joined ("r1.right"), a supply name first for a rail ("+12 V")'
+    seen = set()
+    for net in nets:
+        if not isinstance(net, list) or not 1 <= len(net) <= 12 or not all(isinstance(x, str) for x in net):
+            return f"BREADBOARD net {net!r}: a list of 1 to 12 texts"[:300]
+        leads = net[1:] if BB_RAIL.fullmatch(net[0]) else net
+        for lead in leads:
+            part_id, _, name = lead.partition(".")
+            if part_id not in kinds or name not in BB_KINDS[kinds[part_id]]:
+                return (f"BREADBOARD net {net!r}: {lead!r} is no lead (a part's id, a dot, one of its leads: "
+                        f"{part_id} has {list(BB_KINDS.get(kinds.get(part_id), ()))})")[:300]
+            if lead in seen:
+                return f"BREADBOARD: {lead} is in two nets: one net per lead (join the two nets)"
+            seen.add(lead)
+        if len(leads) < 2 and not BB_RAIL.fullmatch(net[0]):
+            return f"BREADBOARD net {net!r} joins nothing: two leads at least, or a supply and a lead"[:300]
+    return None
+
+
+# MICROCONTROLLER: a chip, inside it the program memory (its instructions, numbered) and ONE unit
+# doing them: initial_state {"label": "Microcontrôleur", "instructions": ["lire Bouton 1", "lire
+# Bouton 2", "calculer ET", "allumer Lampe"]} (1 to 8 short texts). set_state {"run": true}: a pointer
+# goes down the program, each instruction travels to the unit and is done there, one after the other
+# (then again from the top); {"run": false} stops it. Never given "run", it runs from its pop.
+MCU_INSTRUCTIONS = (1, 8)
+MCU_TEXT_MAX = 26
+
+
+def mcu_problem(state):
+    """Why a MICROCONTROLLER initial_state is wrong (see above), or None."""
+    items = state.get("instructions")
+    low, high = MCU_INSTRUCTIONS
+    if items is not None and (not isinstance(items, list) or not low <= len(items) <= high
+                              or any(not isinstance(i, str) or not i.strip() or len(i) > MCU_TEXT_MAX for i in items)):
+        return (f'MICROCONTROLLER "instructions": {low} to {high} short texts (at most {MCU_TEXT_MAX} characters: '
+                f'"lire Bouton 1", "calculer ET"), got {items!r}'[:300])
+    return None
+
+
+# WAVE: a mechanical wave drawn by the renderer: a real undulating line travelling across. initial_state
+# {"mode": "rope" | "water" | "crowd" | "spring", "kind": "pulse" | "continuous", "label": "Corde"}:
+# rope: a rope and its points; water: the sea's surface, a buoy on it; crowd: a row of spectators
+# standing up and sitting down in turn (an ola); spring: coils squeezed and spread (a longitudinal
+# wave, as sound in the air: compressions named). set_state {"go": true} sends the wave (never given:
+# from the pop); {"mark": true} picks out one point (the buoy, one spectator) that only goes up and
+# down, or back and forth, never along; {"energy": true}: an arrow "Énergie" travelling with the crest;
+# {"go": false} stops it. "kind": "standing": a standing wave on a rope tied at both ends (rope mode):
+# nodes that never move, named, antinodes swinging most; {"parts": true} draws the two waves going
+# opposite ways, each on its own rope over it, whose sum it is; "loops": 1 to 6 antinodes (the harmonic).
+WAVE_MODES = ("rope", "water", "crowd", "spring")
+WAVE_KINDS = ("pulse", "continuous", "standing")
+
+
+def wave_problem(state):
+    """Why a WAVE initial_state is wrong (see above), or None."""
+    if state.get("mode", "rope") not in WAVE_MODES:
+        return f'WAVE "mode" is one of {list(WAVE_MODES)}, got {state.get("mode")!r}'
+    if state.get("kind", "pulse") not in WAVE_KINDS:
+        return f'WAVE "kind" is one of {list(WAVE_KINDS)}, got {state.get("kind")!r}'
+    label = state.get("label")
+    if label is not None and not isinstance(label, str):
+        return f'WAVE "label" is a text, got {label!r}'
+    loops = state.get("loops", 3)
+    if not isinstance(loops, int) or isinstance(loops, bool) or not 1 <= loops <= 6:
+        return f'WAVE "loops" (a standing wave\'s antinodes, its harmonic) is a whole number from 1 to 6, got {loops!r}'
+    return None
+
+
+# TUNNEL: the quantum tunnel effect, drawn by the renderer: the view zooms in on a tube, a blue dot
+# in it, the wall a vertical line across the tube. initial_state (all optional): {"particle":
+# "Particule", "barrier": "Mur", "zoom": true}. set_state, on the words that say it:
+#   {"bounce": true}    what we expect: the dot runs into the wall and bounces back
+#   {"tunnel": true}    the quantum effect: the dot reaches the wall and comes out on the other side,
+#                       the wall left whole
+# Never given any, it zooms in and tunnels through.
+TUNNEL_LABEL_MAX = 24
+
+
+def tunnel_problem(state):
+    """Why a TUNNEL initial_state is wrong (see above), or None."""
+    for key in ("particle", "barrier"):
+        value = state.get(key)
+        if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > TUNNEL_LABEL_MAX):
+            return f'TUNNEL "{key}" is a short text (at most {TUNNEL_LABEL_MAX} characters), got {value!r}'
+    if "zoom" in state and not isinstance(state["zoom"], bool):
+        return f'TUNNEL "zoom" is true or false, got {state["zoom"]!r}'
+    return None
+
+
+# LOGIC_CIRCUIT: a small logic diagram, laid out and wired by the renderer from what feeds what:
+#   initial_state {"inputs": [{"id": "a", "label": "Interrupteur 1"}, {"id": "b", "label": "Interrupteur 2"}],
+#                  "gates": [{"id": "g1", "type": "AND", "in": ["a", "b"]}, {"id": "g2", "type": "NOT", "in": ["g1"]}],
+#                  "outputs": [{"id": "lamp", "label": "Lampe", "from": "g2"}],
+#                  "values": {"a": 0, "b": 0}}
+# Each gate takes two inputs (one for NOT), from inputs or earlier gates; an output shows one input or
+# gate. A wire at 1 glows, at 0 is grey; each gate's value is shown; an output lamp lights at 1.
+# set_state {"a": 1} sets an input (its id as the key, 0 or 1); {"mode": "sequential"}: from then on
+# the gates work one after the other (a program's steps, LOGIC_STEP s each), {"mode": "parallel"}
+# (the default) all at once (a circuit).
+LOGIC_GATES = {"AND": 2, "OR": 2, "XOR": 2, "NAND": 2, "NOR": 2, "NOT": 1}
+LOGIC_LIMITS = {"inputs": (1, 4), "gates": (1, 6), "outputs": (1, 3)}
+LOGIC_LABEL_MAX = 24
+LOGIC_ID = re.compile(r"[a-z][a-z0-9_]{0,15}")
+LOGIC_RESERVED = {"mode", "on", "active", "highlighted", "dimmed", "closed"}
+
+
+def logic_problem(state):
+    """Why a LOGIC_CIRCUIT initial_state is wrong (see above), or None."""
+    parts = {}
+    for key, (low, high) in LOGIC_LIMITS.items():
+        items = state.get(key)
+        if not isinstance(items, list) or not low <= len(items) <= high:
+            return (f'LOGIC_CIRCUIT needs "{key}": {low} to {high} items (see the example: inputs {{"id", "label"}}, '
+                    f'gates {{"id", "type", "in"}}, outputs {{"id", "label", "from"}}); got {items!r}'[:300])
+        parts[key] = items
+    known = []
+    for key, fields in (("inputs", {"id", "label"}), ("gates", {"id", "type", "in", "label"}), ("outputs", {"id", "label", "from"})):
+        for item in parts[key]:
+            if not isinstance(item, dict) or set(item) - fields:
+                return f'a {key[:-1]} is {sorted(fields)}, got {item!r}'[:300]
+            if not isinstance(item.get("id"), str) or not LOGIC_ID.fullmatch(item["id"]) or item["id"] in known \
+                    or item["id"] in LOGIC_RESERVED:
+                return f'each id is short, lower case, its own (not {sorted(LOGIC_RESERVED)}): got {item.get("id")!r}'
+            if "label" in item and (not isinstance(item["label"], str) or len(item["label"]) > LOGIC_LABEL_MAX):
+                return f"a label is a short text (at most {LOGIC_LABEL_MAX} characters), got {item.get('label')!r}"
+            if key == "gates":
+                if item.get("type") not in LOGIC_GATES:
+                    return f'a gate\'s "type" is one of {list(LOGIC_GATES)}, got {item.get("type")!r}'
+                feeds = item.get("in")
+                if not isinstance(feeds, list) or len(feeds) != LOGIC_GATES[item["type"]] or any(f not in known for f in feeds):
+                    return (f'gate {item["id"]}: "in" lists {LOGIC_GATES[item["type"]]} ids of inputs or earlier gates '
+                            f'(NOT takes one, the others two); got {feeds!r}')
+            if key == "outputs" and item.get("from") not in known:
+                return f'output {item["id"]}: "from" is an input or gate id, got {item.get("from")!r}'
+            known.append(item["id"])
+    values = state.get("values", {})
+    if not isinstance(values, dict) or any(k not in [i["id"] for i in parts["inputs"]] or v not in (0, 1, True, False)
+                                           for k, v in values.items()):
+        return f'"values" gives inputs their first value, 0 or 1: {{"a": 0}}; got {values!r}'[:300]
+    return None
+
+
+# FPGA_GRID: an FPGA's inside, a grid of logic blocks with routing channels between them:
+#   initial_state {"cols": 4, "rows": 3, "design": ["ET", "OU", "NON", "Compteur"], "design2": ["Filtre", "ET"]}
+# set_state {"configure": true}: the bitstream comes in and places "design" in the blocks, one after
+# the other, the routing between them lit (more functions than blocks: the extra ones stay outside,
+# in red, "ressources insuffisantes"); {"run": true}: every configured block works at once (signals
+# along all the lit routes); {"reconfigure": true}: the blocks are cleared and "design2" is placed;
+# {"zoom": "ET"} (a function's name, or a block's number): the view zooms on that block, its inside
+# drawn (the gate, or a small table for another function), {"zoom": false} back out; {"wire": true}:
+# the interconnect, switches between the blocks closing one route after the other, signals running.
+FPGA_SIZE = {"cols": (2, 6), "rows": (2, 4)}
+FPGA_DESIGN_MAX = 30
+FPGA_LABEL_MAX = 18      # shown on two lines past 9 characters when it has a space
+
+
+def fpga_problem(state):
+    """Why an FPGA_GRID initial_state is wrong (see above), or None."""
+    for key, (low, high) in FPGA_SIZE.items():
+        value = state.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+            return f'FPGA_GRID needs "{key}": a whole number from {low} to {high}, got {value!r}'
+    for key in ("design", "design2"):
+        design = state.get(key)
+        if design is None and key == "design2":
+            continue
+        if not isinstance(design, list) or not 1 <= len(design) <= FPGA_DESIGN_MAX \
+                or any(not isinstance(d, str) or not d.strip() or len(d) > FPGA_LABEL_MAX for d in design):
+            return (f'"{key}" lists the functions placed in the blocks, 1 to {FPGA_DESIGN_MAX} short texts (at most '
+                    f'{FPGA_LABEL_MAX} characters: "ET", "Compteur"); got {design!r}'[:300])
+    return None
+
+
 POPULATION_DOTS = (10, 1000)
 POPULATION_GROUPS = (1, 4)
 POPULATION_LABEL_MAX = 28
@@ -504,7 +742,8 @@ def emphasis_problem(action, ids):
 def measure_problem(action, types):
     """Why a "measure" action is wrong, or None. `types` maps the scene's entity ids to their type.
     {"action": "measure", "target": <VOLTMETER_PROBES id>, "target_pin_a": "<id>.<port>" (red probe),
-     "target_pin_b": "<id>.<port>" (black probe), "value": volts, "unit": "V" (optional)}"""
+     "target_pin_b": "<id>.<port>" (black probe), "value": volts, "unit": "V" (optional)}; on a breadboard,
+    a part's lead: "<board id>.<part id>.<lead>" (or "<board id>.<part id>", its first lead)."""
     if types.get(action.get("target")) != ComponentType.VOLTMETER_PROBES:
         return f"measure needs a VOLTMETER_PROBES target, got {action.get('target')!r}"
     pins = []
@@ -513,6 +752,10 @@ def measure_problem(action, types):
         if pin is None:
             return f'measure {key} must be "<entity id>.<port>", got {action.get(key)!r}'
         entity_id, port = pin
+        board = entity_id.split(".", 1)[0]
+        if types.get(board) == ComponentType.BREADBOARD or (ComponentType.BREADBOARD == types.get(entity_id)):
+            pins.append(pin)              # a lead on the breadboard: "<board>.<part>.<lead>" or "<board>.<part>"
+            continue
         if entity_id not in types:
             return f"measure {key} refers to unknown entity {entity_id!r}"
         ports = COMPONENT_PORTS.get(ComponentType(types[entity_id]), ())
@@ -681,6 +924,18 @@ class VisualEntity(StrictModel):
             raise ValueError(f"{self.id}: {lanes_problem(self.initial_state)}")
         if self.type == ComponentType.SPEED_RACE and race_problem(self.initial_state):
             raise ValueError(f"{self.id}: {race_problem(self.initial_state)}")
+        if self.type == ComponentType.LOGIC_CIRCUIT and logic_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {logic_problem(self.initial_state)}")
+        if self.type == ComponentType.BREADBOARD and breadboard_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {breadboard_problem(self.initial_state)}")
+        if self.type == ComponentType.MICROCONTROLLER and mcu_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {mcu_problem(self.initial_state)}")
+        if self.type == ComponentType.WAVE and wave_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {wave_problem(self.initial_state)}")
+        if self.type == ComponentType.TUNNEL and tunnel_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {tunnel_problem(self.initial_state)}")
+        if self.type == ComponentType.FPGA_GRID and fpga_problem(self.initial_state):
+            raise ValueError(f"{self.id}: {fpga_problem(self.initial_state)}")
         if self.type == ComponentType.POPULATION and population_problem(self.initial_state):
             raise ValueError(f"{self.id}: {population_problem(self.initial_state)}")
         if self.type == ComponentType.TEX_FORMULA:

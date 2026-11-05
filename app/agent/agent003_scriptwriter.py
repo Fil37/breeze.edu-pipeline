@@ -58,9 +58,12 @@ Rules:
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.
+- A temperature is written in digits followed by "degrés Celsius" ("37 degrés Celsius", never
+  "trente-sept degrés" in words: the voice says the digits right).
 - An acronym is said in full the first time it is spoken, so a viewer who does not know it is never
-  lost: "le Bureau international du travail, le BIT", "le produit intérieur brut, ou PIB"; after
-  that, the acronym alone. The hook and the plan are spoken first: define it there if it is used there.
+  lost: "le Bureau international du travail, le BIT", "le produit intérieur brut, ou PIB"; an English
+  acronym is said with what it is: "un FPGA, c'est-à-dire une puce dont on peut recâbler les circuits";
+  after that, the acronym alone. ET, OU, NON (the logic gates) are words, not acronyms. The hook and the plan are spoken first: define it there if it is used there.
 - A technical word (bourrelet, référentiel, monnaie scripturale, fiduciaire, dépôt à vue, nœud
   d'une orbite...) is explained in plain words the first time it is spoken, so the viewer pictures it:
   "deux bourrelets, c'est-à-dire deux bosses d'eau", "la monnaie scripturale, l'argent écrit sur les
@@ -114,7 +117,24 @@ def checked_plan(plan, scenes):
 
 ACRONYM = re.compile(r"(?<![\w'’-])[A-ZÀ-Ý]{2,6}(?![\w'’-])")
 ROMAN = re.compile(r"[IVXLCDM]+")
+CAPITAL_WORDS = {"ET", "OU", "NON", "OUI", "SI"}     # words written in capitals (logic gates), not acronyms
+EXPLAINED = re.compile(r"c'est-à-dire|c’est-à-dire|autrement dit|signifie|veut dire|qu'on appelle|qu’on appelle|en anglais",
+                       re.IGNORECASE)
 LINK_WORDS = {"de", "du", "des", "la", "le", "les", "l", "d", "et", "en", "à", "a", "au", "aux", "pour", "sur", "un", "une"}
+# A project built step by step (outline "format": "project", agent002): one build stage a scene.
+PROJECT_RULES = """
+This video is a PROJECT BUILT STEP BY STEP, not a lesson on one concept:
+- The hook starts from what it is FOR, in everyday life, before naming the project: where the need
+  comes from and the problem it solves (for a temperature regulation: a chick incubator, an aquarium,
+  a 3D printer's bed, a proofing dough must stay at the right temperature, and by hand we keep
+  forgetting or overshooting). The question is about that need ("Comment garder une couveuse à 37
+  degrés sans y penser ?"); only then does it say what we will build to answer it.
+- Then each scene is ONE build stage, in the order of the build: it names the parts it adds, with
+  their values ("une résistance de dix kilo-ohms"), says what each does, says exactly what is connected
+  to what ("la CTN va de l'entrée moins au zéro volt"), then how to check this stage works.
+- The second to last scene builds it on a breadboard, part after part, in the same order.
+- The last scene powers it up and shows it doing its job, and closes the video.
+"""
 RETRY_NOTE = """
 
 Your previous answer has these problems; rewrite it without them (same JSON shape):
@@ -126,7 +146,12 @@ SHORT_NOTE = ("the scenes have {words} words in all: at about {pace} words per s
 
 def said_in_full(acronym, text):
     """Whether `text` says the words the acronym stands for: consecutive words (linking words such as
-    "du", "de la" skipped) whose initials spell it ("Bureau international du travail": BIT)."""
+    "du", "de la" skipped) whose initials spell it ("Bureau international du travail": BIT), or, in
+    the sentence where it first comes, what it is ("un FPGA, c'est-à-dire une puce...")."""
+    first = text.find(acronym)
+    sentence = re.split(r"(?<=[.!?…])\s+", text[first:])[0] if first >= 0 else ""
+    if EXPLAINED.search(text[max(0, text.rfind(".", 0, first) + 1):first] + sentence):
+        return True
     initials = "".join(unicodedata.normalize("NFD", w)[0].upper() for w in re.findall(r"[^\W\d_]+", text)
                        if w.lower() not in LINK_WORDS and w != acronym)
     return acronym in initials
@@ -141,12 +166,13 @@ def undefined_acronyms(scenes, plan):
     for where, text in spoken:
         text = str(text or "")
         for acronym in ACRONYM.findall(text):
-            if acronym in seen or ROMAN.fullmatch(acronym):
+            if acronym in seen or ROMAN.fullmatch(acronym) or acronym in CAPITAL_WORDS:
                 continue
             seen.add(acronym)
             if not said_in_full(acronym, text):
                 problems.append(f'{where}: "{acronym}" is spoken before it is said in full: say what it stands for '
-                                f'the first time ("le Bureau international du travail, le BIT")')
+                                f'(or what it is) the first time ("le produit intérieur brut, le PIB"; "un FPGA, c\'est-à-dire une puce '
+                                f'dont on peut recâbler les circuits")')
     return problems
 
 
@@ -174,7 +200,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             print(f"--- {AGENT}: QA feedback (revision {qa_feedback['revision']}): {qa_feedback['blocking_issues']} "
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
         prompt = PROMPT.format(outline=outline, pace=WORDS_PER_SEC, least=MIN_WORDS, most=MAX_WORDS).replace(
-            "\nAnswer with JSON only", qa_section + "\nAnswer with JSON only", 1)
+            "\nAnswer with JSON only", qa_section + (PROJECT_RULES if outline.get("format") == "project" else "")
+            + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))
         acronyms, words = script_problems(answer)
         if acronyms or words < MIN_WORDS:   # once more, told what: a viewer never lost on a word, nor rushed

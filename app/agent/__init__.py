@@ -14,6 +14,8 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 
+from app import costs
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCHEMAS_DIR = os.path.join(BASE_DIR, "schemas")
 INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
@@ -139,6 +141,25 @@ def checked_answer(response, provider):
     return content
 
 
+def tracked(response, provider, model):
+    """Record what a call used (app/costs.py) and give the response back. OpenAI-style usage
+    (prompt_tokens, completion_tokens; deepseek's prompt_cache_hit_tokens) or Anthropic's
+    (input_tokens, output_tokens, cache_read_input_tokens); a response without usage records zeros."""
+    usage = getattr(response, "usage", None)
+    if usage is not None and hasattr(usage, "prompt_tokens"):
+        cached = getattr(usage, "prompt_cache_hit_tokens", None)
+        if cached is None:
+            details = getattr(usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", 0) if details is not None else 0
+        costs.record_llm(provider, model, usage.prompt_tokens, usage.completion_tokens, cached or 0)
+    elif usage is not None:
+        cached = getattr(usage, "cache_read_input_tokens", 0) or 0
+        costs.record_llm(provider, model, (usage.input_tokens or 0) + cached, usage.output_tokens, cached)
+    else:
+        costs.record_llm(provider, model, 0, 0)
+    return response
+
+
 def llm_call(prompt: str, model: str | None = None) -> str:
     """Send one prompt to the provider in settings.llm_provider. Raises RuntimeError on any failure."""
     settings = load_json(os.path.join(SCHEMAS_DIR, "settings.json"))
@@ -149,7 +170,7 @@ def llm_call(prompt: str, model: str | None = None) -> str:
         if provider == "openai":
             require_env("OPENAI_API_KEY")
             import openai
-            response = openai.OpenAI().chat.completions.create(model=model, messages=messages)
+            response = tracked(openai.OpenAI().chat.completions.create(model=model, messages=messages), provider, model)
             return response.choices[0].message.content
         if provider == "ollama":
             # Local model through Ollama's OpenAI-compatible API. No key needed: the client
@@ -157,7 +178,8 @@ def llm_call(prompt: str, model: str | None = None) -> str:
             import openai
             client = openai.OpenAI(base_url=settings.get("ollama_base_url", "http://localhost:11434/v1"),
                                    api_key="ollama")
-            response = client.chat.completions.create(model=settings.get("ollama_model"), messages=messages)
+            response = tracked(client.chat.completions.create(model=settings.get("ollama_model"), messages=messages),
+                               provider, settings.get("ollama_model"))
             return response.choices[0].message.content
         if provider == "deepseek":
             api_key = require_env("DEEPSEEK_API_KEY")
@@ -167,12 +189,12 @@ def llm_call(prompt: str, model: str | None = None) -> str:
                 api_key=api_key,
                 base_url="https://api.deepseek.com",
             )
-            response = client.chat.completions.create(
+            response = tracked(client.chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=0.3,
-            )
+            ), provider, model)
             return checked_answer(response, provider)
         if provider == "anthropic":
             require_env("ANTHROPIC_API_KEY")
@@ -186,12 +208,12 @@ def llm_call(prompt: str, model: str | None = None) -> str:
                 api_key=require_env("GEMINI_API_KEY"),
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             )
-            response = client.chat.completions.create(
+            response = tracked(client.chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=0.3,
-            )
+            ), provider, model)
             return checked_answer(response, provider)
         if provider == "openrouter":
             api_key = require_env("OPENROUTER_API_KEY")
@@ -211,6 +233,7 @@ def llm_call(prompt: str, model: str | None = None) -> str:
                     "X-OpenRouter-Title": "Breeze Pipeline",
                 },
             )
+            tracked(response, provider, model)
             return response.choices[0].message.content
         elif provider == "bedrock":
             require_env("AWS_ACCESS_KEY_ID")
@@ -219,7 +242,7 @@ def llm_call(prompt: str, model: str | None = None) -> str:
             import anthropic
             client = anthropic.AnthropicBedrock(aws_region=region)
         if provider in ("anthropic", "bedrock"):
-            response = client.messages.create(model=model, max_tokens=16000, messages=messages)
+            response = tracked(client.messages.create(model=model, max_tokens=16000, messages=messages), provider, model)
             return "".join(block.text for block in response.content if block.type == "text")
         raise RuntimeError(f"unknown llm_provider: {provider!r}")
     except RuntimeError:
@@ -246,6 +269,9 @@ def finish(channel_id, agent, stage, status, output_path, data=None, error=None)
     data = dict(data or {})
     if error:
         data["error"] = error
+    spent = costs.settle(channel_id, agent)      # what this agent's LLM calls and voice-overs cost
+    if spent:
+        data["cost"] = spent
     append_row({"run_id": RUN_ID, "channel": channel_id, "agent": agent, "stage": stage,
                 "data": data, "timestamp": utc_now(), "status": status})
     return {"status": status, "output_path": output_path, "error": error}

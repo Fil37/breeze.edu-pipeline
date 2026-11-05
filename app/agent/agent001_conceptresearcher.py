@@ -58,6 +58,15 @@ DOMAIN_SCOPES = {
 }
 FREE_CHOICE = """Pick ONE concept that people commonly misunderstand and that can reach an "aha moment" in 90-180 seconds.
 Topics that performed well recently: {top}. NEVER pick any of these saturated topics: {saturated}."""
+# A topic to BUILD ("réaliser un banc", "construire", "monter", "projet", "pas à pas"): the video is a
+# project made step by step, not one concept explained; agent002 and agent003 then plan and write it
+# as build stages (research "format": "project").
+PROJECT_WORDS = re.compile(r"\b(?:réalis\w*|construi\w*|fabriqu\w*|monter|montage|projet|pas à pas|banc)\b", re.IGNORECASE)
+IMPOSED_PROJECT = """Le sujet est imposé, et c'est un PROJET À RÉALISER pas à pas : {topic}. Ne pas en choisir un autre.
+The concept IS this project: what is built and what it does once finished. Research its stages in the
+order they are built (the parts of each, with real values, and what each does), how they are wired,
+how each stage is checked, and the mistakes a beginner makes building it (they are the misconceptions).
+Add to the JSON "stages": ["...", "..."], the build stages in order."""
 IMPOSED = """Le sujet est imposé : {topic}. Ne pas en choisir un autre.
 Within this topic, find the concept people commonly misunderstand, that can reach an "aha moment" in 90-180 seconds."""
 
@@ -147,7 +156,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     rejected = []
     check = {"checked_against": len(past), "attempts": 0, "rejected": rejected, "verdict": "new"}
     for attempt in range(1, (1 if topic else TOPIC_ATTEMPTS) + 1):
-        choice = (IMPOSED.format(topic=topic) if topic
+        project = bool(topic and PROJECT_WORDS.search(topic))
+        choice = ((IMPOSED_PROJECT if project else IMPOSED).format(topic=topic) if topic
                   else FREE_CHOICE.format(top=analytics.get("top_topics", []), saturated=saturated))
         if past and not topic:
             choice += "\n" + COVERED.format(past=past)
@@ -186,6 +196,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     # Keep only sources that carry a URL, and stamp the date we collected them.
     if topic:
         research["imposed_topic"] = topic
+    if topic and PROJECT_WORDS.search(topic):          # a build: the project itself, its stages in order
+        research.update(format="project", concept=topic)
     today = date.today().isoformat()
     research["sources"] = [
         {"title": s.get("title", ""), "url": s["url"], "accessed": today}

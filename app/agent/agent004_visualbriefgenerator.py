@@ -57,7 +57,7 @@ from app.layout_solver import annotation_targets, target_first_timing
 from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
-from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
+from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, LOGIC_GATES, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
                                         DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, OBJECT_ICONS, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
@@ -65,6 +65,8 @@ KNOWN_RENDERERS = ("html", "skip")       # "html": agent010 draws it (default); 
 MAX_ATTEMPTS = 3          # 1 call + 2 retries; each attempt is one LLM call
 MAX_ERROR_CHARS = 2000    # errors sent back to the LLM on a retry
 MAX_ENTITIES = 8          # per scene, instruments included: more does not fit in one readable frame
+MAX_SCHEMATIC = 16        # ... but a schematic (small standard symbols, SCHEMATIC_MIN of them or more) holds more
+SCHEMATIC_MIN = 4
 MAX_FORMULAS = 2          # TEX_FORMULA per scene: equations only, never notes
 MAX_OVER_FOOTAGE = 3      # things drawn over the hook's film (app/render/footage.py)
 FOOTAGE_DOMAINS = ("electronics", "physics_math", "economics")   # routes.json domains whose hook always has a film
@@ -126,6 +128,55 @@ STATES = {
                               '"label": "Faux positifs", "count": 10, "color": "#F59E0B"}], "rest": "Bien portants"}; '
                               f'"total" dots ({POPULATION_DOTS[0]} to {POPULATION_DOTS[1]}), each standing for "per" '
                               f'people; {POPULATION_GROUPS[0]} to {POPULATION_GROUPS[1]} groups of whole dots, filled in order',
+    ComponentType.LOGIC_CIRCUIT: '{"<input id>": 1} sets an input to 1 (0 sets it back), {"mode": "sequential"} '
+                                 'makes the gates work one after the other (a program\'s steps), {"mode": "parallel"} all '
+                                 'at once (a circuit); initial_state {"inputs": [{"id": "a", "label": "Interrupteur 1"}, '
+                                 '{"id": "b", "label": "Interrupteur 2"}], "gates": [{"id": "g1", "type": "AND", "in": '
+                                 '["a", "b"]}], "outputs": [{"id": "lamp", "label": "Lampe", "from": "g1"}], "values": '
+                                 f'{{"a": 0, "b": 0}}}}; gate types {list(LOGIC_GATES)} (NOT one input, the others two), '
+                                 'each gate fed by inputs or earlier gates; laid out, wired and computed by the renderer',
+    ComponentType.FPGA_GRID: '{"configure": true} loads the bitstream: "design" placed in the blocks one by one, the '
+                             'routing between them lit (more functions than blocks: the extra ones left out, in red); '
+                             '{"run": true} every block works at once; {"reconfigure": true} clears the blocks and '
+                             'places "design2"; {"zoom": "ET"} zooms on the block holding that function and shows '
+                             'its inside (the gate, or a small table for any other function), {"zoom": false} zooms '
+                             'back out; {"wire": true} shows the interconnect: switches between the blocks close one '
+                             'after the other and the signal runs along the routes; initial_state {"cols": 4, "rows": 3, "design": ["ET", "OU", "Compteur"], '
+                             '"design2": ["Filtre", "ET"]} (cols 2 to 6, rows 2 to 4, functions in a few words)',
+    ComponentType.MICROCONTROLLER: '{"run": true} the pointer goes down the program and each instruction is done by '
+                                   'the one unit, one after the other; {"run": false} stops it; initial_state {"label": '
+                                   '"Microcontrôleur", "instructions": ["lire Bouton 1", "lire Bouton 2", "calculer ET", '
+                                   '"allumer Lampe"]} (1 to 8 short texts; never given run, it runs from its pop)',
+    ComponentType.WAVE: '{"go": true} sends the wave (never given: from its pop), {"mark": true} picks out one point '
+                        'that only goes up and down (back and forth for a spring), {"energy": true} an arrow "Énergie" '
+                        'travelling with it; initial_state {"mode": "rope" | "water" | "crowd" | "spring", "kind": '
+                        '"pulse" | "continuous" | "standing", "loops": 1 to 6} (standing: a rope tied at both ends, '
+                        'nodes still and named, antinodes swinging, "loops" its antinodes (the harmonic: 1, 2, 3...), '
+                        '{"parts": true} the two waves going opposite ways, each on its own rope over it, = their sum; '
+                        'no "energy" arrow on a standing wave: its energy does not travel; crowd: an ola, spectators standing up in turn; spring: a longitudinal '
+                        'wave, as sound, its compressions named)',
+    ComponentType.TUNNEL: '{"bounce": true} the dot runs into the wall and bounces back (what we expect); '
+                          '{"tunnel": true} it comes out on the other side, the wall left whole (the quantum effect); '
+                          'initial_state {"particle": "Particule", "barrier": "Mur"} (short texts; the view zooms in '
+                          'on the tube first; never given a state, it tunnels through)',
+    ComponentType.BREADBOARD: '{"step": n} the first n parts plugged in, with their jumpers (one more on the words '
+                              'that add it); {"on": ["led1", "heater1"]} the LED lit, the heater glowing; initial_state '
+                              '{"parts": [{"id": "r1", "kind": "RESISTOR", "label": "R1 10 kΩ"}, {"id": "u1", "kind": '
+                              '"OPAMP", "label": "LM358"}], "nets": [["+12 V", "r1.left", "u1.vcc"], ["r1.right", '
+                              '"u1.in_minus"], ["0 V", "u1.gnd"]]} (kinds and leads: RESISTOR, THERMISTOR, DIODE, HEATER '
+                              'left/right or anode/cathode, LED anode/cathode, POTENTIOMETER left/wiper/right, MOSFET '
+                              'gate/drain/source, OPAMP out/in_minus/in_plus/gnd/vcc; a net led by "+12 V" or "0 V" goes '
+                              'to that rail; laid out by the renderer, no positions)',
+    ComponentType.SUPPLY_RAIL: NO_STATE + '; the supply symbol, its voltage as its label ("+12 V"), port terminal',
+    ComponentType.RESISTOR: NO_STATE + '; its value in its label ("R1 10 kΩ")',
+    ComponentType.POTENTIOMETER: NO_STATE + '; ports left, right and wiper (the middle point: a setpoint); label "P1 10 kΩ"',
+    ComponentType.THERMISTOR: '{"hot": true} it warms (its resistance falls: a CTN); label "CTN 10 kΩ"',
+    ComponentType.OPAMP: '{"high": true} its output at the high level, {"high": false} low; ports in_plus, in_minus, out, '
+                         'vcc (to the + supply), gnd (to 0 V); label "AOP (LM358)"',
+    ComponentType.MOSFET: '{"on": true} it conducts (gate high), {"on": false} it blocks; ports gate, drain, source (to 0 V)',
+    ComponentType.DIODE: NO_STATE + '; ports anode, cathode',
+    ComponentType.LED: '{"on": true} lit; ports anode, cathode (with a resistor in series)',
+    ComponentType.HEATER: '{"on": true} it heats (heat rising from it); ports left, right; label "Résistance chauffante 12 V"',
     ComponentType.TIDES: '{"points": true} marks the near point, the centre and the far point; {"forces": true} the '
                          'Moon\'s pull on each, to scale; {"relative": true} what is left once the centre\'s pull is '
                          'taken away (the water moves away from the centre on both sides); {"stretch": true} the '
@@ -137,10 +188,11 @@ STATES = {
                          '{"lanes": [{"label": "File rapide", "rate": 1.5}, {"label": "File lente", "rate": 0.5}], '
                          f'"icon": one of {list(LANE_ICONS)}, "label": "Péage"}}; 2 to 4 lanes, "rate" = how many '
                          'go through per second (0.2 to 3)',
-    ComponentType.VOLTMETER_PROBES: NO_STATE + '; reads a voltage with the "measure" action; '
+    ComponentType.VOLTMETER_PROBES: NO_STATE + '; reads a voltage with the "measure" action (on a BREADBOARD, a '
+                                               'probe on a part\'s lead: "<board id>.<part id>.<lead>"); '
                                                'initial_state {"label": "Voltmètre"}',
 }
-ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
+ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move", "zoom_in", "zoom_out", "connect",
            "emphasize")
 SEMANTIC_POSITIONS = ("TOP_LEFT", "TOP", "TOP_RIGHT", "LEFT", "CENTER", "RIGHT",
                       "BOTTOM_LEFT", "BOTTOM", "BOTTOM_RIGHT")
@@ -168,7 +220,8 @@ STRICT RULES:
 - NEVER invent arbitrary port names. source_port and target_port must be ports of that
   component's type, exactly as listed above.
 - Every connection and every action must refer to entities declared in the same scene.
-- KEEP EACH FRAME READABLE: at most {max_entities} entities per scene (instruments included). One
+- KEEP EACH FRAME READABLE: at most {max_entities} entities per scene (instruments included), {max_schematic}
+  for a schematic (4 or more of RESISTOR, POTENTIOMETER, THERMISTOR, OPAMP, MOSFET, DIODE, LED, HEATER). One
   circuit per scene, unless the narration compares circuits: then at most two, each one closed. At
   most {max_formulas} TEX_FORMULA per scene, only for real equations, never for notes or sentences.
   Rather than piling everything up, fade out what the narrator has finished with, then spawn
@@ -323,6 +376,45 @@ STRICT RULES:
     they set off together on one track, to one scale, so the viewer sees the gap (the slow one does
     not move while the fast one arrives), then each one's real time and how many times faster;
     never two icons with "lent" / "rapide" badges.
+  * logic (portes logiques ET / OU / NON, binaire, a condition on two switches, a processor's
+    instructions against a circuit): ONE LOGIC_CIRCUIT, its inputs set on the words that change them
+    (set_state {{"a": 1}}), {{"mode": "sequential"}} for a program read step by step, "parallel" for a
+    circuit; never WIRE_BUS junctions, BATTERY / SWITCH / LAMP chains or icons standing for gates.
+  * the inside of an FPGA (blocs logiques, routage, configuration, bitstream, reconfigurable,
+    ressources limitées): ONE FPGA_GRID, configure / run / reconfigure on the words that say them; to
+    explain it, zoom on a block ({{"zoom": "ET"}} on "à l'intérieur d'un bloc"), zoom back out
+    ({{"zoom": false}}), then {{"wire": true}} on "interconnexions" / "routage" / "relier les blocs".
+  * an electronic circuit built step by step (a bench, a project: "on branche", "on relie", "on
+    ajoute"): the real symbols, wired by their ports: BATTERY for the supply ("Alimentation 12 V"),
+    CHASSIS_MASS for 0 V, RESISTOR, POTENTIOMETER (a setpoint), THERMISTOR (a temperature sensor),
+    OPAMP (a comparator), MOSFET (the power switch), DIODE, LED, HEATER. Each scene takes the circuit as
+    the previous one left it and adds ONE stage, each part spawned on the words that add it. As on a
+    real schematic, a part fed by the supply gets its own SUPPLY_RAIL ("+12 V") beside it and a part
+    going to 0 V its own CHASSIS_MASS under it, never long wires back to the BATTERY (which only shows
+    the supply stage); the parts left to right in the order the signal goes (sensor, setpoint,
+    comparator, power, heater). Its
+    wires draw themselves once both ends are there, or on their own words with {{"action": "connect",
+    "source_id": "...", "target_id": "...", "cue": "on relie"}} (the connection must be in the scene).
+    Show it working: set_state on the LED, the HEATER, the MOSFET, the OPAMP's "high" on the words.
+    Draw exactly the connections the narration says. An AOP comparator with hysteresis: the sensor's
+    divider into the − input, the setpoint (the potentiometer's wiper) into the + input THROUGH a
+    resistor, and the hysteresis resistor from the output back to the + input (never that resistor
+    alone between the output and +, which locks the AOP); its vcc to +12 V and gnd to 0 V.
+    The parts' positions on a schematic are computed (left to right along the signal, ground and supply
+    symbols at the end of their leads): give any. Never icons for these parts. Then, to build it for real: ONE BREADBOARD with the SAME parts and nets
+    as the schematic, in the order they are plugged, {{"step": n}} on the words that plug the n-th.
+  * a microcontroller or a processor (it reads a program, executes instructions one after the other),
+    above all against an FPGA: ONE MICROCONTROLLER with the instructions of the example, {{"run": true}}
+    on "il exécute"; beside an FPGA_GRID (comparison) the difference is seen: one unit, one
+    instruction at a time, against blocks all working at once. Never a cpu icon for it.
+  * a mechanical wave (une onde, une vague, une corde qu'on secoue, une ola, le son, un ressort, "la
+    perturbation avance, le milieu reste"): ONE WAVE in the mode the narration takes (rope, water with
+    its buoy, crowd for an ola, spring for sound), {{"mark": true}} on the words that say a point only
+    goes up and down, {{"energy": true}} on "l'énergie avance". Never discs or icons scattered or set
+    in a row and moved one by one, never a graph's dots, for a wave.
+  * the tunnel effect (a particle, or a whole circuit, "traverse un mur", "franchit une barrière"
+    it should not cross, effet tunnel): ONE TUNNEL, {{"bounce": true}} on what we would expect, then
+    {{"tunnel": true}} on the words that say it gets through; never an atom icon beside a door icon.
   * tides (the Moon's pull, the two bulges of water, two high tides a day, vives-eaux and
     mortes-eaux): ONE TIDES, each step set on the words that say it ("point proche" -> points, "plus
     forte" -> forces, "s'éloigne du centre" -> relative, "deux bourrelets" -> stretch, "la Terre
@@ -402,11 +494,19 @@ STRICT RULES:
     "target_pin_b": "lamp_1.right_terminal", "value": 4.5, "unit": "V", "cue": "la tension"}}
   {{"at": 7.0, "action": "move_along", "target": "satellite_1", "to": 6.2832, "duration": 4, "cue": "il tombe sans cesse"}}
   {{"at": 3.0, "action": "move", "target": "elevator_1", "to": [0, -2.5], "duration": 2.5, "easing": "fall", "cue": "le câble casse"}}
+  {{"at": 11.0, "action": "zoom_in", "target": "chip_1", "cue": "à l'intérieur"}}
+  {{"at": 0.0, "action": "zoom_out", "target": "chip_1", "cue": "revenons"}}
   set_value shows an animated counter for the target, rolling up to "value" (optional "unit",
   "decimals", "tone": "positive" or "negative"). Use it for every key number the narrator says.
   measure moves the voltmeter's probes onto the two pins and rolls its display up to "value".
   Spawn components before using them; close a switch BEFORE the current flows through it; spread
   the actions over the whole scene.
+- ZOOM, TO GO INSIDE A THING: when the narration goes into a thing to show what it is made of ("à
+  l'intérieur de la puce", "regardons de plus près", "au cœur de la cellule", "dans le fil"), end that
+  scene with zoom_in on the thing, cued on those words (the camera dives into it, then the scene
+  fades), and draw its inside in the NEXT scene (it arrives from the zoom: the blocks of the chip,
+  the atoms of the wire). Back to the whole later: that scene draws the thing again and starts with
+  zoom_out on it (at 0). Never a zoom_in with more than a few seconds of narration after it.
 - TARGET FIRST: an ARROW_ANNOTATION points at one entity (a component, a formula, a gauge...): name
   it in its initial_state "target" and put its tip next to it. It MUST NOT spawn before that
   target: if the formula spawns at 9.5 s, the arrow spawns at 9.5 s or later (together is fine).
@@ -543,6 +643,12 @@ def validate_storyboard_topology(briefs, durations) -> list:
                 if problem:
                     errors.append(f"{where}: {problem}")
                 continue
+            if kind == "connect":
+                ends = (action.get("source_id"), action.get("target_id"))
+                if not any({c.source_id, c.target_id} == set(ends) for c in brief.connections):
+                    errors.append(f"{where}: connect {ends} names no connection of this scene: add the connection, "
+                                  f"the connect action only times its wire")
+                continue
             if kind in ("move_along", "move"):
                 problem = move_problem(action, {e.id: (e.type, e.initial_state) for e in brief.entities})
                 if problem:
@@ -564,15 +670,19 @@ def validate_storyboard_topology(briefs, durations) -> list:
                 errors.append(f"{where}: start_flow current must be a number of amps >= 0, got {current!r}")
             if kind == "start_flow" and action.get("carriers", "conventional") not in ("conventional", "electrons"):
                 errors.append(f"{where}: start_flow carriers must be \"conventional\" or \"electrons\", got {action.get('carriers')!r}")
-        if len(brief.entities) > MAX_ENTITIES:
-            errors.append(f"{where}: {len(brief.entities)} entities, at most {MAX_ENTITIES}: drop or reuse some")
+        schematic = sum(e.type in SCHEMATIC_TYPES for e in brief.entities) >= SCHEMATIC_MIN
+        most = MAX_SCHEMATIC if schematic else MAX_ENTITIES
+        counted = [e for e in brief.entities if not (schematic and e.type.value in RAIL_KINDS)]   # a schematic's 0 V / +12 V: tiny
+        if len(counted) > most:
+            errors.append(f"{where}: {len(counted)} entities, at most {most}: drop or reuse some")
         formulas = sum(entity.type == ComponentType.TEX_FORMULA for entity in brief.entities)
         if formulas > MAX_FORMULAS:
             errors.append(f"{where}: {formulas} TEX_FORMULA, at most {MAX_FORMULAS} (equations only, no notes)")
         seen = {}
         for entity in brief.entities:
-            if entity.type == ComponentType.CURVE_PLOT or "anchor" in entity.initial_state:
-                continue        # a curve sits on its axes; an anchored vector or body on its curve (its position is ignored)
+            if entity.type == ComponentType.CURVE_PLOT or "anchor" in entity.initial_state \
+                    or (schematic and entity.type.value in CIRCUIT_KEPT | RAIL_KINDS):
+                continue        # (a schematic's parts are laid out by the program: their positions are not used)        # a curve sits on its axes; an anchored vector or body on its curve (its position is ignored)
             key = entity.position if isinstance(entity.position, str) else tuple(round(v, 1) for v in entity.position)
             if key in seen:
                 errors.append(f"{where}: {entity.id} and {seen[key]} share the position {key}")
@@ -623,9 +733,11 @@ CURRENT = ("courant", "débit", "ampère", "intensité")
 FLOW_CUE = CURRENT + ("circul", "parcour", "travers", "ferm", "passe")
 OPENING = ("ouvert", "ouvre", "ouvrant", "coup", "interromp", "cass", "rompu")
 ANALOGY_TYPES = {ComponentType.WATER_TANK, ComponentType.PIPE_VALVE}
+SCHEMATIC_TYPES = {ComponentType.SUPPLY_RAIL, ComponentType.RESISTOR, ComponentType.POTENTIOMETER, ComponentType.THERMISTOR, ComponentType.OPAMP,
+                   ComponentType.MOSFET, ComponentType.DIODE, ComponentType.LED, ComponentType.HEATER}
 CIRCUIT_TYPES = {ComponentType.BATTERY, ComponentType.LAMP, ComponentType.SWITCH, ComponentType.AMMETER,
                  ComponentType.WIRE_BUS, ComponentType.VOLTMETER_PROBES, ComponentType.EARTH_GROUND,
-                 ComponentType.CHASSIS_MASS}
+                 ComponentType.CHASSIS_MASS} | SCHEMATIC_TYPES
 # What each letter may stand for (the first name is the one suggested): E is an energy or a field.
 QUANTITIES = {"U": ("tension",), "I": ("courant", "intensité"), "R": ("résistance",), "P": ("puissance", "pression"),
               "E": ("énergie", "champ"), "Q": ("charge", "chaleur")}
@@ -783,7 +895,7 @@ def idle_discs(brief, graphs):
             f"\"sun\" for a planet), a value by a GAUGE, an idea by an ARROW_ANNOTATION" for e in idle]
 
 
-SHOWS_VALUES = {ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.POPULATION, ComponentType.TIDES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
+SHOWS_VALUES = {ComponentType.WAVE, ComponentType.BREADBOARD, ComponentType.MICROCONTROLLER, ComponentType.TUNNEL, ComponentType.LOGIC_CIRCUIT, ComponentType.FPGA_GRID, ComponentType.SEESAW, ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.POPULATION, ComponentType.TIDES, ComponentType.AXES_GRAPH, ComponentType.CURVE_PLOT, ComponentType.TEX_FORMULA, ComponentType.GAUGE,
                 ComponentType.AMMETER, ComponentType.VOLTMETER_PROBES, ComponentType.VECTOR_ARROW, ComponentType.WATER_TANK}
 
 
@@ -878,7 +990,10 @@ KIND_WORDS = {
 }
 # A thing with a component of its own, drawn as an OBJECT icon: the zap labelled "Pile".
 OWN_TYPE_WORDS = {"pile": "BATTERY", "batterie": "BATTERY", "lampe": "LAMP", "ampoule": "LAMP",
-                  "interrupteur": "SWITCH", "ampèremètre": "AMMETER", "voltmètre": "VOLTMETER_PROBES"}
+                  "interrupteur": "SWITCH", "ampèremètre": "AMMETER", "voltmètre": "VOLTMETER_PROBES",
+                  "microcontrôleur": "MICROCONTROLLER", "processeur": "MICROCONTROLLER", "potentiomètre": "POTENTIOMETER",
+                  "thermistance": "THERMISTOR", "ctn": "THERMISTOR", "aop": "OPAMP", "mosfet": "MOSFET", "transistor": "MOSFET",
+                  "diode": "DIODE", "led": "LED"}
 
 
 def label_kinds(label):
@@ -949,6 +1064,83 @@ def tides_by_icons(brief, narration):
     return [f"scene {brief.scene_id}: the narration speaks of tides, drawn as {water} icons beside an Earth: they show "
             f"no water rising; draw ONE TIDES (the Earth in its ocean, the Moon) with set_state points / forces / "
             f"relative / stretch / spin on the words that say them, and drop these icons"]
+
+
+WAVE_WORDS = re.compile(r"\bondes?\b|\bvagues?\b|\bola\b|\bcorde\b|\bressort\b|perturbation|\bhoule\b", re.IGNORECASE)
+
+
+STANDING_WORDS = re.compile(r"stationnaire|\bnœuds?\b|\bventres?\b|fixée? aux deux|harmonique", re.IGNORECASE)
+TWO_WAVES = re.compile(r"deux ondes|s.additionn|superpos|se croisent|sens opposés?|ondes? opposées?", re.IGNORECASE)
+
+
+def standing_waves(brief, narration):
+    """A narration about a standing wave (nodes, antinodes, tied at both ends, harmonics) needs a WAVE
+    "standing" (a travelling wave moves the whole rope); one about the two waves it is the sum of needs
+    them shown ({"parts": true})."""
+    text = str(narration or "")
+    waves = [e for e in brief.entities if e.type == ComponentType.WAVE]
+    if not STANDING_WORDS.search(text) or not waves:
+        return []
+    standing = [e for e in waves if e.initial_state.get("kind") == "standing"]
+    if not standing:
+        return [f"scene {brief.scene_id}: the narration speaks of a standing wave (nodes, antinodes, a rope tied at both "
+                f"ends), but {[e.id for e in waves]} travel along: the whole rope moves; give it \"kind\": \"standing\" "
+                f"(and \"loops\" for the harmonic)"]
+    shown = any(isinstance(a.get("state"), dict) and a["state"].get("parts") for a in brief.actions
+                if a.get("target") in {e.id for e in standing})
+    if TWO_WAVES.search(text) and not shown:
+        return [f"scene {brief.scene_id}: the narration speaks of the two waves going opposite ways that add up: show "
+                f"them, set_state {{\"parts\": true}} on {standing[0].id} cued on those words"]
+    return []
+
+
+def waves_by_hand(brief, narration):
+    """A narration about a wave drawn with discs or icons (BODY, OBJECT: "Morceau 1"... "Spectateur 5"):
+    three of them or more show no wave; WAVE draws the medium, the wave travelling, a point staying."""
+    if not WAVE_WORDS.search(str(narration or "")) or any(e.type == ComponentType.WAVE for e in brief.entities):
+        return []
+    pieces = [e.id for e in brief.entities if e.type in (ComponentType.BODY, ComponentType.OBJECT)]
+    if len(pieces) < 3:
+        return []
+    return [f"scene {brief.scene_id}: the narration speaks of a wave, drawn as {pieces}: discs or icons show no wave "
+            f"travelling; draw ONE WAVE (mode rope, water, crowd for an ola, spring for sound) with set_state go, "
+            f"mark, energy on the words that say them, and drop these"]
+
+
+TUNNEL_WORDS = re.compile(r"effet tunnel|travers\w*\s+(?:un|le|les|des)\s+murs?|franchi\w*\s+(?:une|la)\s+barrière",
+                          re.IGNORECASE)
+
+
+def tunnel_by_icons(brief, narration):
+    """A narration about the tunnel effect drawn with icons (an atom, a door): two icons side by side show
+    nothing crossing; TUNNEL zooms in on a dot in a tube and takes it through the wall."""
+    if not TUNNEL_WORDS.search(str(narration or "")) or any(e.type == ComponentType.TUNNEL for e in brief.entities):
+        return []
+    icons = [e.id for e in brief.entities if e.type == ComponentType.OBJECT]
+    if not icons:
+        return []
+    return [f"scene {brief.scene_id}: the narration speaks of crossing a wall (the tunnel effect), drawn as the icons "
+            f"{icons}: nothing crosses anything; draw ONE TUNNEL (a dot in a tube, the wall a line across it) with "
+            f"set_state bounce then tunnel on the words that say them, and drop these icons"]
+
+
+GATE_WORDS = re.compile(r"\b(?:porte|gate)s?\s+(?:logiques?\s+)?(?:et|ou|non|and|or|not|xor|nand|nor)\b"
+                        r"|\b(?:bloc|routage|bitstream|lut)s?\b", re.IGNORECASE)
+
+
+def gates_by_hand(brief):
+    """Logic gates or FPGA blocks drawn as other components labelled so (a WIRE_BUS "Porte ET", an
+    OBJECT "Bloc logique A"): they have one input, no truth, no routing. LOGIC_CIRCUIT and FPGA_GRID
+    draw them."""
+    if any(e.type in (ComponentType.LOGIC_CIRCUIT, ComponentType.FPGA_GRID) for e in brief.entities):
+        return []
+    faked = [e.id for e in brief.entities if e.type in (ComponentType.WIRE_BUS, ComponentType.OBJECT, ComponentType.GAUGE)
+             and GATE_WORDS.search(str(e.initial_state.get("label") or ""))]
+    if not faked:
+        return []
+    return [f"scene {brief.scene_id}: {faked} stand for logic gates or FPGA blocks: drawn so they have one input and "
+            f"compute nothing; draw ONE LOGIC_CIRCUIT (inputs, gates with their two inputs, outputs; set_state the "
+            f"inputs on the words) or ONE FPGA_GRID (configure, run, reconfigure), and drop them"]
 
 
 def people_by_gauges(brief):
@@ -1068,6 +1260,10 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += people_by_gauges(brief)
     errors += icons_against_labels(brief)
     errors += tides_by_icons(brief, narration)
+    errors += tunnel_by_icons(brief, narration)
+    errors += waves_by_hand(brief, narration)
+    errors += standing_waves(brief, narration)
+    errors += gates_by_hand(brief)
     errors += gauges_without_value(brief)
     errors += speeds_by_badges(brief, narration)
     errors += placeholder_graphs(brief)
@@ -1278,7 +1474,8 @@ ANALOGY_WORDS = re.compile(r"analogi|château d.eau|péage|c.est comme|comme si\
 OPPOSITION_WORDS = re.compile(r"contrairement|au contraire|à l.inverse|alors que|tandis que|ce qu.on croit|en réalité|"
                               r"\bversus\b|\bvs\b|d.un côté|de l.autre|par opposition|plutôt que|deux branches|"
                               r"compar(?:ons|er|aison)|confondre|distinct", re.IGNORECASE)
-CIRCUIT_PARTS = {"BATTERY", "LAMP", "SWITCH", "AMMETER", "WIRE_BUS", "EARTH_GROUND", "CHASSIS_MASS"}
+CIRCUIT_PARTS = {"BATTERY", "LAMP", "SWITCH", "AMMETER", "WIRE_BUS", "EARTH_GROUND", "CHASSIS_MASS", "SUPPLY_RAIL",
+                 "RESISTOR", "POTENTIOMETER", "THERMISTOR", "OPAMP", "MOSFET", "DIODE", "LED", "HEATER"}
 
 
 def circuit_cap(scene_count):
@@ -1292,10 +1489,17 @@ def layout_eligibility(narrations):
             for scene_id, text in narrations.items()}
 
 
+# Drawings as wide as the screen: in a comparison's half panel they shrink to half (the waves of 2026-11-05).
+WIDE_DRAWINGS = {ComponentType.WAVE, ComponentType.TIDES, ComponentType.TUNNEL, ComponentType.BREADBOARD, ComponentType.SEESAW,
+                 ComponentType.LANES, ComponentType.SPEED_RACE, ComponentType.LOGIC_CIRCUIT, ComponentType.FPGA_GRID,
+                 ComponentType.MICROCONTROLLER}
+
+
 def needs_circuit(briefs):
-    """Scenes that must stay "circuit": they have an instrument, drawn only in its column."""
+    """Scenes that must stay "circuit": they have an instrument, drawn only in its column, or a drawing as
+    wide as the screen (WIDE_DRAWINGS), halved in a comparison's panel."""
     return {scene_id for scene_id, brief in briefs.items()
-            if any(entity.type == ComponentType.VOLTMETER_PROBES for entity in brief.entities)}
+            if any(entity.type == ComponentType.VOLTMETER_PROBES or entity.type in WIDE_DRAWINGS for entity in brief.entities)}
 
 
 def layout_options(scene_id, eligible, locked):
@@ -1311,7 +1515,8 @@ def layout_problems(order, templates, eligible, locked) -> list:
         if template not in LAYOUT_TEMPLATES:
             errors.append(f"scene {scene_id}: \"layout_template\" must be one of {list(LAYOUT_TEMPLATES)}, got {template!r}")
         elif template not in options[scene_id]:
-            why = ("it has a VOLTMETER_PROBES (only \"circuit\" has the instrument column)" if scene_id in locked
+            why = ("it has a VOLTMETER_PROBES (only \"circuit\" has the instrument column) or a drawing as wide as the "
+                   "screen (a WAVE, a BREADBOARD...: halved in a panel)" if scene_id in locked
                    else "its narration makes no explicit analogy" if template == "analogy_fullscreen"
                    else "its narration opposes no two notions")
             errors.append(f"scene {scene_id}: {template!r} is not allowed: {why}; allowed: {options[scene_id]}")
@@ -1447,7 +1652,8 @@ Pixabay's clips for the search {query!r}, each by its tags (what the clip shows)
 Answer with JSON only: {{"choice": <the number of the clip that shows the narration's real subject, as it is>}},
 or {{"choice": null}} when none does. A clip that shows something else, or the subject's look-alike, is
 misleading and must not be picked: an oil lamp for an electric lamp, another planet or moon for the Moon,
-a keyboard for a job centre. People may be in it, far off or from behind, never a face in the foreground
+a keyboard for a job centre, an electrician at an electrical panel or power cables for electronics (chips,
+circuit boards). The tags must name the subject itself: "usine" and "circuits" do not make a chip factory. People may be in it, far off or from behind, never a face in the foreground
 (a portrait, a close-up). Better no film than a wrong one."""
 
 
@@ -1487,6 +1693,64 @@ def checked_footage(order, layouts, narrations, find=None):
 CHANGES = ("set_state", "start_flow", "set_value", "measure", "move_along", "move")   # actions that show something happen
 DRAWN_IN = (ComponentType.TEX_FORMULA, ComponentType.AXES_GRAPH)   # written or traced before the eyes: not still
 STILL_MIN_SEC = 8
+
+
+INSIDE_WORDS = re.compile(r"à l['’]intérieur (?:d['’]|du |de la |des )|au cœur (?:d['’]|du |de la |des )|de plus près|"
+                          r"regardons (?:dedans|à l['’]intérieur)|entrons dans|plongeons dans|zoom", re.IGNORECASE)
+ZOOM_SEC = 1.6            # agent010's zoom_in
+ZOOM_LAST_SEC = 4         # narration allowed after a zoom_in ends (the scene then fades)
+
+
+SAME_DRAWING_MAX = 3      # scenes one drawing may fill, set alike, before it is a slideshow of one picture
+
+
+def repeated_drawings(order, briefs):
+    """The same wide drawing set the same way (a WAVE "standing", 2 loops) in more than SAME_DRAWING_MAX
+    scenes: the video shows one picture throughout (the standing waves of 2026-11-05); each scene should
+    show its own point (another harmonic, the two waves, a node marked...)."""
+    seen = {}
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        for e in brief.entities if brief else []:
+            if e.type in WIDE_DRAWINGS:
+                key = (e.type.value, json.dumps(e.initial_state, sort_keys=True, ensure_ascii=False))
+                seen.setdefault(key, []).append(scene_id)
+    return [f"scenes {ids}: the same {kind} set alike ({state[:120]}) in {len(ids)} scenes: the viewer sees one picture "
+            f"all along; give each scene its own (another \"loops\" for a harmonic, another mode or kind, other values), "
+            f"or another drawing" for (kind, state), ids in seen.items() if len(ids) > SAME_DRAWING_MAX]
+
+
+def zoom_problems(order, briefs, narrations, durations):
+    """Going inside a thing is shown by the camera: a scene whose narration goes inside one ("à
+    l'intérieur de la puce") follows a scene ending on zoom_in (or zooms itself, cued on those words);
+    a zoom_in ends its scene; a zoom_out opens one. Components that zoom by themselves (TUNNEL, an
+    FPGA_GRID's "zoom") count."""
+    errors, zoomed_before = [], False
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        if brief is None:
+            continue
+        zooms = [a for a in brief.actions if isinstance(a, dict) and a.get("action") in ("zoom_in", "zoom_out")]
+        own = any(e.type == ComponentType.TUNNEL for e in brief.entities) or any(
+            isinstance(a, dict) and isinstance(a.get("state"), dict) and "zoom" in a["state"] for a in brief.actions)
+        zoom_in = [a for a in zooms if a["action"] == "zoom_in"]
+        words = INSIDE_WORDS.search(str(narrations.get(scene_id) or ""))
+        if words and not (zoomed_before or zoom_in or own):
+            errors.append(f"scene {scene_id}: the narration goes inside something (\"{words.group(0).strip()}\"): the camera "
+                          f"shows it: end the scene before with zoom_in on that thing (cued on its last words) and draw "
+                          f"its inside here, or zoom_in here on those words and draw the inside in the next scene")
+        duration = float(durations.get(scene_id) or 0)
+        for a in zoom_in:
+            if isinstance(a.get("at"), (int, float)) and duration and a["at"] + ZOOM_SEC < duration - ZOOM_LAST_SEC:
+                errors.append(f"scene {scene_id}: zoom_in on {a.get('target')} at {a['at']} s leaves "
+                              f"{duration - a['at'] - ZOOM_SEC:.0f} s of an empty screen: it ends the scene, cue it on its "
+                              f"last words and show the inside in the next scene")
+        for a in zooms:
+            if a["action"] == "zoom_out" and isinstance(a.get("at"), (int, float)) and a["at"] > 1.5:
+                errors.append(f"scene {scene_id}: zoom_out opens a scene (at 0): the view starts on "
+                              f"{a.get('target')} and pulls back to the whole")
+        zoomed_before = bool(zoom_in)
+    return errors
 
 
 def still_scenes(order, briefs, layouts, durations):
@@ -1549,6 +1813,94 @@ def sanitize(raw_scenes):
     return raw_scenes
 
 
+SHARED_OFFSETS = ((0, -1.6), (0, 1.6), (-2.3, 0), (2.3, 0), (0, -3.2), (-2.3, -1.6), (2.3, -1.6), (-2.3, 1.6), (2.3, 1.6))
+PLACE_X, PLACE_Y = (-6.6, 6.6), (-3.4, 2.8)
+
+
+def spread_shared_places(raw_scenes):
+    """Two entities given the same named place ("RIGHT"): the second is put beside it, in numbers (below,
+    above, left, right...), not sent back; a schematic of a dozen parts has more than the 9 places. The
+    page's measures then check nothing overlaps. Returns what was moved, for the log."""
+    moved = []
+    for scene in raw_scenes:
+        if not isinstance(scene, dict):
+            continue
+        taken = set()
+        entities = [e for e in scene.get("entities") or [] if isinstance(e, dict)]
+        for e in entities:
+            if e.get("type") != "CURVE_PLOT" and not (isinstance(e.get("initial_state"), dict) and "anchor" in e["initial_state"]) \
+                    and isinstance(e.get("position"), list):
+                taken.add(tuple(round(float(v), 1) for v in e["position"][:2] if isinstance(v, (int, float))))
+        named = set()
+        for e in entities:
+            place = e.get("position")
+            if e.get("type") == "CURVE_PLOT" or not isinstance(place, str) or place not in SEMANTIC_POSITIONS:
+                continue
+            if place not in named:
+                named.add(place)
+                taken.add(tuple(round(v, 1) for v in scene_point(place)))
+                continue
+            x0, y0 = scene_point(place)
+            for dx, dy in SHARED_OFFSETS:
+                x = min(max(x0 + dx, PLACE_X[0]), PLACE_X[1])
+                y = min(max(y0 + dy, PLACE_Y[0]), PLACE_Y[1])
+                if (round(x, 1), round(y, 1)) not in taken:
+                    e["position"] = [round(x, 2), round(y, 2), 0]
+                    taken.add((round(x, 1), round(y, 1)))
+                    moved.append(f"scene {scene.get('scene_id')}: {e.get('id')} beside {place}")
+                    break
+    return moved
+
+
+CIRCUIT_KEPT = {"RESISTOR", "POTENTIOMETER", "THERMISTOR", "OPAMP", "MOSFET", "DIODE", "LED", "HEATER", "BATTERY", "LAMP",
+                "SWITCH", "AMMETER"}
+RAIL_KINDS = {"SUPPLY_RAIL", "CHASSIS_MASS", "EARTH_GROUND"}
+CARRY_SHARE = 0.6         # a scene going on with the last circuit has this share of its parts at least (not a preview then a step)
+
+
+def carry_circuit(raw_scenes):
+    """A circuit built step by step keeps what is built: a schematic scene sharing most of the last one's
+    parts (CARRY_SHARE, and two at least) goes on with the same circuit, and every part, ground / supply symbol and wire of that
+    one it left out is put back, already there (the bench of 2026-11-05 lost its hysteresis and gate
+    resistors from one step to the next). Returns what was put back, for the log."""
+    restored, last = [], None
+    for scene in raw_scenes:
+        if not isinstance(scene, dict):
+            continue
+        entities = [e for e in scene.get("entities") or [] if isinstance(e, dict)]
+        parts = {e.get("id"): e for e in entities if e.get("type") in CIRCUIT_KEPT}
+        shared = set(parts) & set(last["parts"]) if last is not None else set()
+        if last is not None and len(shared) >= max(2, CARRY_SHARE * len(last["parts"])):    # the same circuit going on
+            ids = {e.get("id") for e in entities}
+            # a part renamed ("r_gate" then "resistor_gate_1"): the same type and label is the same part
+            same = lambda e: (e.get("type"), re.sub(r"\s+", " ", str((e.get("initial_state") or {}).get("label") or "")).strip().lower())
+            here = {same(e) for e in parts.values()}
+            missing = [i for i in last["parts"] if i not in ids and (same(last["entities"][i]) not in here or not same(last["entities"][i])[1])]
+            needed = set(missing)
+            for c in last["connections"]:                 # the rails of what comes back, if not already there
+                for a, b in ((c.get("source_id"), c.get("target_id")), (c.get("target_id"), c.get("source_id"))):
+                    if a in needed and last["entities"].get(b, {}).get("type") in RAIL_KINDS and b not in ids:
+                        needed.add(b)
+            for i in needed:
+                copy = json.loads(json.dumps(last["entities"][i]))
+                scene.setdefault("entities", []).append(copy)
+                ids.add(i)
+            have = {(c.get("source_id"), c.get("source_port"), c.get("target_id"), c.get("target_port"))
+                    for c in scene.get("connections") or [] if isinstance(c, dict)}
+            for c in last["connections"]:
+                key = (c.get("source_id"), c.get("source_port"), c.get("target_id"), c.get("target_port"))
+                if key not in have and c.get("source_id") in ids and c.get("target_id") in ids \
+                        and (c.get("source_id") in needed or c.get("target_id") in needed):
+                    scene.setdefault("connections", []).append(json.loads(json.dumps(c)))
+            if missing:
+                restored.append(f"scene {scene.get('scene_id')}: {missing}")
+            parts = {e.get("id"): e for e in scene.get("entities") or [] if isinstance(e, dict) and e.get("type") in CIRCUIT_KEPT}
+        if len(parts) >= SCHEMATIC_MIN:
+            last = {"parts": list(parts), "entities": {e.get("id"): e for e in scene.get("entities") or [] if isinstance(e, dict)},
+                    "connections": [c for c in scene.get("connections") or [] if isinstance(c, dict)]}
+    return restored
+
+
 def parse_storyboard(text, durations, narrations):
     """LLM answer -> ({scene_id: SceneVisualBrief}, {scene_id: {"layout_template", "panel_titles"}}).
     The layout fields belong to the storyboard scene, not to the brief (whose schema forbids extra
@@ -1561,6 +1913,12 @@ def parse_storyboard(text, durations, narrations):
                                             "panel_titles": scene.pop("panel_titles", None),
                                             "footage": scene.pop("footage", None)}
                for scene in raw_scenes if isinstance(scene, dict)}
+    kept = carry_circuit(raw_scenes)
+    if kept:
+        print(f"--- {AGENT}: put back what the circuit had: " + "; ".join(kept), file=sys.stderr, flush=True)
+    moved = spread_shared_places(raw_scenes)
+    if moved:
+        print(f"--- {AGENT}: put beside a taken place: " + "; ".join(moved), file=sys.stderr, flush=True)
     try:
         briefs = BRIEFS.validate_python(sanitize(raw_scenes))
     except ValidationError as exc:
@@ -1619,7 +1977,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
     prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(names)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=COMPONENTS_FOR_PROMPT, positions=", ".join(SEMANTIC_POSITIONS),
-                           max_entities=MAX_ENTITIES, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
+                           max_entities=MAX_ENTITIES, max_schematic=MAX_SCHEMATIC, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
                            scenes=json.dumps(scenes_for_prompt, ensure_ascii=False))
@@ -1637,6 +1995,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         proposed = {i: (layouts.get(i) or {}).get("layout_template") for i in order}
         layout = layout_problems(order, proposed, eligible, needs_circuit(briefs)) + empty_panels(briefs, proposed)
         coherence += footage_problems(order, briefs, layouts, footage_expected) + still_scenes(order, briefs, layouts, durations)
+        coherence += zoom_problems(order, briefs, narrations, durations) + repeated_drawings(order, briefs)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}

@@ -32,5 +32,12 @@
   },
   "music_style": "ambient",
   "sound_effects": true,
-  "max_revisions": 3
+  "max_revisions": 3,
+  "prices": {
+    "currency": "USD",
+    "note": "Prix à tenir à jour à la main (app/costs.py) : relevés de mémoire, à vérifier sur les pages de tarifs de DeepSeek et d'ElevenLabs.",
+    "llm": {"deepseek": {"input_per_million": 0.28, "cached_input_per_million": 0.028, "output_per_million": 0.42},
+            "ollama": {"input_per_million": 0, "output_per_million": 0}},
+    "tts": {"elevenlabs": {"per_thousand_chars": 0.22}, "edge-tts": {"per_thousand_chars": 0}}
+  }
 }

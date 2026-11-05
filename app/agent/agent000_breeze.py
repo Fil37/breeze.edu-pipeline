@@ -16,6 +16,9 @@ NOTES:  The orchestrator. Calls agent009 once (global), then for each enabled ch
         notes or blocking issues say the renderer cannot show it ("pas représentable", "aucun
         composant", "cannot draw"...: RENDERER_LIMIT) stops the channel at once, agent005
         critical "Renderer limitation: <reason>": redoing agent004 cannot fix it.
+        So does a reject to agent004 whose "unsupported" list (what the components cannot show) is
+        not empty for the UNSUPPORTED_ROUNDS-th time in the run; every such list is appended to
+        instance/missing_components.json (the components to build next).
         Command line (all optional; without them, every enabled channel and every agent run as before):
           --channel "breeze_(electronics)"   only this channel (run even if routes.json disables it)
           --skip-agents agent008,agent009    never call these agents; they are logged
@@ -40,6 +43,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # `./run` support
 
 import app.agent as helpers
+from app import costs
 from app.agent import (INSTANCE_DIR, REPORTS_PATH, ROWS_PATH, SCHEMAS_DIR, db_connect,
                        load_json, log_status, save_json, utc_now)
 from app.agent import agent001_conceptresearcher, agent002_curriculumsimplifier, agent003_scriptwriter
@@ -98,6 +102,20 @@ def renderer_limitation(qa):
         return None
     unsupported = [str(u) for u in qa.get("unsupported") or []]
     return reason.strip()[:300] + (f" (unsupported: {'; '.join(unsupported)[:300]})" if unsupported else "")
+
+
+UNSUPPORTED_ROUNDS = 2      # a reject to agent004 listing what cannot be drawn this many times: no more redos
+
+
+def remember_missing(run_id, channel_id, revision, items):
+    """Append what the QA found the components cannot show to instance/missing_components.json: the
+    list of components to build next (read by the user, and by agent011 once it exists)."""
+    path = os.path.join(INSTANCE_DIR, "missing_components.json")
+    log = load_json(path) or []
+    topic = (load_json(os.path.join(INSTANCE_DIR, channel_id, "manifest.json")) or {}).get("topic")
+    log.append({"run_id": run_id, "channel": channel_id, "topic": topic, "revision": revision, "at": utc_now(),
+                "unsupported": [str(u)[:400] for u in items]})
+    save_json(path, log)
 
 
 def qa_feedback(qa, revision):
@@ -160,7 +178,7 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
             provenance.set_topic(channel_id, load_json(os.path.join(INSTANCE_DIR, channel_id, "research.json")).get("concept"))
         return statuses[name] != "critical"
 
-    revisions = 0
+    revisions, missing_rounds = 0, 0
     if all(step(name) for name in CONTENT_STEPS):  # all() stops at the first critical
         qa_passed = False
         while True:
@@ -178,6 +196,11 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
                 break
             qa = load_json(os.path.join(INSTANCE_DIR, channel_id, "qa.json"))
             limit = renderer_limitation(qa)
+            if qa.get("unsupported"):       # what the components cannot show: kept to enrich them (missing_components)
+                missing_rounds += 1
+                remember_missing(run_id, channel_id, revisions, qa["unsupported"])
+                if not limit and missing_rounds >= UNSUPPORTED_ROUNDS and qa.get("reject_to") == "agent004":
+                    limit = f"the QA lists what cannot be drawn {missing_rounds} times: {'; '.join(map(str, qa['unsupported']))[:300]}"
             if limit:      # agent004 cannot draw it: redoing it would only be rejected again
                 error = f"Renderer limitation: {limit}"
                 statuses["agent005"] = "critical"
@@ -239,10 +262,26 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
                      (channel_id, route["name"], route["domain"], route["schedule_cron"], 1,
                       run_id, finished_at, overall, topic, video_url))
 
+    # What this run cost (app/costs.py): one line here, one row in instance/costs_history.json.
+    ledger = costs.run_summary(channel_id)
+    cost = None
+    if ledger:
+        total, currency = ledger["total"], ledger.get("currency", "USD")
+        rendered = load_json(os.path.join(INSTANCE_DIR, channel_id, "render_manifest.json")) or {}
+        cost = {"run_id": ledger["run_id"], "orchestrator_run_id": run_id, "channel": channel_id, "finished_at": finished_at,
+                "topic": topic, "overall": overall, "video_sec": rendered.get("duration"), "currency": currency,
+                "total": total, "by_agent": ledger["by_agent"], "unpriced": ledger.get("unpriced", [])}
+        costs.remember(cost)
+        print(f"  {channel_id}: cost {costs.money(total['cost'], currency)} (LLM {costs.money(total['llm_cost'], currency)}, "
+              f"{total['llm_calls']} calls, {total['input_tokens'] + total['output_tokens']:,} tokens; voice "
+              f"{costs.money(total['tts_cost'], currency)}, {total['tts_chars']:,} characters)"
+              + (f"; not priced: {', '.join(ledger['unpriced'])}" if ledger.get("unpriced") else ""))
+
     state = load_json(os.path.join(INSTANCE_DIR, "breeze.json"))
     os.environ.pop(provenance.RUN_ID_ENV, None)    # the next channel gets its own run id
     state[channel_id] = {"last_run_id": run_id, "finished_at": finished_at, "overall": overall,
-                         "agents": statuses, "revisions": revisions, "topic": topic, "video_url": video_url}
+                         "agents": statuses, "revisions": revisions, "topic": topic, "video_url": video_url,
+                         "cost": cost and {"currency": cost["currency"], **{k: cost["total"][k] for k in ("cost", "llm_cost", "tts_cost")}}}
     save_json(os.path.join(INSTANCE_DIR, "breeze.json"), state)
     return statuses, overall
 

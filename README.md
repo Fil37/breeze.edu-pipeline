@@ -180,6 +180,13 @@ fixed HTML/JavaScript code.
 | Any object | `OBJECT` | `left`, `right`, `top`, `bottom` | `icon` (one of `OBJECT_ICONS`, default `box`), `label`; `active` (green outline) |
 | | `BODY` | — | `label`, `anchor` (on a curve, a point of a graph, or another body), `size`, `color`; moves with `move_along` or `move` |
 | Speeds | `SPEED_RACE` | — | `distance`, `distance_unit`, `runners` (`{"label", "speed", "unit", "icon"}`, 2 or 3); `go` |
+| Logic | `LOGIC_CIRCUIT` | — | `inputs` (1 to 4 `{"id", "label"}`), `gates` (1 to 6 `{"id", "type", "in"}`: AND, OR, XOR, NAND, NOR two inputs, NOT one), `outputs` (1 to 3 `{"id", "label", "from"}`), `values`; `<input id>` (0 / 1), `mode` (`sequential` / `parallel`) |
+| FPGA | `FPGA_GRID` | — | `cols` (2 to 6), `rows` (2 to 4), `design`, `design2` (functions, short texts); `configure`, `run`, `reconfigure` |
+| Schematic parts | `RESISTOR`, `POTENTIOMETER`, `THERMISTOR`, `OPAMP`, `MOSFET`, `DIODE`, `LED`, `HEATER`, `SUPPLY_RAIL` | their leads (`left`/`right`, `wiper`, `in_plus`/`in_minus`/`out`/`vcc`/`gnd`, `gate`/`drain`/`source`, `anode`/`cathode`, `terminal`) | `label` (its value: "R1 10 kΩ"); LED / HEATER / MOSFET `on`, OPAMP `high`, THERMISTOR `hot` |
+| Breadboard | `BREADBOARD` | — | `parts` (`id`, `kind`, `label`), `nets` (leads joined, a supply name first for a rail); `step`, `on` |
+| Microcontroller | `MICROCONTROLLER` | — | `label`, `instructions` (1 to 8 short texts); `run` |
+| Mechanical wave | `WAVE` | — | `mode` (`rope`, `water`, `crowd`, `spring`), `kind` (`pulse`, `continuous`); `go`, `mark`, `energy` |
+| Tunnel effect | `TUNNEL` | — | `particle`, `barrier` (short texts), `zoom` (true); `bounce`, `tunnel` |
 | Tides | `TIDES` | — | nothing to give (all drawn and labelled); `points`, `forces`, `relative`, `stretch`, `spin`, `sun` (`aligned` / `square`) |
 | Shares of people | `POPULATION` | — | `total` (10 to 1000 dots), `per` (people a dot stands for), `unit`, `groups` (1 to 4 `{"id", "label", "count", "color"}`), `rest`; `show` (a group's id), `focus` (ids) |
 | Weights | `SEESAW` | — | `left`, `right` (`{"label", "weight", "value"}`), `unit`; `left` / `right` (drop a load), `balanced` |
@@ -573,6 +580,143 @@ terminal touches its sign, and the meter says where each probe is ("Rouge : GND 
 6 V (−)"). A formula is cut on its right only while it writes itself, then not at all: a formula on
 several rows (cases) was shown with its middle row only.
 Check: `python tests/test_tides_fixes.py`.
+
+**What a run costs.** Every LLM call records its tokens (input, of which cached, and output, thinking
+included: `tracked` in `app/agent/__init__.py`), every voice-over the characters sent to its engine
+(`app/tts_manager.py`). When an agent finishes, its records are priced with `settings.json`
+`"prices"` (per million tokens, cached input at its own price; per thousand characters) and added to
+`instance/{channel}/costs.json`, the ledger of the channel's current run, per agent and in total;
+the agent's row in `rows.json` gets its own `"cost"`. At the end of a channel's run the orchestrator
+prints one line ("breeze_(math): cost 0,62 $ (LLM 0,14 $, 23 calls...; voice 0,48 $, 2 180
+characters)"), appends the run to `instance/costs_history.json` (with the video's length and each
+agent's share) and keeps the total in `instance/breeze.json`. A provider or engine with no price is
+counted and named (`unpriced`), its cost left out. The prices are written by hand, from memory: check
+them on DeepSeek's and ElevenLabs' price pages (an ElevenLabs subscription's real price per character
+depends on the plan and how much of it is used). Check: `python tests/test_costs.py`.
+
+**Logic and FPGA (the FPGA run of 2026-11-03, rejected three times for want of them).**
+LOGIC_CIRCUIT draws a small logic diagram from what feeds what: the inputs (a box showing 0 or 1),
+the gates in their standard shapes with their French names (ET, OU, NON, OU exclusif, NON-ET,
+NON-OU) and their value, the outputs as lamps; laid out in Python by depth (`logic_data`), computed
+by the page: a wire at 1 glows green. `set_state {"a": 1}` sets an input; `{"mode": "sequential"}`
+makes the gates work one after the other (a program's steps, 0.8 s each, the gate at work outlined),
+`"parallel"` all at once (a circuit). FPGA_GRID draws the logic blocks and the routing channels:
+`configure` slides the bitstream in and places the design block by block, the routes between them
+lit, what has no block listed in red ("Ressources insuffisantes"); `run` sends signals along every
+route at once; `reconfigure` clears the blocks and places the second design. agent004 sends back gates
+or blocks drawn as other components labelled so (`gates_by_hand`: a WIRE_BUS "Porte ET").
+The orchestrator stops a channel whose QA rejects to agent004 listing what cannot be drawn
+("unsupported") for the second time in the run (`UNSUPPORTED_ROUNDS`): the FPGA run paid three
+redos for nothing. Every such list goes to `instance/missing_components.json`, the components to
+build next. Check: `python tests/test_logic_fpga.py`, `python tests/test_orchestrator_unsupported_loop.py`.
+
+**Fixes from the hard-topic runs of 2026-11-03.** TUNNEL draws the tunnel effect: a small circuit
+first, a dashed frame on its wire ("Vue agrandie du fil"); the view zooms into the frame, which
+becomes a tube, a blue dot in it, the wall a vertical line across the tube; `bounce` takes the dot to
+the wall and back (what we expect), `tunnel` takes it through: at the wall the dot becomes a wave, a
+weaker part of it beyond the wall ("Une onde, pas une bille"), then it comes out whole on the other side. agent004 sends back the effect drawn as icons (`tunnel_by_icons`: an atom
+beside a door). The voice spells an acronym as one hyphenated word, each letter as it sounds
+("FPGA" -> "èf-pé-jé-a"): the letter names written out ("effe pé gé a") came out garbled. The logic
+gates' words in capitals (ET, OU, NON, NON-ET) are said as words, not spelled (`CAPITAL_WORDS`). agent003
+takes ET, OU, NON for words, and an English acronym said with what it is ("un FPGA, c'est-à-dire
+une puce...") as explained. An FPGA block's name may take 18 characters, on two lines. A
+LOGIC_CIRCUIT input may also be set as `{"values": {"b": 1}}` (as the QA writes it). FPGA_GRID
+`{"zoom": "ET"}` zooms on the block holding that function and draws its inside (the gate, or a small
+table, a LUT, for another function), `{"zoom": false}` zooms back out; `{"wire": true}` shows the
+interconnect: a switch at each channel crossing closes, route after route, the signal runs along.
+The bitstream is drawn as a file of bits beside the grid; while it configures, a packet of its bits
+flies to each block just before it gets its function, under the note "Le bitstream : le fichier qui
+dit à chaque bloc quelle fonction faire".
+
+**The camera: going inside a thing.** Wherever the narration goes into a thing ("à l'intérieur de la
+puce", "de plus près", "au cœur de la cellule"), the camera shows it: `{"action": "zoom_in", "target":
+id}` frames the thing with a dashed line and dives into it, then the scene fades; the next scene, its
+inside, grows in from the middle (it arrives from the zoom). `{"action": "zoom_out", "target": id}` at
+a scene's start begins on the thing and pulls back to the whole. Everything drawn moves (`#world`), the
+titles, subtitles and background never do. agent004 sends back a narration going inside a thing with
+no zoom before it, a zoom_in followed by seconds of narration, a zoom_out late in its scene
+(`zoom_problems`; TUNNEL and an FPGA_GRID's own zoom count). Check: `python tests/test_zoom.py`.
+
+**A program at work.** A LOGIC_CIRCUIT set to `"sequential"` shows, on its right, the same circuit as a
+program: one line per gate ("r1 = Bouton 1 ET Bouton 2"), then the outputs, a pointer on the line at
+work in step with the gates; in `"parallel"` the lines dim (`with_program` sets `"program": true`,
+`logic_size` makes room). MICROCONTROLLER draws a chip with its program memory (numbered
+instructions) and ONE unit: `run` takes the instructions one after the other along the bus into the
+unit ("Une instruction à la fois : 2 / 4"); beside an FPGA_GRID it shows the difference with blocks
+working all at once. agent004 sends back a cpu icon labelled "Microcontrôleur" or "Processeur".
+Check: `python tests/test_program_mcu.py`.
+
+**Building a circuit for real (the temperature-regulation bench).** The schematic parts are the
+standard symbols (IEC, as in French schools), wired by their named leads: a resistor, a
+potentiometer (its wiper a setpoint), a CTN, an AOP (+ and − inputs, output, supply), an N-channel
+MOSFET, a diode, an LED (lit on `on`), a heating resistor (red, heat rising, on `on`). As on a real
+schematic, each part fed by the supply has its own `SUPPLY_RAIL` ("+12 V") and each part to 0 V its
+own `CHASSIS_MASS`, never long wires back to the battery; a junction dot marks a lead where two
+wires meet. A schematic scene (4 such parts or more) may hold 16 entities (8 otherwise). Built step
+by step: each scene adds a stage, each part spawns on its words and its wires draw themselves when
+both ends are there, or on `{"action": "connect", "source_id", "target_id"}`. BREADBOARD builds the
+same circuit on a breadboard from its parts and nets only (`app/breadboard.py` lays it out: the
+DIP-8 op-amp across the gap, each part plugged into the column strips of what it joins, its body over
+no other part, a jumper where a net must reach another strip, every strip of "+12 V" / "0 V" jumpered
+to the red / blue rail fed by the supply); `{"step": n}` plugs the parts in, in their order. A
+voltmeter measures on the board too: a probe on "<board id>.<part id>.<lead>" lands on that lead's hole. Two entities given the same named place
+("RIGHT") are no longer sent back: the second is put beside it (`spread_shared_places`), a schematic
+of a dozen parts having more than the 9 places. A ground or supply symbol the LLM wired to several parts is split
+into one symbol beside each part, coming in with it (`split_rails`, in the layout and on the page). A
+schematic's parts are laid out by the program (`place_schematic`), not where the LLM put them: one
+column per stage of the signal at a fixed x (sensors and setpoint, divider, AOP, gate, MOSFET, load: a
+part keeps its place from one build step to the next), a resistor or diode at the stage between what
+it joins, in a column the parts ordered by what they are wired to (the AOP's − input above its +),
+each ground or supply symbol at the end of its lead. Wires of one node (leads joined) share their way and part at a
+junction dot, rather than running side by side (`wireNets`, `sharedLength`); "37 °C" is said "37
+degrés Celsius", "90°" "90 degrés"; agent003 writes a temperature in digits with "degrés Celsius"
+(the voice garbled "trente-sept degrés" written in words).
+
+**WAVE.** A mechanical wave drawn as the medium it travels in: a rope (a smooth curve, a bump
+crossing it), the sea (its surface over blue water, a buoy), a crowd (an ola: spectators in a row
+standing up and sitting down in turn), a spring (coils squeezed and spread, a longitudinal wave as
+sound, "Compression" and "Dilatation" named where they are). `mark`: one point (the buoy, a spectator,
+a coil) picked out with its path, only up and down (or back and forth), never along; `energy`: an
+arrow "Énergie" going with the bump or the wave's front. `kind: "standing"`: a rope tied at both ends
+("Fixée"), its nodes still (green, named), its antinodes swinging, `loops` 1 to 6 antinodes (the
+harmonic); `parts` the two waves going opposite ways it is the sum of, each on its own rope over it
+("Onde qui va →" blue, "← Onde qui revient" pink), then "=" the rope. agent004 sends back a standing
+wave drawn travelling, and the two waves spoken of but not shown (`standing_waves`); a standing wave
+has no energy arrow (its energy does not travel). One wide drawing set alike in more than 3 scenes is
+sent back (`repeated_drawings`): each scene shows its own point (another harmonic, the two waves...). agent004 sends back a wave drawn as discs or
+icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
+A scene with a drawing as wide as the screen (WAVE, TIDES, TUNNEL, BREADBOARD, LOGIC_CIRCUIT...) stays
+"circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python tests/test_wave.py`.
+
+A circuit built step by step keeps what is built: a schematic scene sharing most of the last one's parts
+(60 %, a preview of the whole circuit then a first step is not one) gets back every part, ground / supply symbol and wire of it left out (`carry_circuit`; a part of the same type and label under another id is
+the same part, not put back twice);
+a schematic's 0 V / +12 V symbols do not count in its 16 entities, and its parts' positions are not
+checked (the program lays them out). A project's hook starts from what
+it is for in everyday life (an incubator, an aquarium, a 3D printer's bed) before naming what is built.
+Check: `python tests/test_schematic.py`.
+
+**Keeping the frame clear.** A plan of many chapters goes over pages of `PLAN_PAGE` (6) rows, the next
+page in place of the last when its first chapter is named. Things still overlapping once spread out
+(the frame too small for them all): the bigger one, never a graph, is made 15 % smaller and they are
+spread again, up to four times (`shrinkToFit`). A badge may take a longer arrow (up to `ARROW_MAX` +
+300 px) rather than sit on another. The conflict check counts a graph by its drawn part (its empty
+margins may hold anything) and leaves out two things never on screen together.
+Check: `python tests/test_overlaps.py`.
+
+**The project format.** A topic to build ("réaliser", "construire", "monter", "banc", "projet",
+"pas à pas") is a project made step by step, not one concept explained: agent001 researches its build
+stages (research "format": "project", the topic as its concept), agent002 plans one beat per stage in
+the order it is built (`PROJECT_PROMPT`), agent003 writes one stage a scene (the parts it adds with
+their values, what is connected to what, how to check it), the breadboard build then the power-up
+last (`PROJECT_RULES`); agent004 is given the wiring of an AOP comparator with hysteresis.
+Check: `python tests/test_project_format.py`. Words the voice
+says wrong are written as they sound in `PRONUNCIATIONS` (`app/tts_manager.py`: "quantum" ->
+"kwantome"); add any other there. A hook clip seen to be wrong goes, by hand, in
+`assets/footage/index.json` "rejected" (`{"pixabay:<id>": "why"}`): never offered again nor taken from
+the cache (the electrician at a panel picked for "usine de puces"); the chooser is told that an
+electrical panel or power cables are not electronics.
+Check: `python tests/test_tunnel.py`, `python tests/test_logic_fpga.py`.
 
 A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's sign
 on the drawing, not at the battery as a whole (`batteryTerminal`); no badge's arrow runs through

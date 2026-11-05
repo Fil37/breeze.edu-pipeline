@@ -80,14 +80,16 @@ DOMAIN_RULES = {
 DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "math"], "math": ["math"],
                  "economics": ["economics"]}
 
-ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move",
+ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move", "zoom_in", "zoom_out", "connect",
            "emphasize")
 STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go",
-              "show", "focus", "points", "forces", "relative", "stretch", "spin", "sun")
+              "show", "focus", "points", "forces", "relative", "stretch", "spin", "sun", "mode", "configure",
+              "run", "reconfigure", "bounce", "tunnel", "zoom", "wire", "high", "hot", "step", "mark", "energy", "parts")
 INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
                                    "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
-                                   "distance", "distance_unit", "runners", "total", "per", "groups", "rest")
+                                   "distance", "distance_unit", "runners", "total", "per", "groups", "rest", "inputs", "gates",
+                                   "outputs", "values", "cols", "rows", "design", "design2", "particle", "barrier", "zoom", "instructions", "parts", "nets", "mode", "loops")
 VOCABULARY = "\n".join(f"  * {t.value}: ports {list(p) if p else 'none'}" for t, p in COMPONENT_PORTS.items())
 
 PROMPT = """ROLE: You are the lead pedagogical QA judge of an educational animation studio. You review a
@@ -293,6 +295,9 @@ def action_problem(action, entities):
         return measure_problem(action, {i: e["type"] for i, e in entities.items()})
     if action["action"] == "emphasize":
         return emphasis_problem(action, entities)
+    if action["action"] == "connect":
+        ends = [action.get("source_id"), action.get("target_id")]
+        return None if all(e in entities for e in ends) else f"connect refers to unknown entities {ends!r}"
     if action["action"] in ("move_along", "move"):
         return move_problem(action, {i: (ComponentType(e["type"]), e.get("initial_state") or {}) for i, e in entities.items()})
     referenced = action.get("path") if "flow" in action["action"] else [action.get("target")]

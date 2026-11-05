@@ -12,6 +12,8 @@ are never touched.
   3. a blocking issue agent004 can fix (a wrong arrow), with "unsupported" listed (the QA lists it
      even when the narration carries it): agent004 is redone, the QA passes, the video is rendered
   4. a renderer limit but reject_to agent003 (a rewrite can avoid it): agent003 + agent004 are redone
+  6. fixable issues, but "unsupported" listed at every reject: agent004 redone once, then the stop
+     (UNSUPPORTED_ROUNDS), not three redos for nothing
 Also checks agent004's coherence message on a formula label (case 5): readable ("Tension U") for the
 quantities it knows by name, no rule for the others (F: no "F F" message).
 Prints PASS or FAIL per case.
@@ -157,6 +159,9 @@ results = [
     check("4. renderer limit but reject_to agent003: the rewrite is tried",
           [qa("agent003", "La narration décrit une orbite qui n'est pas représentable : réécrire la scène 5.", [ORBIT]), None],
           {"agent003": 2, "agent004": 2, "agent005": 2, "agent010": 1}, "healthy", False),
+    check("6. fixable issues, but what cannot be drawn listed twice (the FPGA run of 2026-11-03): stop after one redo",
+          [{**qa("agent004", "Scène 2 : câblage à corriger.", unsupported=UNSUPPORTED), "issues": [ARROW]}],
+          {"agent004": 2, "agent005": 2, **RENDER}, "critical", True),
     check_message(),
 ]
 sys.exit(0 if all(results) else 1)

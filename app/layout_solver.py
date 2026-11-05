@@ -62,7 +62,9 @@ CHAR_EM = 0.65                             # average glyph width in DejaVu Sans,
 
 # Drawing sizes in px (agent010's CSS), the label not included.
 SHAPES = {"BATTERY": (190, 96), "LAMP": (110, 110), "SWITCH": (200, 90), "AMMETER": (158, 158),
-          "WIRE_BUS": (160, 14), "EARTH_GROUND": (60, 65), "CHASSIS_MASS": (60, 65)}
+          "WIRE_BUS": (160, 14), "EARTH_GROUND": (60, 65), "CHASSIS_MASS": (60, 65),
+          "SUPPLY_RAIL": (70, 50), "RESISTOR": (140, 44), "POTENTIOMETER": (140, 80), "THERMISTOR": (140, 64), "OPAMP": (170, 160),
+          "MOSFET": (120, 140), "DIODE": (120, 50), "LED": (120, 70), "HEATER": (150, 96)}
 ICON_SIZE = (154, 154)                     # icon cards (and the bicycle parts, drawn as icons)
 ICON_TYPES = {t.value for t in SVG_TYPES} | {"SPROCKET", "PEDAL_CRANK", "CHAIN_LINK", "OBJECT"}
 CARD_SIZE = (150, 80)
@@ -70,7 +72,171 @@ LANES_W, LANE_H = 1260, 104                # LANES: labels + road + counts, and 
 SEESAW_SIZE = (1100, 470)                  # SEESAW: the beam swinging, the loads on it, the mean under the pivot
 RACE_W, RACE_ROW, RACE_EXTRA = 1400, 120, 114   # SPEED_RACE: label + track + time; a runner's row; the head and the ratio
 POPULATION_SIZE = (700, 520)               # POPULATION: the head, the grid of dots, its legend under it
+BREADBOARD_SIZE = (1080, 560)              # BREADBOARD: app/breadboard.py WIDTH, HEIGHT
+MCU_SIZE = (760, 480)                      # MICROCONTROLLER: the chip, its memory and its unit, the count under it
+WAVE_SIZE = (1300, 420)                    # WAVE: the medium across, its marked point, the energy over it
+TUNNEL_SIZE = (1300, 440)                  # TUNNEL: a tube across, the wall a line in its middle
 TIDES_SIZE = (1300, 600)                   # TIDES: the Earth in its ocean on the left, the Moon on the right
+LOGIC_COL, LOGIC_ROW, LOGIC_EXTRA = 320, 190, (260, 90)   # LOGIC_CIRCUIT: a column per depth, a row per item, labels
+FPGA_CELL, FPGA_EXTRA = 160, (300, 150)    # FPGA_GRID: a block and its routing channel; the bitstream, the list left out
+
+
+def logic_depths(state):
+    """Each input, gate and output's column: inputs 0, a gate one past its deepest feed, outputs last."""
+    depth = {i.get("id"): 0 for i in state.get("inputs") or [] if isinstance(i, dict)}
+    for gate in state.get("gates") or []:
+        if isinstance(gate, dict):
+            depth[gate.get("id")] = 1 + max((depth.get(f, 0) for f in gate.get("in") or []), default=0)
+    last = max(depth.values(), default=0) + 1
+    for out in state.get("outputs") or []:
+        if isinstance(out, dict):
+            depth[out.get("id")] = last
+    return depth
+
+
+PROGRAM_W, PROGRAM_LINE, PROGRAM_TOP = 520, 50, 110   # a LOGIC_CIRCUIT's program listing, on its right
+
+
+def logic_size(state):
+    depth = logic_depths(state)
+    columns = max(depth.values(), default=1) + 1
+    per_column = max([list(depth.values()).count(d) for d in set(depth.values())] or [1])
+    width, height = LOGIC_COL * (columns - 1) + LOGIC_EXTRA[0], LOGIC_ROW * per_column + LOGIC_EXTRA[1]
+    if state.get("program"):           # one line per gate and per output
+        lines = len(state.get("gates") or []) + len(state.get("outputs") or [])
+        width, height = width + PROGRAM_W, max(height, PROGRAM_TOP + lines * PROGRAM_LINE + 40)
+    return width, height
+
+
+RAIL_TYPES = {"CHASSIS_MASS": -1.25, "EARTH_GROUND": -1.25, "SUPPLY_RAIL": 1.25}
+SCHEMATIC_PARTS = {"RESISTOR", "POTENTIOMETER", "THERMISTOR", "OPAMP", "MOSFET", "DIODE", "LED", "HEATER"}
+SCHEMATIC_MIN = 4                                      # as agent004's: from this many parts a scene is a schematic   # beside a part: under it (0 V), over it (+V)
+
+
+def split_rails(brief):
+    """A ground or supply symbol wired to several parts becomes one symbol per part, put beside that
+    part (under it for 0 V, over it for the supply) and coming in with it: on a schematic each part has
+    its own, never a bundle of wires running back to one symbol. In place; returns the brief."""
+    from models.visual_brief_schema import scene_point
+    entities = brief.get("entities") or []
+    by_id = {e.get("id"): e for e in entities}
+    spawns = {a.get("target"): a for a in brief.get("actions") or [] if isinstance(a, dict) and a.get("action") == "spawn"}
+    for rail in [e for e in entities if e.get("type") in RAIL_TYPES]:
+        wires = [c for c in brief.get("connections") or [] if rail["id"] in (c.get("source_id"), c.get("target_id"))]
+        for k, wire in enumerate(wires[1:], start=2):
+            end = "source_id" if wire.get("source_id") == rail["id"] else "target_id"
+            near = "target_id" if end == "source_id" else "source_id"
+            other = by_id.get(wire.get(near))
+            if other is None or other.get("type") in RAIL_TYPES:
+                continue
+            x, y = scene_point(other.get("position"))
+            copy = {**rail, "id": f"{rail['id']}_{k}", "position": [round(x, 2), round(y + RAIL_TYPES[rail["type"]], 2), 0],
+                    "initial_state": dict(rail.get("initial_state") or {})}
+            entities.append(copy)
+            by_id[copy["id"]] = copy
+            wire[end] = copy["id"]
+            if wire.get(near) in spawns:                     # it comes in with its part
+                brief.setdefault("actions", []).append({**spawns[wire[near]], "target": copy["id"]})
+    return brief
+
+
+# Automatic schematic layout (place_schematic): the LLM's positions are not kept for the parts of a
+# schematic. Each part's stage of the signal, from the sensors to the load, is a column (fixed x, so a
+# part keeps its place from one build step to the next); a resistor or a diode takes the stage between
+# the parts it joins. In a column the parts follow what they are wired to (the AOP's − input above its
+# + input). A ground / supply symbol goes at the end of the lead it feeds.
+STAGE = {"THERMISTOR": 0, "POTENTIOMETER": 0, "BATTERY": 0, "SWITCH": 1, "OPAMP": 2, "AMMETER": 3, "MOSFET": 4,
+         "HEATER": 5, "LED": 5, "LAMP": 5}
+FLOATING = ("RESISTOR", "DIODE")                       # stage between what they join
+UNIT = SCREEN_W / 14.222                               # px per scene unit
+SCHEMATIC_X = (-6.0, 5.6)                              # the columns' span, scene units (to 2.6 beside the instrument column)
+SCHEMATIC_X_COLUMN = 2.6
+SCHEMATIC_Y = (-1.7, 1.2)                              # the rows' span: room for a supply over, a ground under
+PORT_AT = {                                            # (x, y) fractions of the drawing, as agent010's PORTS
+    "RESISTOR": {"left": (0, .5), "right": (1, .5)}, "THERMISTOR": {"left": (0, .44), "right": (1, .44)},
+    "POTENTIOMETER": {"left": (0, .25), "right": (1, .25), "wiper": (.5, 1)},
+    "OPAMP": {"in_minus": (0, .3), "in_plus": (0, .7), "out": (1, .5), "vcc": (.47, 0), "gnd": (.47, 1)},
+    "MOSFET": {"gate": (0, .64), "drain": (.75, 0), "source": (.75, 1)}, "DIODE": {"anode": (0, .5), "cathode": (1, .5)},
+    "LED": {"anode": (0, .57), "cathode": (1, .57)}, "HEATER": {"left": (0, .68), "right": (1, .68)},
+    "BATTERY": {"negative": (.25, 0), "positive": (.75, 0)}, "LAMP": {"left_terminal": (0, .5), "right_terminal": (1, .5)},
+    "SWITCH": {"in": (0, .8), "out": (1, .8)}, "AMMETER": {"in": (0, .5), "out": (1, .5)}}
+
+
+def port_offset(kind, port):
+    """(dx, dy) in scene units from a part's centre to its lead (y up), and the lead's side."""
+    w, h = SHAPES.get(kind, (140, 60))
+    fx, fy = PORT_AT.get(kind, {}).get(port, (.5, .5))
+    side = "left" if fx == 0 else "right" if fx == 1 else "up" if fy == 0 else "down" if fy == 1 else "right"
+    return (fx - .5) * w / UNIT, (.5 - fy) * h / UNIT, side
+
+
+def place_schematic(brief):
+    """Lay a schematic's parts out (see above), in place; nothing for a scene with fewer than
+    SCHEMATIC_MIN schematic parts. Returns the brief."""
+    from models.visual_brief_schema import scene_point
+    entities = brief.get("entities") or []
+    kinds = {e["id"]: e["type"] for e in entities}
+    if sum(t in SCHEMATIC_PARTS for t in kinds.values()) < SCHEMATIC_MIN:
+        return brief
+    parts = [e for e in entities if e["type"] in SCHEMATIC_PARTS or e["type"] in STAGE]
+    ids = {e["id"] for e in parts}
+    wires = [(c["source_id"], c.get("source_port"), c["target_id"], c.get("target_port"))
+             for c in brief.get("connections") or [] if c.get("source_id") in ids and c.get("target_id") in ids]
+    neighbours = {i: [] for i in ids}
+    for a, pa, b, pb in wires:
+        neighbours[a].append((b, pa, pb))
+        neighbours[b].append((a, pb, pa))
+    stage = {i: STAGE.get(kinds[i]) for i in ids}
+    for _ in range(4):                                  # a resistor between its neighbours' stages
+        for i in ids:
+            if kinds[i] in FLOATING or stage[i] is None:
+                known = [stage[n] for n, _, _ in neighbours[i] if stage[n] is not None]
+                stage[i] = sum(known) / len(known) if known else 1
+    column = {i: max(0, min(5, round(stage[i]))) for i in ids}
+    low, high = SCHEMATIC_X[0], SCHEMATIC_X_COLUMN if uses_column(brief) else SCHEMATIC_X[1]
+    x_of = lambda c: low + c * (high - low) / 5
+    y = {i: 0.0 for i in ids}
+    for _ in range(3):                                  # each part towards the leads it is wired to, then spread
+        wanted = {}
+        for i in ids:
+            pulls = [y[n] + port_offset(kinds[n], pn)[1] - port_offset(kinds[i], pi)[1] for n, pi, pn in neighbours[i]]
+            wanted[i] = sum(pulls) / len(pulls) if pulls else 0.0
+        for c in set(column.values()):
+            members = sorted((i for i in ids if column[i] == c), key=lambda i: (wanted[i], [e["id"] for e in parts].index(i)))
+            members.reverse()                           # the highest first
+            n = len(members)
+            for k, i in enumerate(members):
+                y[i] = SCHEMATIC_Y[1] - (SCHEMATIC_Y[1] - SCHEMATIC_Y[0]) * (k / (n - 1) if n > 1 else 0.5)
+    for e in parts:
+        e["position"] = [round(x_of(column[e["id"]]), 2), round(y[e["id"]], 2), 0]
+    # ground and supply symbols at the end of the lead they feed
+    for rail in (e for e in entities if e["type"] in RAIL_TYPES):
+        wire = next((c for c in brief.get("connections") or [] if rail["id"] in (c.get("source_id"), c.get("target_id"))), None)
+        if wire is None:
+            continue
+        other, port = (wire["target_id"], wire.get("target_port")) if wire["source_id"] == rail["id"] else (wire["source_id"], wire.get("source_port"))
+        if other not in ids:
+            continue
+        ox, oy = scene_point(next(e["position"] for e in parts if e["id"] == other))
+        dx, dy, side = port_offset(kinds[other], port)
+        up = RAIL_TYPES[rail["type"]] > 0
+        if side in ("up", "down"):
+            rx, ry = ox + dx, oy + dy + (0.75 if side == "up" else -0.75)
+        else:
+            rx, ry = ox + dx + (0.6 if side == "right" else -0.6), oy + dy + (0.75 if up else -0.75)
+        rail["position"] = [round(rx, 2), round(ry, 2), 0]
+    return brief
+
+
+def with_program(brief):
+    """A LOGIC_CIRCUIT set to "sequential" (a program read step by step) shows its program: the same
+    gates as instructions, one line each (initial_state "program": true, set here, in place)."""
+    sequential = {a.get("target") for a in brief.get("actions") or [] if isinstance(a, dict) and a.get("action") == "set_state"
+                  and isinstance(a.get("state"), dict) and a["state"].get("mode") == "sequential"}
+    for entity in brief.get("entities") or []:
+        if entity.get("type") == "LOGIC_CIRCUIT" and entity.get("id") in sequential:
+            entity["initial_state"] = {**(entity.get("initial_state") or {}), "program": True}
+    return brief
 GRAPH_W, GRAPH_H = round(SCREEN_W * 0.7), round(SCREEN_H * 0.6) + 49   # + the legend under it (measured)
 FORMULA_EM = 2.2 * 24 * 1.21               # KaTeX glyph size in px: 2.2rem of 24 px, times KaTeX's 1.21
 FORMULA_PADDING, FORMULA_H = 76, 129       # card padding + border; a card's height (measured, with or without \frac)
@@ -137,6 +303,20 @@ def shape_size(entity, graph_count):
         return POPULATION_SIZE
     if kind == "TIDES":
         return TIDES_SIZE
+    if kind == "TUNNEL":
+        return TUNNEL_SIZE
+    if kind == "WAVE":                         # a standing wave: the two waves it is the sum of over it
+        return (WAVE_SIZE[0], 620) if state.get("kind") == "standing" else WAVE_SIZE
+    if kind == "MICROCONTROLLER":
+        return MCU_SIZE
+    if kind == "BREADBOARD":
+        return BREADBOARD_SIZE
+    if kind == "LOGIC_CIRCUIT":                # columns by depth (inputs, gates, outputs), a row per item
+        return logic_size(state)
+    if kind == "FPGA_GRID":
+        cols, rows = state.get("cols"), state.get("rows")
+        return (FPGA_CELL * (cols if isinstance(cols, int) else 4) + FPGA_EXTRA[0],
+                FPGA_CELL * (rows if isinstance(rows, int) else 3) + FPGA_EXTRA[1])
     if kind == "SPEED_RACE":
         runners = state.get("runners")
         return RACE_W, RACE_EXTRA + RACE_ROW * (len(runners) if isinstance(runners, list) else 2)
@@ -309,6 +489,9 @@ def solve_layout(brief, corrections, template="circuit"):
     to its left. On a "comparison", a thing never leaves its panel (A: x < 0, B: x > 0): a move that
     would take it across is undone."""
     where = f"scene {brief['scene_id']}"
+    with_program(brief)
+    split_rails(brief)
+    place_schematic(brief)
     overlay = brief.get("text_overlay") or {}
     header = HEADER_WITH_SUBTITLE if overlay.get("subtitle") else HEADER
     column = uses_column(brief) and template == "circuit"

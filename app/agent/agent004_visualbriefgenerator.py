@@ -147,6 +147,38 @@ STATES = {
                                    'the one unit, one after the other; {"run": false} stops it; initial_state {"label": '
                                    '"Microcontrôleur", "instructions": ["lire Bouton 1", "lire Bouton 2", "calculer ET", '
                                    '"allumer Lampe"]} (1 to 8 short texts; never given run, it runs from its pop)',
+    ComponentType.TABLE: '{"fill": n} the first n rows in (never given: one after the other); {"row": i} / {"column": j} '
+                         'picks one out (from 0); {"total": true} adds the row "Total", its sums worked out by the program; '
+                         'initial_state {"columns": ["Année", "PIB (Md€)"], "rows": [["2022", "2 640"], ["2023", "2 800"]]} '
+                         '(1 to 6 columns, 1 to 8 rows, short cells)',
+    ComponentType.CHAIN: '{"step": n} the first n boxes and their arrows (never given: one after the other); {"focus": i} '
+                         'picks one out; initial_state {"steps": ["Taux en hausse", "Crédit plus cher", "Moins '
+                         'd\'investissement"], "loop": false} (2 to 6 short steps; "loop": true, a cycle back to the first)',
+    ComponentType.TIMELINE: '{"step": n} the first n events in, {"focus": i} one picked out; initial_state {"events": '
+                            '[{"date": "1929", "label": "Krach"}, ...]} (2 to 8, in order; to scale when the dates are years)',
+    ComponentType.FRACTION_BAR: '{"step": n} the first n parts coloured, {"sum": true} their sum worked out (fraction and %); '
+                                'initial_state {"total": 4, "parts": [{"n": 1, "label": "Mangée"}, {"n": 2}]}',
+    ComponentType.PIE_CHART: '{"step": n}, {"focus": i} a slice pulled out; initial_state {"slices": [{"label": "Logement", '
+                             '"value": 30}, ...], "unit": "€"} (2 to 7; the percentages are worked out)',
+    ComponentType.UNIT_CONVERTER: '{"go": true} the value goes along the units\' ladder, the factor and the result shown (worked '
+                                  'out); initial_state {"value": 2.5, "from": "km", "to": "m"} (length, mass, volume, area, time, '
+                                  'speed km/h m/s, energy kWh J, power W)',
+    ComponentType.TREE: '{"level": n} the first n levels in, {"path": ["Pile", "Face"]} a path picked out, its probability '
+                        '(the product) worked out; initial_state {"root": "Lancer", "branches": [{"label": "Pile", "p": 0.5, '
+                        '"branches": [...]}, ...]} (2 or 3 a node, 3 levels at most, "p" adding up to 1)',
+    ComponentType.SET_DIAGRAM: '{"show": "a" | "b" | "both" | "either" | "only_a" | "only_b" | "neither"} that region shaded '
+                               'and counted; initial_state {"a": {"label": "Sport", "count": 30}, "b": {"label": "Musique", '
+                               '"count": 20}, "both": 10, "total": 60} (with "total", the probability too)',
+    ComponentType.GAME_MATRIX: '{"best": 0 | 1} that player\'s best answers underlined, {"nash": true} the Nash equilibrium '
+                               '(worked out); initial_state {"players": ["Firme A", "Firme B"], "strategies": [["Prix bas", '
+                               '"Prix haut"], ["Prix bas", "Prix haut"]], "payoffs": [[[3, 3], [5, 1]], [[1, 5], [4, 4]]]}',
+    ComponentType.BAR_CHART: '{"step": n} the first n bars grow, {"focus": i} one picked out; initial_state {"bars": '
+                             '[{"label": "2022", "value": 5.2}, ...], "unit": "%", "line": 2} (2 to 10; "line" a reference)',
+    ComponentType.EQUATION_STEPS: '{"step": n} the first n lines in; initial_state {"steps": ["2x + 3 = 11", "2x = 8", "x = 4"], '
+                                  '"notes": ["-3", "÷ 2"]} (LaTeX lines, a note on each arrow: what is done to both sides)',
+    ComponentType.POWER_SUPPLY: '{"output": true} its output on, {"voltage": v} turned to v, {"cc": true} limiting the '
+                                'current (the CC light); ports negative, positive; initial_state {"voltage": 12, '
+                                '"current_limit": 2, "label": "Alimentation"}',
     ComponentType.WAVE: '{"go": true} sends the wave (never given: from its pop), {"mark": true} picks out one point '
                         'that only goes up and down (back and forth for a spring), {"energy": true} an arrow "Énergie" '
                         'travelling with it; initial_state {"mode": "rope" | "water" | "crowd" | "spring", "kind": '
@@ -407,6 +439,23 @@ STRICT RULES:
     above all against an FPGA: ONE MICROCONTROLLER with the instructions of the example, {{"run": true}}
     on "il exécute"; beside an FPGA_GRID (comparison) the difference is seen: one unit, one
     instruction at a time, against blocks all working at once. Never a cpu icon for it.
+  * figures to read side by side (a budget, national accounts, a balance sheet, statistics, a proportion
+    table): ONE TABLE, its rows in on the words that give them; a total is {{"total": true}}, never a
+    sum written in a cell. Not a set of GAUGE or icon cards for a table of numbers.
+  * one thing leading to another (une chaîne de causes, "donc", "ce qui entraîne", the stages of a
+    process, a cycle): ONE CHAIN, each step on the words that name it; "loop" for a cycle.
+  * the simple pieces, each where its words are: dated events (une chronologie, "en 1929... puis en
+    1945") ONE TIMELINE; a fraction of a whole ("un quart", "3/4") ONE FRACTION_BAR; shares of a
+    whole (un budget, des parts, "30 % pour...") ONE PIE_CHART; a change of unit ("2,5 km, soit")
+    ONE UNIT_CONVERTER; successive choices or probabilities ("puis", "pile ou face deux fois",
+    arbre) ONE TREE; two groups that overlap ("ceux qui... et ceux qui...", "les deux") ONE
+    SET_DIAGRAM; a game between two players (dilemme, stratégie, "chacun a intérêt") ONE
+    GAME_MATRIX; values compared or over time ("l'inflation en 2022, 2023...") ONE BAR_CHART; an
+    equation solved step by step ONE EQUATION_STEPS (not one TEX_FORMULA per line); a lab supply
+    ("je règle l'alimentation") a POWER_SUPPLY wired like a battery. Every figure they show (shares,
+    sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
+    results. A resistance measured ("à l'ohmmètre", "continuité") is a "measure" with "unit": "Ω"
+    (circuit off): the multimeter shows Ω and beeps under 30 Ω.
   * a mechanical wave (une onde, une vague, une corde qu'on secoue, une ola, le son, un ressort, "la
     perturbation avance, le milieu reste"): ONE WAVE in the mode the narration takes (rope, water with
     its buoy, crowd for an ola, spring for sound), {{"mark": true}} on the words that say a point only
@@ -477,6 +526,8 @@ STRICT RULES:
   * Use only the components listed above: there is no light cone, bar chart or liquid-level type, and
     no OBJECT icon outside the list. If the narration needs one, show the idea with the closest listed
     components.
+- A RELATION SAID IS WRITTEN: when the narration states a relation ("vaut deux fois ... divisée par n",
+  "est proportionnelle à", "égale"), that scene has the TEX_FORMULA of it, spawned on those words.
 - TEX_FORMULA "latex" is plain LaTeX, e.g. "U = R \\times I", "E = mc^2", "\\frac{{d}}{{t}}".
 - actions: objects with "at" (seconds from the start of the scene, between 0 and the scene's
   duration_sec) and "action", one of {actions}:
@@ -1474,7 +1525,7 @@ ANALOGY_WORDS = re.compile(r"analogi|château d.eau|péage|c.est comme|comme si\
 OPPOSITION_WORDS = re.compile(r"contrairement|au contraire|à l.inverse|alors que|tandis que|ce qu.on croit|en réalité|"
                               r"\bversus\b|\bvs\b|d.un côté|de l.autre|par opposition|plutôt que|deux branches|"
                               r"compar(?:ons|er|aison)|confondre|distinct", re.IGNORECASE)
-CIRCUIT_PARTS = {"BATTERY", "LAMP", "SWITCH", "AMMETER", "WIRE_BUS", "EARTH_GROUND", "CHASSIS_MASS", "SUPPLY_RAIL",
+CIRCUIT_PARTS = {"BATTERY", "LAMP", "SWITCH", "AMMETER", "WIRE_BUS", "EARTH_GROUND", "CHASSIS_MASS", "SUPPLY_RAIL", "POWER_SUPPLY",
                  "RESISTOR", "POTENTIOMETER", "THERMISTOR", "OPAMP", "MOSFET", "DIODE", "LED", "HEATER"}
 
 
@@ -1720,6 +1771,30 @@ def repeated_drawings(order, briefs):
             f"or another drawing" for (kind, state), ids in seen.items() if len(ids) > SAME_DRAWING_MAX]
 
 
+RELATION_WORDS = re.compile(r"\bvaut\b|\bégale?s?\b|divisée? par|multipliée? par|proportionnel|\bau carré\b|"
+                            r"\bfois (?:la|le|les|l'|sa|son)\b|\bsur (?:deux|la|le) (?:fois|longueur|durée)", re.IGNORECASE)
+
+
+def formulas_said(order, briefs, narrations, domain):
+    """Physics and maths: a scene whose narration states a relation shows its formula; a video with
+    none at all is sent back (the standing waves of 2026-11-05: no formula on screen)."""
+    if domain not in ("math", "physics_math"):
+        return []
+    errors, any_formula = [], False
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        has = brief is not None and any(e.type == ComponentType.TEX_FORMULA for e in brief.entities)
+        any_formula = any_formula or has
+        words = RELATION_WORDS.search(str(narrations.get(scene_id) or ""))
+        if brief is not None and words and not has:
+            errors.append(f"scene {scene_id}: the narration states a relation (\"{words.group(0)}\"): write it as a "
+                          f"TEX_FORMULA in this scene, spawned on those words")
+    if not any_formula and not errors and order:
+        errors.append("no TEX_FORMULA in the whole video: a physics or maths video writes the key relation of its topic "
+                      "where the narration states it")
+    return errors
+
+
 def zoom_problems(order, briefs, narrations, durations):
     """Going inside a thing is shown by the camera: a scene whose narration goes inside one ("à
     l'intérieur de la puce") follows a scene ending on zoom_in (or zooms itself, cued on those words);
@@ -1960,7 +2035,7 @@ def qa_feedback_section():
     return feedback_section(AGENT, "storyboard")
 
 
-def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False):
+def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None):
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
@@ -1996,6 +2071,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         layout = layout_problems(order, proposed, eligible, needs_circuit(briefs)) + empty_panels(briefs, proposed)
         coherence += footage_problems(order, briefs, layouts, footage_expected) + still_scenes(order, briefs, layouts, durations)
         coherence += zoom_problems(order, briefs, narrations, durations) + repeated_drawings(order, briefs)
+        coherence += formulas_said(order, briefs, narrations, channel_domain)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
@@ -2049,7 +2125,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     try:
         briefs, layouts, attempts, coherence_left, layout_left = ask_for_storyboard(
             scenes_for_prompt, qa_section, None if renderer == "skip" else measure,
-            (find_route(routes, channel_id) or {}).get("domain") in FOOTAGE_DOMAINS)
+            (find_route(routes, channel_id) or {}).get("domain") in FOOTAGE_DOMAINS,
+            (find_route(routes, channel_id) or {}).get("domain"))
     except RuntimeError as exc:
         return finish(channel_id, AGENT, "storyboard", "critical", output_path, error=str(exc))
     order = [s["scene_id"] for s in scenes_for_prompt]

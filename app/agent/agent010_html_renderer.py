@@ -68,9 +68,10 @@ from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.breadboard import breadboard_data
-from app.layout_solver import (FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
+from app.layout_solver import (TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
                                logic_size, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
+from models.visual_brief_schema import SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
                                         check_curve, check_function_expression, find_cue,
                                         is_number, is_parametric, is_status_annotation, measured_axis, narration_words, parameter_range,
@@ -364,6 +365,168 @@ def logic_data(state):
             "values": {i["id"]: int(bool(state.get("values", {}).get(i["id"], 0))) for i in state["inputs"]}}
 
 
+NUMBER = re.compile(r"^\s*([^\d\s+-]*)\s*([+-]?\d[\d\s\u00a0\u202f]*(?:[.,]\d+)?)\s*(\S*)\s*$")
+
+
+def table_number(cell):
+    """"2 640" -> (2640.0, 0, "", ""), "2,5 %" -> (2.5, 1, "", "%"), "€ 12" -> (12.0, 0, "€", ""); None if no number."""
+    m = NUMBER.match(str(cell))
+    if not m:
+        return None
+    digits = re.sub(r"[\s\u00a0\u202f]", "", m.group(2)).replace(",", ".")
+    try:
+        value = float(digits)
+    except ValueError:
+        return None
+    return value, len(digits.split(".")[1]) if "." in digits else 0, m.group(1), m.group(3)
+
+
+def french_figure(value, decimals):
+    """12345.6 -> "12 345,6": a thin space between thousands, a decimal comma."""
+    text = f"{value:,.{decimals}f}".replace(",", "\u202f").replace(".", ",")
+    return text
+
+
+def table_data(state):
+    """TABLE: its cells as text, its columns' widths, and the "Total" row the program sums (a column whose
+    cells are all numbers with the same unit), never the brief."""
+    columns, rows = [plain_math(str(c)) for c in state["columns"]], [[plain_math(str(c)) for c in r] for r in state["rows"]]
+    total = []
+    for j in range(len(columns)):
+        parsed = [table_number(r[j]) for r in state["rows"]]
+        if j and parsed and all(parsed) and len({(p[2], p[3]) for p in parsed}) == 1:
+            decimals = max(p[1] for p in parsed)
+            total.append(f"{parsed[0][2]}{french_figure(sum(p[0] for p in parsed), decimals)}{(' ' + parsed[0][3]) if parsed[0][3] else ''}".strip())
+        else:
+            total.append("Total" if j == 0 else "")
+    return {"columns": columns, "rows": rows, "widths": table_widths(state), "row": TABLE_ROW, "total": total}
+
+
+PALETTE = ("#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899")
+
+
+def figure(value, decimals=None):
+    """A number in French, its decimals trimmed: 2500.0 -> "2 500", 0.125 -> "0,125"."""
+    if decimals is None:
+        decimals = 0 if abs(value - round(value)) < 1e-9 else min(4, max(1, 3 - int(math.floor(math.log10(abs(value)))) if value else 1))
+    text = french_figure(value, decimals)
+    return text.rstrip("0").rstrip(",") if "," in text else text
+
+
+def shares(values):
+    """Whole percentages adding up to exactly 100 (largest remainders)."""
+    total = sum(values)
+    raw = [100 * v / total for v in values]
+    out = [int(r) for r in raw]
+    for i in sorted(range(len(raw)), key=lambda i: raw[i] - out[i], reverse=True)[:100 - sum(out)]:
+        out[i] += 1
+    return out
+
+
+def simple_data(kind, state):
+    """The simple catalogue pieces, worked out here (positions, shares, products, equilibria): the page
+    only draws them. Texts from the brief go through plain_math and are shown as text only."""
+    width, height = simple_size(kind, state)
+    out = {"kind": kind, "width": width, "height": height}
+    if kind == "TIMELINE":
+        events = state["events"]
+        years = [int(e["date"]) if str(e["date"]).strip().lstrip("-").isdigit() else None for e in events]
+        x0, x1 = 90, width - 90
+        if all(y is not None for y in years) and max(years) > min(years):
+            xs = [x0 + (x1 - x0) * (y - min(years)) / (max(years) - min(years)) for y in years]
+        else:
+            xs = [x0 + (x1 - x0) * i / (len(events) - 1) for i in range(len(events))]
+        out["events"] = [{"date": plain_math(str(e["date"])), "label": plain_math(e["label"]), "x": round(x, 1)} for e, x in zip(events, xs)]
+    elif kind == "FRACTION_BAR":
+        total, parts = state["total"], state["parts"]
+        out.update(total=total, parts=[{"n": p["n"], "label": plain_math(p.get("label") or f"{p['n']}/{total}"),
+                                        "color": PALETTE[i % len(PALETTE)]} for i, p in enumerate(parts)])
+        n = sum(p["n"] for p in parts)
+        out["sum"] = " + ".join(f"{p['n']}/{total}" for p in parts) + f" = {n}/{total} = {figure(100 * n / total)} %"
+    elif kind == "PIE_CHART":
+        slices = state["slices"]
+        pct = shares([s["value"] for s in slices])
+        unit = plain_math(str(state.get("unit") or ""))
+        start, items = -90.0, []
+        total = sum(s["value"] for s in slices)
+        for i, (s, p) in enumerate(zip(slices, pct)):
+            sweep = 360 * s["value"] / total
+            items.append({"label": plain_math(s["label"]), "value": f"{figure(s['value'])} {unit}".strip(), "pct": p,
+                          "start": start, "sweep": sweep, "color": PALETTE[i % len(PALETTE)]})
+            start += sweep
+        out["slices"] = items
+    elif kind == "UNIT_CONVERTER":
+        kind_name, fa = UNIT_FACTORS_RENDER[state["from"]]
+        fb = UNIT_FACTORS_RENDER[state["to"]][1]
+        ratio = fa / fb
+        ladder = sorted((u for u, (k, f) in UNIT_FACTORS_RENDER.items() if k == kind_name and min(fa, fb) <= f <= max(fa, fb)),
+                        key=lambda u: -UNIT_FACTORS_RENDER[u][1])
+        if len(ladder) > 8:
+            ladder = [state["from"], state["to"]] if fa > fb else [state["to"], state["from"]]
+        out.update(value=figure(state["value"]), src=state["from"], dst=state["to"], result=figure(state["value"] * ratio),
+                   factor=("× " + figure(ratio)) if ratio >= 1 else ("÷ " + figure(1 / ratio)), ladder=ladder, kind_name=kind_name)
+    elif kind == "TREE":
+        nodes, leaves = [], [0]
+
+        def walk(branches, depth, path, prob):
+            """Lay out a node's branches (leaves one under the other, a node at its leaves' middle)."""
+            ys = []
+            for b in branches:
+                p = b.get("p")
+                here, chance = path + [b["label"]], (prob * p if prob is not None and p is not None else None)
+                if b.get("branches"):
+                    y = walk(b["branches"], depth + 1, here, chance)
+                else:
+                    y = 20 + TREE_LEAF * (leaves[0] + 0.5)
+                    leaves[0] += 1
+                nodes.append({"label": plain_math(b["label"]), "p": None if p is None else figure(p), "x": 110 + TREE_LEVEL * (depth + 1), "y": round(y, 1),
+                              "depth": depth, "path": [plain_math(x) for x in here], "parent": [plain_math(x) for x in path],
+                              "product": None if chance is None else figure(chance), "leaf": not b.get("branches")})
+                ys.append(y)
+            return sum(ys) / len(ys)
+        root_y = walk(state["branches"], 0, [], 1.0)
+        out.update(nodes=nodes, root={"label": plain_math(str(state.get("root") or "")), "x": 70, "y": round(root_y, 1)})
+    elif kind == "SET_DIAGRAM":
+        a, b, both = state["a"], state["b"], state.get("both", 0)
+        either = a["count"] + b["count"] - both
+        total = state.get("total")
+        counts = {"a": a["count"], "b": b["count"], "both": both, "either": either, "only_a": a["count"] - both,
+                  "only_b": b["count"] - both, "neither": None if total is None else total - either}
+        out.update(a=plain_math(a["label"]), b=plain_math(b["label"]), counts=counts, total=total,
+                   p={k: (None if total in (None, 0) or v is None else f"{figure(v)}/{total} = {figure(round(v / total, 3))}") for k, v in counts.items()})
+    elif kind == "GAME_MATRIX":
+        pay = state["payoffs"]
+        best_a = [[pay[i][j][0] == max(pay[k][j][0] for k in range(2)) for j in range(2)] for i in range(2)]
+        best_b = [[pay[i][j][1] == max(pay[i][k][1] for k in range(2)) for j in range(2)] for i in range(2)]
+        out.update(players=[plain_math(p) for p in state["players"]], strategies=[[plain_math(s) for s in r] for r in state["strategies"]],
+                   payoffs=[[[figure(v) for v in c] for c in r] for r in pay], best=[best_a, best_b],
+                   nash=[[best_a[i][j] and best_b[i][j] for j in range(2)] for i in range(2)])
+    elif kind == "BAR_CHART":
+        bars, unit = state["bars"], plain_math(str(state.get("unit") or ""))
+        values = [b["value"] for b in bars] + ([state["line"]] if state.get("line") is not None else [])
+        out.update(bars=[{"label": plain_math(str(b["label"])), "value": b["value"], "text": f"{figure(b['value'])} {unit}".strip()} for b in bars],
+                   low=min(0, min(values)), high=max(0, max(values)), line=state.get("line"),
+                   line_text=None if state.get("line") is None else f"{figure(state['line'])} {unit}".strip())
+    elif kind == "EQUATION_STEPS":
+        out.update(steps=list(state["steps"]), notes=[plain_math(n) for n in state.get("notes", [])], line=EQUATION_LINE)
+    elif kind == "POWER_SUPPLY":
+        out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1))
+    return out
+
+
+def chain_data(state):
+    """CHAIN: its boxes' centres (left to right, a second row under the first past four, its arrows
+    between them), and the loop back from the last to the first."""
+    steps = [plain_math(str(s)) for s in state["steps"]]
+    n = len(steps)
+    per_row = n if n <= 4 else CHAIN_ROW
+    width, height = chain_size(state)
+    w, h = CHAIN_BOX
+    left = 70 if state.get("loop") else 0          # room on the left for the way back
+    centres = [[left + w / 2 + (i % per_row) * (w + CHAIN_GAP), h / 2 + (i // per_row) * (h + 70)] for i in range(n)]
+    return {"steps": steps, "centres": centres, "box": [w, h], "loop": bool(state.get("loop")), "width": width, "height": height}
+
+
 def fpga_data(state):
     """FPGA_GRID: its size and the two designs (labels shown as text by the page)."""
     return {"cols": int(state["cols"]), "rows": int(state["rows"]), "cell": FPGA_CELL,
@@ -439,6 +602,12 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
         data["mcu"] = {"label": plain_math(state.get("label") or "Microcontrôleur"),
                        "instructions": [plain_math(i) for i in state.get("instructions")
                                         or ["lire Bouton 1", "lire Bouton 2", "calculer ET", "allumer Lampe"]]}
+    if entity["type"] == "TABLE":                 # a table: its rows, its total summed here
+        data["table"] = table_data(state)
+    if entity["type"] == "CHAIN":                 # steps or causes, one after the other
+        data["chain"] = chain_data(state)
+    if entity["type"] in SIMPLE_PIECES:           # the simple catalogue pieces, worked out here
+        data["simple"] = simple_data(entity["type"], state)
     if entity["type"] == "WAVE":                  # a rope, the sea, a crowd, a spring: drawn and moved by the page
         data["wave"] = {"mode": state.get("mode", "rope"), "kind": state.get("kind", "pulse"), "loops": int(state.get("loops", 3))}
     if entity["type"] == "TUNNEL":                # a dot in a tube, the wall a line across it
@@ -956,6 +1125,22 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .tides { position:relative; width:1300px; height:600px; }
   .tunnel { position:relative; width:1300px; height:440px; }
   .wave { position:relative; width:1300px; }
+  .tbl { position:relative; display:grid; border-radius:14px; overflow:hidden; border:2px solid var(--border); background:var(--card); }
+  .tbl > div { display:flex; align-items:center; justify-content:center; padding:0 14px; font-size:26px; color:var(--text);
+               border-bottom:1px solid var(--border); border-right:1px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tbl > div.head { font-weight:700; background:color-mix(in srgb, var(--accent) 18%, var(--card)); }
+  .tbl > div.pick { background:color-mix(in srgb, var(--accent) 30%, var(--card)); }
+  .tbl > div.sum { font-weight:700; border-top:3px solid var(--accent); }
+  .chain { position:relative; }
+  .simple { position:relative; }
+  .simple text { font-size:26px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:5px; stroke-linejoin:round; }
+  .simple text.note { font-size:22px; font-weight:500; fill:var(--muted); }
+  .simple text.big { font-size:40px; font-weight:700; }
+  .simple .eq { position:absolute; left:0; display:flex; align-items:center; justify-content:center; font-size:40px; color:var(--text); }
+  .chain .step { position:absolute; display:flex; align-items:center; justify-content:center; text-align:center; padding:10px 16px;
+                 box-sizing:border-box; border-radius:16px; border:3px solid var(--border); background:var(--card); color:var(--text);
+                 font-size:26px; font-weight:600; line-height:1.15; }
+  .chain .step.focus { border-color:var(--accent); box-shadow:0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
   .wave text { font-size:26px; font-weight:600; fill:var(--text); paint-order:stroke; stroke:var(--bg, #0B1120); stroke-width:5px; }
   .wave text.tide-note { font-size:24px; font-weight:500; fill:var(--muted); }
   .mcu { position:relative; width:760px; height:480px; }
@@ -1031,6 +1216,7 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .fx-glow .battery { box-shadow:0 0 24px color-mix(in srgb, var(--pos) 35%, transparent); border-color:color-mix(in srgb, var(--pos) 60%, var(--border)); }
   .fx-glow .meter { box-shadow:0 0 24px color-mix(in srgb, var(--primary) 30%, transparent); }
   .fx-glow .dmm-screen { text-shadow:0 0 12px #10B981; }
+  .dmm-beep { margin-top:6px; padding:4px 10px; border-radius:999px; background:#F59E0B; color:#111827; font-weight:700; font-size:18px; text-align:center; }
   .fx-glow .card { box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), 0 14px 32px rgba(0, 0, 0, .55); }
   .ground { width:60px; height:65px; } .ground svg { width:100%; height:100%; overflow:visible; }
   .bulb { position:relative; width:110px; height:110px; }
@@ -1788,6 +1974,290 @@ function seekWave(e, t) {
     p.energy.setAttribute("opacity", clamp((t - shown) / 0.4, 0, 1));
     p.energy.setAttribute("transform", `translate(${crest} ${z.mode === "spring" ? WAVE_Y - 110 : WAVE_Y - WAVE_A - 70})`);
   } else p.energy.setAttribute("opacity", 0);
+}
+// TABLE: a grid of cells (textContent only), the header first; the rows come in one after the other
+// (set_state {"fill": n}, else one every TABLE_STEP s from its pop); {"row": i} / {"column": j} pick one
+// out; {"total": true}: the last row, "Total" and the sums worked out in Python.
+const TABLE_STEP = 0.7;
+function buildTable(ent) {
+  const z = ent.table, shape = el("div", "tbl"), p = {cells: [], total: []};
+  shape.style.gridTemplateColumns = z.widths.map(w => `${w}px`).join(" ");
+  shape.style.gridAutoRows = `${z.row}px`;
+  z.columns.forEach(c => shape.append(el("div", "head", c)));
+  z.rows.forEach(r => p.cells.push(r.map(c => { const d = el("div", "", c); shape.append(d); return d; })));
+  p.total = z.total.map(c => { const d = el("div", "sum", c); d.hidden = true; shape.append(d); return d; });
+  ent.tableParts = p;
+  return shape;
+}
+function seekTable(e, t) {
+  const z = e.data.table, p = e.data.tableParts, spawn = e.spawn || 0;
+  const given = e.states.filter(s => s.at >= 0 && s.at <= t && s.state && typeof s.state === "object");
+  const fills = e.states.filter(s => s.at >= 0 && s.state && Number.isInteger(s.state.fill));
+  const inAt = i => { if (!fills.length) return spawn + 0.5 + i * TABLE_STEP;
+                      const s = fills.find(s => s.state.fill > i); return s ? s.at + Math.max(0, i - ((fills[fills.indexOf(s) - 1] || {state: {fill: 0}}).state.fill)) * 0.3 : Infinity; };
+  const last = given.length ? given[given.length - 1].state : {};
+  p.cells.forEach((row, i) => row.forEach((d, j) => {
+    const k = clamp((t - inAt(i)) / 0.4, 0, 1);
+    d.style.opacity = k; d.style.transform = `translateY(${(1 - k) * 12}px)`;
+    d.classList.toggle("pick", last.row === i || last.column === j);
+  }));
+  const sum = stateTime(e, "total");
+  p.total.forEach(d => { d.hidden = sum === null || t < sum; d.style.opacity = sum === null ? 0 : clamp((t - sum) / 0.4, 0, 1); });
+}
+// CHAIN: steps in boxes (textContent only), an arrow from each to the next, laid out in Python (four in a
+// row at most, then a second row); {"loop": true}: an arrow from the last back to the first, under them.
+// The boxes come in one after the other (set_state {"step": n}, else one every CHAIN_STEP s).
+const CHAIN_STEP = 1.0;
+function buildChain(ent) {
+  const z = ent.chain, shape = el("div", "chain"), p = {boxes: [], arrows: []};
+  Object.assign(shape.style, {width: `${z.width}px`, height: `${z.height}px`});
+  const svg = sv("svg", {width: z.width, height: z.height, viewBox: `0 0 ${z.width} ${z.height}`, overflow: "visible", style: "position:absolute;left:0;top:0"});
+  shape.append(svg);
+  const [w, h] = z.box;
+  const arrow = (d) => { const g = sv("g", {opacity: 0}, svg);
+    sv("path", {d, fill: "none", stroke: "var(--accent)", "stroke-width": 5, "stroke-linecap": "round", "marker-end": "url(#annHead)"}, g); return g; };
+  z.centres.forEach(([x, y], i) => {
+    const box = el("div", "step", z.steps[i]);
+    Object.assign(box.style, {left: `${x - w / 2}px`, top: `${y - h / 2}px`, width: `${w}px`, height: `${h}px`, opacity: 0});
+    shape.append(box); p.boxes.push(box);
+    if (i) {                         // from the last box: along its row, or down to the start of the next row
+      const [px, py] = z.centres[i - 1];
+      p.arrows.push(arrow(py === y ? `M${px + w / 2 + 6} ${y} H${x - w / 2 - 14}`
+                                   : `M${px} ${py + h / 2 + 6} V${(py + y) / 2} H${x} V${y - h / 2 - 14}`));
+    }
+  });
+  if (z.loop) {
+    // under the boxes, up their left side, into the first one: around the others, never through them
+    const [fx, fy] = z.centres[0], [lx, ly] = z.centres[z.centres.length - 1], bottom = z.height - 20;
+    p.loop = arrow(`M${lx} ${ly + h / 2 + 6} V${bottom} H24 V${fy} H${fx - w / 2 - 14}`);
+  }
+  ent.chainParts = p;
+  return shape;
+}
+function seekChain(e, t) {
+  const z = e.data.chain, p = e.data.chainParts, spawn = e.spawn || 0;
+  const steps = e.states.filter(s => s.at >= 0 && s.state && Number.isInteger(s.state.step));
+  const inAt = i => { if (!steps.length) return spawn + 0.4 + i * CHAIN_STEP; const s = steps.find(s => s.state.step > i); return s ? s.at : Infinity; };
+  const focus = (e.states.filter(s => s.at >= 0 && s.at <= t && s.state && "focus" in s.state).pop() || {state: {}}).state.focus;
+  p.boxes.forEach((b, i) => {
+    const k = clamp((t - inAt(i)) / 0.5, 0, 1);
+    b.style.opacity = k; b.style.transform = `scale(${0.85 + 0.15 * k})`;
+    b.classList.toggle("focus", focus === i);
+  });
+  p.arrows.forEach((a, i) => a.setAttribute("opacity", clamp((t - inAt(i + 1) + 0.3) / 0.3, 0, 1)));
+  if (p.loop) p.loop.setAttribute("opacity", clamp((t - inAt(p.boxes.length - 1) - 0.6) / 0.4, 0, 1));
+}
+// The simple catalogue pieces (TIMELINE, FRACTION_BAR, PIE_CHART, UNIT_CONVERTER, TREE, SET_DIAGRAM,
+// GAME_MATRIX, BAR_CHART, EQUATION_STEPS, POWER_SUPPLY): worked out in Python (simple_data), drawn here in
+// SVG, every text from the brief as textContent. Things come in one after the other: set_state {"step": n}
+// (or {"level": n} for a tree), else one every SIMPLE_STEP s from the pop.
+const SIMPLE_STEP = 0.8, SIMPLE_COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899"];
+function inTurn(e, key, i, t0 = 0.4) {          // when the i-th thing comes in
+  const given = e.states.filter(s => s.at >= 0 && s.state && Number.isInteger(s.state[key]));
+  if (!given.length) return (e.spawn || 0) + t0 + i * SIMPLE_STEP;
+  const s = given.find(s => s.state[key] > i);
+  return s ? s.at : Infinity;
+}
+function lastState(e, t, key) {                 // the last value set for key by now, or undefined
+  const s = e.states.filter(s => s.at >= 0 && s.at <= t && s.state && typeof s.state === "object" && key in s.state).pop();
+  return s ? s.state[key] : undefined;
+}
+function txt(g, x, y, text, anchor = "middle", cls = "") { return tideText(g, x, y, text, anchor, cls); }
+function arc(cx, cy, r, a0, a1) {               // an SVG pie slice from angle a0 to a1 (degrees, 0 = right, clockwise)
+  const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${cx} ${cy} L${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1} Z`;
+}
+function buildSimple(ent) {
+  const z = ent.simple, shape = el("div", "simple"), p = {items: []};
+  Object.assign(shape.style, {width: `${z.width}px`, height: `${z.height}px`});
+  const s = sv("svg", {width: z.width, height: z.height, viewBox: `0 0 ${z.width} ${z.height}`, overflow: "visible"});
+  shape.append(s);
+  const ink = {stroke: "var(--ink)", "stroke-width": 4, fill: "none", "stroke-linecap": "round"};
+  if (z.kind === "TIMELINE") {
+    sv("line", {x1: 40, y1: 150, x2: z.width - 30, y2: 150, ...ink}, s);
+    sv("path", {d: `M${z.width - 30} 150 l-18 -10 v20 Z`, fill: "var(--ink)"}, s);
+    z.events.forEach((ev, i) => { const g = sv("g", {opacity: 0}, s), up = i % 2 === 0;
+      sv("circle", {cx: ev.x, cy: 150, r: 12, fill: "var(--accent)"}, g);
+      sv("line", {x1: ev.x, y1: 150, x2: ev.x, y2: up ? 96 : 204, stroke: "var(--muted)", "stroke-width": 2}, g);
+      txt(g, ev.x, up ? 80 : 232, ev.date, "middle", "big").style.fontSize = "30px";
+      txt(g, ev.x, up ? 44 : 268, ev.label, "middle", "note");
+      p.items.push(g); });
+  } else if (z.kind === "FRACTION_BAR") {
+    const x0 = 60, w = z.width - 120, cell = w / z.total;
+    p.cells = Array.from({length: z.total}, (_, i) => sv("rect", {x: x0 + i * cell, y: 80, width: cell, height: 100, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 3}, s));
+    let from = 0;
+    z.parts.forEach(part => { const g = sv("g", {opacity: 0}, s), mid = x0 + (from + part.n / 2) * cell;
+      txt(g, mid, 60, part.label, "middle", "note"); p.items.push({g, from, n: part.n, color: part.color}); from += part.n; });
+    p.sum = txt(s, z.width / 2, 250, z.sum, "middle", "big"); p.sum.setAttribute("opacity", 0);
+  } else if (z.kind === "PIE_CHART") {
+    const cx = 280, cy = z.height / 2, r = 220;
+    z.slices.forEach((sl, i) => { const g = sv("g", {opacity: 0}, s), mid = (sl.start + sl.sweep / 2) * Math.PI / 180;
+      const path = sv("path", {d: arc(cx, cy, r, sl.start, sl.start + sl.sweep - 0.01), fill: sl.color, stroke: "var(--bg, #0B1120)", "stroke-width": 3}, g);
+      if (sl.sweep > 22) txt(g, cx + 0.62 * r * Math.cos(mid), cy + 0.62 * r * Math.sin(mid) + 9, `${sl.pct} %`).style.fill = "#FFFFFF";
+      const ly = 90 + i * 64;
+      sv("rect", {x: 580, y: ly - 22, width: 30, height: 30, rx: 6, fill: sl.color}, g);
+      txt(g, 626, ly, `${sl.label} : ${sl.pct} %`, "start");
+      txt(g, 626, ly + 26, sl.value, "start", "note");
+      p.items.push({g, path, mid}); });
+  } else if (z.kind === "UNIT_CONVERTER") {
+    const n = z.ladder.length, step = (z.width - 200) / Math.max(1, n - 1), y = 120;
+    p.rungs = z.ladder.map((u, i) => { const x = 100 + i * step;
+      sv("rect", {x: x - 50, y: y - 34, width: 100, height: 60, rx: 10, fill: "var(--card)", stroke: "var(--border)", "stroke-width": 3}, s);
+      txt(s, x, y + 6, u); return x; });
+    const src = z.ladder.indexOf(z.src), dst = z.ladder.indexOf(z.dst);
+    p.token = sv("circle", {cx: p.rungs[src], cy: y - 54, r: 12, fill: "var(--accent)", opacity: 0}, s);
+    p.factor = txt(s, (p.rungs[src] + p.rungs[dst]) / 2, y - 76, z.factor, "middle", "big"); p.factor.setAttribute("opacity", 0);
+    p.result = txt(s, z.width / 2, 300, `${z.value} ${z.src} = ${z.result} ${z.dst}`, "middle", "big"); p.result.setAttribute("opacity", 0);
+    p.from = p.rungs[src]; p.to = p.rungs[dst];
+  } else if (z.kind === "TREE") {
+    const at = path => path.length ? z.nodes.find(n => n.path.join("/") === path.join("/")) : z.root;
+    txt(s, z.root.x, z.root.y + 9, z.root.label, "middle");
+    p.nodes = z.nodes.map(n => { const g = sv("g", {opacity: 0}, s), par = at(n.parent);
+      const line = sv("line", {x1: par.x + 60, y1: par.y, x2: n.x - 70, y2: n.y, stroke: "var(--ink)", "stroke-width": 3}, g);
+      if (n.p !== null) txt(g, (par.x + 60 + n.x - 70) / 2, (par.y + n.y) / 2 - 10, n.p, "middle", "note");
+      txt(g, n.x, n.y + 9, n.label);
+      const prod = n.leaf && n.product !== null ? txt(g, n.x + 90, n.y + 9, `→ ${n.product}`, "start", "note") : null;
+      return {g, line, n, prod}; });
+  } else if (z.kind === "SET_DIAGRAM") {
+    const cy = z.height / 2 - 10, ra = 170, ax = z.width / 2 - 100, bx = z.width / 2 + 100;
+    p.frame = sv("rect", {x: 20, y: 20, width: z.width - 40, height: z.height - 80, rx: 18, fill: "none", stroke: "var(--muted)", "stroke-width": 2}, s);
+    const defs = sv("defs", {}, s), id = `venn-${String(ent.id).replace(/[^\w-]/g, "_")}`;
+    sv("circle", {cx: ax, cy, r: ra}, sv("clipPath", {id: `${id}-a`}, defs));
+    sv("circle", {cx: bx, cy, r: ra}, sv("clipPath", {id: `${id}-b`}, defs));
+    p.shade = {
+      a: sv("circle", {cx: ax, cy, r: ra, fill: "var(--accent)", opacity: 0}, s),
+      b: sv("circle", {cx: bx, cy, r: ra, fill: "var(--accent)", opacity: 0}, s),
+      both: sv("circle", {cx: bx, cy, r: ra, fill: "var(--accent)", opacity: 0, "clip-path": `url(#${id}-a)`}, s),
+      only_a: sv("path", {d: `M0 0 H${z.width} V${z.height} H0 Z`, fill: "var(--accent)", opacity: 0, "clip-path": `url(#${id}-a)`}, s),
+      neither: sv("rect", {x: 20, y: 20, width: z.width - 40, height: z.height - 80, rx: 18, fill: "var(--accent)", opacity: 0}, s)};
+    sv("circle", {cx: ax, cy, r: ra, fill: "none", stroke: "#3B82F6", "stroke-width": 4}, s);
+    sv("circle", {cx: bx, cy, r: ra, fill: "none", stroke: "#F59E0B", "stroke-width": 4}, s);
+    txt(s, ax - 90, cy - ra + 20, z.a); txt(s, bx + 90, cy - ra + 20, z.b);
+    txt(s, ax - 70, cy + 10, String(z.counts.only_a), "middle", "big"); txt(s, bx + 70, cy + 10, String(z.counts.only_b), "middle", "big");
+    txt(s, z.width / 2, cy + 10, String(z.counts.both), "middle", "big");
+    if (z.counts.neither !== null) txt(s, 70, z.height - 90, String(z.counts.neither), "middle", "big");
+    p.caption = txt(s, z.width / 2, z.height - 22, "", "middle");
+  } else if (z.kind === "GAME_MATRIX") {
+    const x0 = 330, y0 = 140, cw = 300, ch = 150;
+    txt(s, x0 + cw, 40, z.players[1]); txt(s, 110, y0 + ch, z.players[0], "middle");
+    z.strategies[1].forEach((st, j) => txt(s, x0 + cw * (j + 0.5), 100, st, "middle", "note"));
+    z.strategies[0].forEach((st, i) => txt(s, x0 - 20, y0 + ch * (i + 0.5) + 8, st, "end", "note"));
+    p.cells = [];
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+      const x = x0 + j * cw, y = y0 + i * ch;
+      const rect = sv("rect", {x, y, width: cw, height: ch, fill: "var(--card)", stroke: "var(--border)", "stroke-width": 3}, s);
+      const a = txt(s, x + cw * 0.3, y + ch / 2 + 12, z.payoffs[i][j][0], "middle", "big"), b = txt(s, x + cw * 0.7, y + ch / 2 + 12, z.payoffs[i][j][1], "middle", "big");
+      a.style.fill = "#3B82F6"; b.style.fill = "#F59E0B";
+      p.cells.push({i, j, rect, a, b});
+    }
+    p.caption = txt(s, x0 + cw, y0 + 2 * ch + 50, "", "middle");
+  } else if (z.kind === "BAR_CHART") {
+    const left = 120, right = z.width - 40, top = 40, bottom = z.height - 90, span = (z.high - z.low) || 1;
+    const y = v => bottom - (bottom - top) * (v - z.low) / span, w = (right - left) / z.bars.length;
+    sv("line", {x1: left, y1: y(0), x2: right, y2: y(0), ...ink}, s);
+    p.bars = z.bars.map((b, i) => { const g = sv("g", {}, s), x = left + w * (i + 0.2);
+      const rect = sv("rect", {x, y: y(0), width: w * 0.6, height: 0, rx: 6, fill: SIMPLE_COLORS[0]}, g);
+      txt(g, x + w * 0.3, bottom + 40, b.label, "middle", "note");
+      const val = txt(g, x + w * 0.3, (b.value >= 0 ? y(b.value) - 12 : y(b.value) + 34), b.text); val.setAttribute("opacity", 0);
+      return {rect, val, to: y(b.value), zero: y(0)}; });
+    if (z.line !== null) { p.line = sv("g", {opacity: 0}, s);
+      sv("line", {x1: left, y1: y(z.line), x2: right, y2: y(z.line), stroke: "#EF4444", "stroke-width": 3, "stroke-dasharray": "10 8"}, p.line);
+      txt(p.line, right, y(z.line) - 10, z.line_text, "end", "note"); }
+  } else if (z.kind === "EQUATION_STEPS") {
+    p.lines = z.steps.map((latex, i) => { const box = el("div", "eq");
+      Object.assign(box.style, {top: `${i * z.line}px`, width: `${z.width}px`, height: `${z.line - 40}px`, opacity: 0});
+      if (window.katex) katex.render(latex, box, {throwOnError: false, trust: false, strict: "ignore", maxSize: 10, maxExpand: 200});
+      else box.textContent = latex;
+      shape.append(box); return box; });
+    p.notes = z.notes.map((note, i) => { const g = sv("g", {opacity: 0}, s), y = (i + 1) * z.line - 26;
+      sv("path", {d: `M${z.width / 2} ${y - 16} V${y + 12}`, stroke: "var(--accent)", "stroke-width": 4, "marker-end": "url(#annHead)"}, g);
+      txt(g, z.width / 2 + 30, y + 6, note, "start", "note"); return g; });
+  } else if (z.kind === "POWER_SUPPLY") {
+    sv("rect", {x: 10, y: 10, width: z.width - 20, height: z.height - 60, rx: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
+    sv("rect", {x: 30, y: 30, width: z.width - 60, height: 70, rx: 8, fill: "#0F2A1F"}, s);
+    p.volts = txt(s, z.width / 2, 78, "", "middle", "big"); p.volts.style.fill = "#4ADE80";
+    p.amps = txt(s, z.width / 2, 130, "", "middle", "note");
+    p.cv = sv("circle", {cx: 60, cy: 150, r: 9, fill: "#14532D"}, s); txt(s, 78, 157, "CV", "start", "note");
+    p.cc = sv("circle", {cx: 150, cy: 150, r: 9, fill: "#7F1D1D"}, s); txt(s, 168, 157, "CC", "start", "note");
+    sv("circle", {cx: z.width * 0.25, cy: z.height - 50, r: 14, fill: "#1E3A8A"}, s); txt(s, z.width * 0.25, z.height - 14, "−");
+    sv("circle", {cx: z.width * 0.75, cy: z.height - 50, r: 14, fill: "#DC2626"}, s); txt(s, z.width * 0.75, z.height - 14, "+");
+  }
+  ent.simpleParts = p;
+  return shape;
+}
+function seekSimple(e, t) {
+  const z = e.data.simple, p = e.data.simpleParts, ease = (at, d = 0.5) => clamp((t - at) / d, 0, 1);
+  if (z.kind === "TIMELINE") {
+    const focus = lastState(e, t, "focus");
+    p.items.forEach((g, i) => { g.setAttribute("opacity", ease(inTurn(e, "step", i)));
+      g.querySelector("circle").setAttribute("r", focus === i ? 18 : 12); });
+  } else if (z.kind === "FRACTION_BAR") {
+    p.cells.forEach(c => c.style.fill = "var(--card)");
+    p.items.forEach((part, i) => { const k = ease(inTurn(e, "step", i));
+      part.g.setAttribute("opacity", k);
+      for (let c = part.from; c < part.from + part.n; c++) if (k > 0) p.cells[c].style.fill = `color-mix(in srgb, ${part.color} ${Math.round(85 * k)}%, var(--card))`; });
+    const sum = stateTime(e, "sum");
+    p.sum.setAttribute("opacity", sum === null ? 0 : ease(sum));
+  } else if (z.kind === "PIE_CHART") {
+    const focus = lastState(e, t, "focus");
+    p.items.forEach((it, i) => { it.g.setAttribute("opacity", ease(inTurn(e, "step", i)));
+      const out = focus === i ? 26 : 0;
+      it.g.setAttribute("transform", `translate(${out * Math.cos(it.mid)} ${out * Math.sin(it.mid)})`); });
+  } else if (z.kind === "UNIT_CONVERTER") {
+    const go = e.states.some(s => s.state && "go" in s.state) ? stateTime(e, "go") : (e.spawn || 0) + 0.6;
+    const k = go === null ? 0 : easeInOut(ease(go, 1.6));
+    p.token.setAttribute("opacity", go !== null && t >= go ? 1 : 0);
+    p.token.setAttribute("cx", p.from + (p.to - p.from) * k);
+    p.factor.setAttribute("opacity", go === null ? 0 : ease(go + 0.3));
+    p.result.setAttribute("opacity", go === null ? 0 : ease(go + 1.6));
+  } else if (z.kind === "TREE") {
+    const path = lastState(e, t, "path");
+    const on = n => Array.isArray(path) && path.slice(0, n.path.length).join("/") === n.path.join("/");
+    p.nodes.forEach(({g, line, n, prod}) => {
+      g.setAttribute("opacity", ease(inTurn(e, "level", n.depth)));
+      line.style.stroke = on(n) ? "var(--accent)" : ""; line.style.strokeWidth = on(n) ? 6 : "";
+      if (prod) prod.setAttribute("opacity", Array.isArray(path) ? (on(n) && path.length === n.path.length ? 1 : 0.25) : 1);
+    });
+  } else if (z.kind === "SET_DIAGRAM") {
+    const show = lastState(e, t, "show"), names = {a: z.a, b: z.b, both: `${z.a} et ${z.b}`, either: `${z.a} ou ${z.b}`,
+      only_a: `${z.a} seulement`, only_b: `${z.b} seulement`, neither: "Ni l'un ni l'autre"};
+    const k = show === undefined ? 0 : 0.35;
+    for (const [key, el2] of Object.entries(p.shade)) el2.setAttribute("opacity", 0);
+    if (show === "a" || show === "either" || show === "only_a") p.shade.a.setAttribute("opacity", k);
+    if (show === "b" || show === "either") p.shade.b.setAttribute("opacity", k);
+    if (show === "both") p.shade.both.setAttribute("opacity", k);
+    if (show === "only_b") p.shade.b.setAttribute("opacity", k);
+    if (show === "neither") p.shade.neither.setAttribute("opacity", 0.2);
+    p.caption.textContent = show && names[show] !== undefined && z.counts[show] !== null && z.counts[show] !== undefined
+      ? `${names[show]} : ${z.counts[show]}` + (z.p[show] ? `  (probabilité ${z.p[show]})` : "") : "";
+  } else if (z.kind === "GAME_MATRIX") {
+    const best = lastState(e, t, "best"), nash = stateTime(e, "nash") !== null && t >= stateTime(e, "nash");
+    p.cells.forEach(c => {
+      c.a.style.textDecoration = best === 0 && z.best[0][c.i][c.j] ? "underline" : "";
+      c.b.style.textDecoration = best === 1 && z.best[1][c.i][c.j] ? "underline" : "";
+      c.rect.style.fill = nash && z.nash[c.i][c.j] ? "color-mix(in srgb, var(--accent) 35%, var(--card))" : "var(--card)";
+      c.rect.style.stroke = nash && z.nash[c.i][c.j] ? "var(--accent)" : "";
+    });
+    p.caption.textContent = nash ? (z.nash.flat().some(Boolean) ? "Équilibre de Nash : personne ne gagne à changer seul" : "Pas d'équilibre de Nash en stratégies pures") : "";
+  } else if (z.kind === "BAR_CHART") {
+    const focus = lastState(e, t, "focus");
+    p.bars.forEach((b, i) => { const k = easeInOut(ease(inTurn(e, "step", i), 0.7)), top = b.zero + (b.to - b.zero) * k;
+      b.rect.setAttribute("y", Math.min(top, b.zero)); b.rect.setAttribute("height", Math.abs(top - b.zero));
+      b.rect.style.fill = focus === i ? SIMPLE_COLORS[1] : SIMPLE_COLORS[0];
+      b.val.setAttribute("opacity", k >= 1 ? 1 : 0); });
+    if (p.line) p.line.setAttribute("opacity", ease((e.spawn || 0) + 0.3));
+  } else if (z.kind === "EQUATION_STEPS") {
+    p.lines.forEach((l, i) => { const k = ease(inTurn(e, "step", i, 0.3)); l.style.opacity = k; l.style.transform = `translateY(${(1 - k) * 14}px)`; });
+    p.notes.forEach((g, i) => g.setAttribute("opacity", ease(inTurn(e, "step", i + 1, 0.3) - 0.4)));
+  } else if (z.kind === "POWER_SUPPLY") {
+    const on = lastState(e, t, "output") === true, v = lastState(e, t, "voltage"), cc = lastState(e, t, "cc") === true;
+    const target = typeof v === "number" ? v : z.voltage;
+    p.volts.textContent = on ? `${frenchNumber(cc ? target * 0.6 : target, 2)} V` : "0,00 V";
+    p.amps.textContent = `Limite ${frenchNumber(z.limit, 2)} A`;
+    p.cv.style.fill = on && !cc ? "#22C55E" : "#14532D";
+    p.cc.style.fill = on && cc ? "#EF4444" : "#7F1D1D";
+  }
 }
 function tunnelWave(centre, spread, phase) {
   // a wave packet along the tube around `centre`; beyond the wall its height is a third (what gets through)
@@ -2585,6 +3055,9 @@ for (const ent of D.entities) {
   else if (ent.tides) shape = buildTides(ent);
   else if (ent.tunnel) shape = buildTunnel(ent);
   else if (ent.wave) shape = buildWave(ent);
+  else if (ent.table) shape = buildTable(ent);
+  else if (ent.chain) shape = buildChain(ent);
+  else if (ent.simple) shape = buildSimple(ent);
   else if (ent.mcu) shape = buildMcu(ent);
   else if (ent.breadboard) shape = buildBreadboard(ent);
   else if (ent.logic) shape = buildLogic(ent);
@@ -2851,6 +3324,7 @@ const PORTS = {
   WIRE_BUS: {in: [0, 0.5, LEFT], out: [1, 0.5, RIGHT]},
   EARTH_GROUND: {terminal: [0.5, 0, UP]},
   SUPPLY_RAIL: {terminal: [0.5, 1, DOWN]},
+  POWER_SUPPLY: {negative: [0.25, 180 / 230, DOWN], positive: [0.75, 180 / 230, DOWN]},
   RESISTOR: {left: [0, 0.5, LEFT], right: [1, 0.5, RIGHT]},
   POTENTIOMETER: {left: [0, 0.25, LEFT], right: [1, 0.25, RIGHT], wiper: [0.5, 1, DOWN]},
   THERMISTOR: {left: [0, 28 / 64, LEFT], right: [1, 28 / 64, RIGHT]},
@@ -2981,7 +3455,7 @@ function fitToRoom() {
       const s = room / e.box.offsetWidth;
       if (e.shape.classList.contains("formula")) {
         e.shape.style.fontSize = `${parseFloat(getComputedStyle(e.shape).fontSize) * s * 0.98}px`;
-      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides || e.data.tunnel || e.data.wave || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga) {
+      } else if (e.data.seesaw || e.data.lanes || e.data.race || e.data.population || e.data.tides || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga) {
         const w = e.shape.offsetWidth, h = e.shape.offsetHeight, wrap = el("div", "fit");
         Object.assign(wrap.style, {width: `${w * s}px`, height: `${h * s}px`});
         e.shape.replaceWith(wrap); wrap.append(e.shape);
@@ -3881,7 +4355,9 @@ function buildProbes() {
       const ring = sv("circle", {r: 16, fill: "none", stroke: "#FBBF24", "stroke-width": 5, filter: "url(#electronGlow)"}, overlay);
       parts[which] = {cable, ring, body: drawProbe(color)};
     }
-    P.push({e, jack, rest, measures, parts, screen: e.shape.querySelector(".dmm-screen"), pinsText: e.shape.querySelector(".dmm-pins")});
+    const beep = el("div", "dmm-beep", "BIP : continuité"); beep.hidden = true; e.shape.append(beep);
+    P.push({e, jack, rest, measures, parts, screen: e.shape.querySelector(".dmm-screen"), pinsText: e.shape.querySelector(".dmm-pins"),
+            mode: e.shape.querySelector(".dmm-head span"), beep});
   }
 }
 function tipAt(p, which, t) {      // a probe's tip at time t (resting, moving to a pin, or on it), and its move
@@ -3910,6 +4386,7 @@ function cableArc(jack, tip) {
   if (!crossed.length) return null;
   return Math.max(Math.min(...crossed.map(r => r.t), jack[1], tip[1]) - CABLE_ARC, below(D.subtitle ? 200 : 150));
 }
+const OHM_BEEP = 30;               // ohms: under this a multimeter in continuity mode beeps
 function seekProbes(t) {
   for (const p of P) {
     const e = p.e, shown = progress(t, e.spawn + 0.3, 0.4) * (1 - (e.out === null ? 0 : progress(t, e.out, 0.5)));
@@ -3918,6 +4395,10 @@ function seekProbes(t) {
     for (const m of p.measures) { if (m.at + LAG.b + MOVE > t) break; before = current ? current.value : 0; current = m; }
     const value = current ? before + (current.value - before) * easeInOut(progress(t, current.at + LAG.b + MOVE, 1.0)) : 0;
     p.screen.textContent = `${frenchNumber(value, current ? current.decimals : 2)} ${current ? current.unit : "V"}`;
+    // as an ohmmeter (a measure in Ω): its mode written, and the continuity beep under OHM_BEEP
+    const ohms = current && current.unit === "Ω";
+    if (p.mode) p.mode.textContent = ohms ? "Ω / continuité" : "V DC";
+    if (p.beep) p.beep.hidden = !(ohms && current.value < OHM_BEEP && value <= OHM_BEEP);
     p.screen.style.color = current ? "#4ADE80" : "#22C55E80";
     if (p.pinsText) p.pinsText.textContent = current ? `Rouge : ${current.names.a}\nNoire : ${current.names.b}` : "";   // LLM labels: textContent
     for (const which of ["a", "b"]) {
@@ -4016,7 +4497,7 @@ function seekWater(e, t) {
 const EMPHASIS = {shake: 0.9, pulse: 1.2};
 // A large drawing (tides, a seesaw, a race, a grid of dots, lanes) has no card around it: a ring would
 // draw a rectangle round the whole page; it only beats, gently.
-const bigDrawing = e => e.data.tides || e.data.seesaw || e.data.race || e.data.population || e.data.lanes || e.data.tunnel || e.data.wave || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga;
+const bigDrawing = e => e.data.tides || e.data.seesaw || e.data.race || e.data.population || e.data.lanes || e.data.tunnel || e.data.wave || e.data.table || e.data.chain || e.data.simple || e.data.mcu || e.data.breadboard || e.data.logic || e.data.fpga;
 function seekEmphasis(e, t) {
   if (!e.emphases || !e.shape) return;
   const ev = e.emphases.filter(x => x.at <= t && t < x.at + EMPHASIS[x.effect]).pop();
@@ -4211,6 +4692,12 @@ window.seek = function (t) {
       seekTunnel(e, t);
     } else if (e.data.wave) {
       seekWave(e, t);
+    } else if (e.data.table) {
+      seekTable(e, t);
+    } else if (e.data.chain) {
+      seekChain(e, t);
+    } else if (e.data.simple) {
+      seekSimple(e, t);
     } else if (e.data.mcu) {
       seekMcu(e, t);
     } else if (e.data.breadboard) {

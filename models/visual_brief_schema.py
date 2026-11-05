@@ -57,6 +57,18 @@ class ComponentType(str, Enum):
     LOGIC_CIRCUIT = "LOGIC_CIRCUIT"          # inputs, logic gates (ET, OU, NON...) and outputs wired together, 0 and 1 on the wires
     FPGA_GRID = "FPGA_GRID"                  # an FPGA's logic blocks and routing: configured by a bitstream, reconfigured, out of room
     MICROCONTROLLER = "MICROCONTROLLER"      # a microcontroller's inside: its program in memory, one unit doing one instruction at a time
+    TABLE = "TABLE"                          # a table of values: rows coming in, a row or column picked out, a computed total
+    CHAIN = "CHAIN"                          # a chain of steps or causes, boxes and arrows: one leads to the next (or loops back)
+    TIMELINE = "TIMELINE"                    # dated events on a line, in order (to scale when the dates are years)
+    FRACTION_BAR = "FRACTION_BAR"            # a bar cut into equal parts, some coloured: a fraction, a sum of fractions, a percentage
+    PIE_CHART = "PIE_CHART"                  # shares of a whole as slices, the percentages worked out
+    UNIT_CONVERTER = "UNIT_CONVERTER"        # a value from one unit to another along the units' ladder, the factor worked out
+    TREE = "TREE"                            # a tree of choices or probabilities: branches, a path picked out, its probability worked out
+    SET_DIAGRAM = "SET_DIAGRAM"              # two sets as circles (Venn): what is in A, in B, in both, in either, counted
+    GAME_MATRIX = "GAME_MATRIX"              # a two-player game: payoffs, best answers, the Nash equilibrium worked out
+    BAR_CHART = "BAR_CHART"                  # values as bars to one scale, growing in turn, a reference line
+    EQUATION_STEPS = "EQUATION_STEPS"        # an equation solved line after line, what is done to both sides on each arrow
+    POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
     WAVE = "WAVE"                            # a mechanical wave: a rope, the sea, a crowd (ola), a spring (sound); the medium stays
     TUNNEL = "TUNNEL"                        # a zoom into a tube, a dot and a wall as a line across it: it bounces back, or tunnels through
     # Schematic parts (standard symbols), for circuits built step by step: wired by their ports
@@ -110,6 +122,18 @@ COMPONENT_PORTS = {
     ComponentType.FPGA_GRID: (),
     ComponentType.TUNNEL: (),
     ComponentType.WAVE: (),
+    ComponentType.TABLE: (),
+    ComponentType.TIMELINE: (),
+    ComponentType.FRACTION_BAR: (),
+    ComponentType.PIE_CHART: (),
+    ComponentType.UNIT_CONVERTER: (),
+    ComponentType.TREE: (),
+    ComponentType.SET_DIAGRAM: (),
+    ComponentType.GAME_MATRIX: (),
+    ComponentType.BAR_CHART: (),
+    ComponentType.EQUATION_STEPS: (),
+    ComponentType.POWER_SUPPLY: ("negative", "positive"),
+    ComponentType.CHAIN: (),
     ComponentType.MICROCONTROLLER: (),
     ComponentType.SUPPLY_RAIL: ("terminal",),
     ComponentType.BREADBOARD: (),
@@ -304,6 +328,191 @@ def mcu_problem(state):
                               or any(not isinstance(i, str) or not i.strip() or len(i) > MCU_TEXT_MAX for i in items)):
         return (f'MICROCONTROLLER "instructions": {low} to {high} short texts (at most {MCU_TEXT_MAX} characters: '
                 f'"lire Bouton 1", "calculer ET"), got {items!r}'[:300])
+    return None
+
+
+# TABLE: a table of short texts. initial_state {"columns": ["Année", "PIB (Md€)"], "rows": [["2022",
+# "2 640"], ["2023", "2 800"]], "total": false} (1 to 6 columns, 1 to 8 rows, cells of at most 18
+# characters). set_state {"fill": n}: the first n rows are in (never given: one row after the other from
+# its pop); {"row": i} / {"column": j}: that row / column picked out (from 0; -1: none); {"total": true}:
+# a last row "Total", each column of numbers summed by the program, never by the brief.
+TABLE_LIMITS = {"columns": (1, 6), "rows": (1, 8)}
+TABLE_CELL_MAX = 18
+
+
+def table_problem(state):
+    """Why a TABLE initial_state is wrong (see above), or None."""
+    columns, rows = state.get("columns"), state.get("rows")
+    low, high = TABLE_LIMITS["columns"]
+    if not (isinstance(columns, list) and low <= len(columns) <= high and all(isinstance(c, str) and c.strip() for c in columns)):
+        return f'TABLE "columns": {low} to {high} column names, got {columns!r}'[:300]
+    low, high = TABLE_LIMITS["rows"]
+    if not (isinstance(rows, list) and low <= len(rows) <= high
+            and all(isinstance(r, list) and len(r) == len(columns) and all(isinstance(c, (str, int, float)) and not isinstance(c, bool) for c in r)
+                    for r in rows)):
+        return f'TABLE "rows": {low} to {high} rows of {len(columns)} cells (one per column), got {rows!r}'[:300]
+    return None
+
+
+# The simple pieces of the catalogue (docs/pieces/ORDRE.md); every number on screen is worked out by
+# the renderer, never given by the brief.
+#   TIMELINE {"events": [{"date": "1929", "label": "Krach boursier"}, ...]} 2 to 8 events, in order (to
+#     scale when every date is a year); set_state {"step": n} the first n in, {"focus": i} one picked out.
+#   FRACTION_BAR {"total": 4, "parts": [{"n": 1, "label": "Pizza mangée"}, {"n": 2}]} total 2 to 12, the
+#     parts' n adding up to total at most; {"step": n} the first n parts coloured, {"sum": true} their sum
+#     as a fraction and a percentage.
+#   PIE_CHART {"slices": [{"label": "Logement", "value": 30}, ...], "unit": "€"} 2 to 7 slices of values
+#     > 0, each one's share worked out; {"step": n}, {"focus": i} that slice pulled out.
+#   UNIT_CONVERTER {"value": 2.5, "from": "km", "to": "m"} (units of one kind in UNIT_FACTORS); {"go":
+#     true} the value moves along the units' ladder, the factor and the result shown.
+#   TREE {"root": "Lancer", "branches": [{"label": "Pile", "p": 0.5, "branches": [...]}, ...]} 2 or 3
+#     branches a node, 3 levels at most, "p" optional (a probability tree when given, adding up to 1);
+#     {"level": n} the first n levels in, {"path": ["Pile", "Face"]} a path picked out, its probability
+#     (the product) worked out.
+#   SET_DIAGRAM {"a": {"label": "Sport", "count": 30}, "b": {"label": "Musique", "count": 20}, "both":
+#     10, "total": 60} two sets; {"show": "a" | "b" | "both" | "either" | "only_a" | "neither"} that
+#     region shaded and counted (a probability too when "total" is given).
+#   GAME_MATRIX {"players": ["Firme A", "Firme B"], "strategies": [["Prix bas", "Prix haut"], ["Prix
+#     bas", "Prix haut"]], "payoffs": [[[3, 3], [5, 1]], [[1, 5], [4, 4]]]} (2 x 2; payoffs[i][j] = [A's,
+#     B's] when A plays i, B plays j); {"best": 0 | 1} that player's best answers underlined, {"nash":
+#     true} the Nash equilibria found.
+#   BAR_CHART {"bars": [{"label": "2022", "value": 5.2}, ...], "unit": "%", "line": 2} 2 to 10 bars to
+#     one scale (negatives below the axis), "line" a reference; {"step": n}, {"focus": i}.
+#   EQUATION_STEPS {"steps": ["2x + 3 = 11", "2x = 8", "x = 4"], "notes": ["-3", "÷ 2"]} 2 to 6 LaTeX
+#     lines, a note (what is done to both sides) on each arrow between two; {"step": n}.
+#   POWER_SUPPLY {"voltage": 12, "current_limit": 2, "label": "Alimentation"} wired by its ports negative,
+#     positive; {"output": true} its output on, {"voltage": v} turned to v, {"cc": true} current limiting
+#     (the CC light: the circuit asks more than the limit).
+UNIT_FACTORS = {     # unit -> (kind, its value in the kind's base unit)
+    "km": ("longueur", 1000), "hm": ("longueur", 100), "dam": ("longueur", 10), "m": ("longueur", 1), "dm": ("longueur", 0.1),
+    "cm": ("longueur", 0.01), "mm": ("longueur", 0.001), "µm": ("longueur", 1e-6), "nm": ("longueur", 1e-9),
+    "t": ("masse", 1000), "kg": ("masse", 1), "hg": ("masse", 0.1), "dag": ("masse", 0.01), "g": ("masse", 0.001),
+    "dg": ("masse", 1e-4), "cg": ("masse", 1e-5), "mg": ("masse", 1e-6),
+    "kL": ("volume", 1000), "hL": ("volume", 100), "daL": ("volume", 10), "L": ("volume", 1), "dL": ("volume", 0.1),
+    "cL": ("volume", 0.01), "mL": ("volume", 0.001), "m³": ("volume", 1000), "dm³": ("volume", 1), "cm³": ("volume", 0.001),
+    "km²": ("aire", 1e6), "ha": ("aire", 1e4), "a": ("aire", 100), "m²": ("aire", 1), "dm²": ("aire", 0.01), "cm²": ("aire", 1e-4),
+    "mm²": ("aire", 1e-6), "h": ("durée", 3600), "min": ("durée", 60), "s": ("durée", 1), "ms": ("durée", 0.001),
+    "km/h": ("vitesse", 1 / 3.6), "m/s": ("vitesse", 1), "kWh": ("énergie", 3.6e6), "Wh": ("énergie", 3600), "kJ": ("énergie", 1000),
+    "J": ("énergie", 1), "kW": ("puissance", 1000), "W": ("puissance", 1), "mW": ("puissance", 0.001),
+}
+
+
+def _short_texts(items, low, high, what):
+    if not (isinstance(items, list) and low <= len(items) <= high):
+        return f"{what}: {low} to {high} of them, got {items!r}"[:300]
+    return None
+
+
+def _number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def simple_piece_problem(kind, state):
+    """Why a simple catalogue piece's initial_state is wrong (see above), or None."""
+    if kind == "TIMELINE":
+        events = state.get("events")
+        return _short_texts(events, 2, 8, 'TIMELINE "events"') or next(
+            (f'TIMELINE event {e!r}: {{"date": "1929", "label": "..."}}'[:300] for e in events
+             if not (isinstance(e, dict) and isinstance(e.get("date"), (str, int)) and isinstance(e.get("label"), str))), None)
+    if kind == "FRACTION_BAR":
+        total, parts = state.get("total"), state.get("parts")
+        if not (isinstance(total, int) and not isinstance(total, bool) and 2 <= total <= 12):
+            return f'FRACTION_BAR "total": a whole number from 2 to 12, got {total!r}'
+        if not (isinstance(parts, list) and 1 <= len(parts) <= 4 and all(isinstance(p, dict) and isinstance(p.get("n"), int) and p["n"] > 0 for p in parts)
+                and sum(p["n"] for p in parts) <= total):
+            return f'FRACTION_BAR "parts": 1 to 4 parts {{"n": 1, "label": "..."}}, their n adding up to {total} at most, got {parts!r}'[:300]
+        return None
+    if kind == "PIE_CHART":
+        slices = state.get("slices")
+        return _short_texts(slices, 2, 7, 'PIE_CHART "slices"') or next(
+            (f'PIE_CHART slice {s!r}: {{"label": "...", "value": a number > 0}}'[:300] for s in slices
+             if not (isinstance(s, dict) and isinstance(s.get("label"), str) and _number(s.get("value")) and s["value"] > 0)), None)
+    if kind == "UNIT_CONVERTER":
+        a, b = UNIT_FACTORS.get(state.get("from")), UNIT_FACTORS.get(state.get("to"))
+        if not _number(state.get("value")):
+            return f'UNIT_CONVERTER "value" is a number, got {state.get("value")!r}'
+        if a is None or b is None or a[0] != b[0]:
+            return (f'UNIT_CONVERTER "from" and "to" are units of one kind among {sorted(UNIT_FACTORS)}, '
+                    f'got {state.get("from")!r} -> {state.get("to")!r}')[:400]
+        return None
+    if kind == "TREE":
+        def check(branches, depth):
+            if not (isinstance(branches, list) and 2 <= len(branches) <= 3):
+                return f'TREE: 2 or 3 branches a node, got {branches!r}'[:300]
+            if depth > 3:
+                return "TREE: 3 levels at most"
+            ps = [b.get("p") for b in branches if isinstance(b, dict)]
+            if any(p is not None for p in ps) and not (all(_number(p) and 0 <= p <= 1 for p in ps) and abs(sum(ps) - 1) < 1e-6):
+                return f'TREE: the "p" of one node\'s branches are between 0 and 1 and add up to 1, got {ps!r}'
+            for b in branches:
+                if not (isinstance(b, dict) and isinstance(b.get("label"), str) and b["label"].strip()):
+                    return f'TREE branch {b!r}: {{"label": "...", "p": 0.5, "branches": [...]}}'[:300]
+                if b.get("branches") is not None:
+                    problem = check(b["branches"], depth + 1)
+                    if problem:
+                        return problem
+            return None
+        return check(state.get("branches"), 1)
+    if kind == "SET_DIAGRAM":
+        a, b, both = state.get("a"), state.get("b"), state.get("both", 0)
+        for name, s in (("a", a), ("b", b)):
+            if not (isinstance(s, dict) and isinstance(s.get("label"), str) and isinstance(s.get("count"), int) and s["count"] >= 0):
+                return f'SET_DIAGRAM "{name}": {{"label": "...", "count": a whole number}}, got {s!r}'[:300]
+        if not (isinstance(both, int) and 0 <= both <= min(a["count"], b["count"])):
+            return f'SET_DIAGRAM "both" is a whole number, at most each set\'s count, got {both!r}'
+        total = state.get("total")
+        if total is not None and not (isinstance(total, int) and total >= a["count"] + b["count"] - both):
+            return f'SET_DIAGRAM "total" is at least the union ({a["count"] + b["count"] - both}), got {total!r}'
+        return None
+    if kind == "GAME_MATRIX":
+        players, strategies, payoffs = state.get("players"), state.get("strategies"), state.get("payoffs")
+        if not (isinstance(players, list) and len(players) == 2 and all(isinstance(p, str) for p in players)):
+            return f'GAME_MATRIX "players": two names, got {players!r}'
+        if not (isinstance(strategies, list) and len(strategies) == 2 and all(isinstance(s, list) and len(s) == 2 and all(isinstance(x, str) for x in s) for s in strategies)):
+            return f'GAME_MATRIX "strategies": two strategies for each player, got {strategies!r}'[:300]
+        if not (isinstance(payoffs, list) and len(payoffs) == 2 and all(isinstance(r, list) and len(r) == 2 and all(
+                isinstance(c, list) and len(c) == 2 and all(_number(v) for v in c) for c in r) for r in payoffs)):
+            return f'GAME_MATRIX "payoffs": 2 x 2 cells of [A\'s payoff, B\'s payoff], got {payoffs!r}'[:300]
+        return None
+    if kind == "BAR_CHART":
+        bars = state.get("bars")
+        return _short_texts(bars, 2, 10, 'BAR_CHART "bars"') or next(
+            (f'BAR_CHART bar {b!r}: {{"label": "...", "value": a number}}'[:300] for b in bars
+             if not (isinstance(b, dict) and isinstance(b.get("label"), (str, int)) and _number(b.get("value")))), None) or (
+            None if state.get("line") is None or _number(state["line"]) else f'BAR_CHART "line" is a number, got {state["line"]!r}')
+    if kind == "EQUATION_STEPS":
+        steps, notes = state.get("steps"), state.get("notes", [])
+        return _short_texts(steps, 2, 6, 'EQUATION_STEPS "steps"') or (
+            None if all(isinstance(s, str) and s.strip() and len(s) <= 120 for s in steps) and isinstance(notes, list)
+            and len(notes) <= len(steps) - 1 and all(isinstance(n, str) for n in notes)
+            else f'EQUATION_STEPS: "steps" short LaTeX lines, "notes" one text per arrow between two, got {steps!r}, {notes!r}'[:300])
+    if kind == "POWER_SUPPLY":
+        v, limit = state.get("voltage", 12), state.get("current_limit", 1)
+        if not (_number(v) and 0 <= v <= 60 and _number(limit) and 0 < limit <= 20):
+            return f'POWER_SUPPLY "voltage" 0 to 60 V, "current_limit" up to 20 A, got {v!r}, {limit!r}'
+        return None
+    return None
+
+
+SIMPLE_PIECES = ("TIMELINE", "FRACTION_BAR", "PIE_CHART", "UNIT_CONVERTER", "TREE", "SET_DIAGRAM", "GAME_MATRIX", "BAR_CHART",
+                 "EQUATION_STEPS", "POWER_SUPPLY")
+
+
+# CHAIN: steps or causes in boxes, each with an arrow to the next. initial_state {"steps": ["Taux en
+# hausse", "Crédit plus cher", "Moins d'investissement"], "loop": false} (2 to 6 steps; "loop": an arrow
+# from the last back to the first, a cycle). set_state {"step": n}: the first n boxes and their arrows
+# (never given: one after the other from its pop); {"focus": i}: that box picked out.
+CHAIN_STEPS = (2, 6)
+
+
+def chain_problem(state):
+    """Why a CHAIN initial_state is wrong (see above), or None."""
+    steps = state.get("steps")
+    low, high = CHAIN_STEPS
+    if not (isinstance(steps, list) and low <= len(steps) <= high and all(isinstance(s, str) and s.strip() for s in steps)):
+        return f'CHAIN "steps": {low} to {high} short texts, got {steps!r}'[:300]
+    if not isinstance(state.get("loop", False), bool):
+        return f'CHAIN "loop" is true or false, got {state.get("loop")!r}'
     return None
 
 
@@ -930,6 +1139,11 @@ class VisualEntity(StrictModel):
             raise ValueError(f"{self.id}: {breadboard_problem(self.initial_state)}")
         if self.type == ComponentType.MICROCONTROLLER and mcu_problem(self.initial_state):
             raise ValueError(f"{self.id}: {mcu_problem(self.initial_state)}")
+        if self.type.value in SIMPLE_PIECES and simple_piece_problem(self.type.value, self.initial_state):
+            raise ValueError(f"{self.id}: {simple_piece_problem(self.type.value, self.initial_state)}")
+        for kind, check in ((ComponentType.TABLE, table_problem), (ComponentType.CHAIN, chain_problem)):
+            if self.type == kind and check(self.initial_state):
+                raise ValueError(f"{self.id}: {check(self.initial_state)}")
         if self.type == ComponentType.WAVE and wave_problem(self.initial_state):
             raise ValueError(f"{self.id}: {wave_problem(self.initial_state)}")
         if self.type == ComponentType.TUNNEL and tunnel_problem(self.initial_state):

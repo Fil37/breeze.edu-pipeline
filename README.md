@@ -185,6 +185,9 @@ fixed HTML/JavaScript code.
 | Schematic parts | `RESISTOR`, `POTENTIOMETER`, `THERMISTOR`, `OPAMP`, `MOSFET`, `DIODE`, `LED`, `HEATER`, `SUPPLY_RAIL` | their leads (`left`/`right`, `wiper`, `in_plus`/`in_minus`/`out`/`vcc`/`gnd`, `gate`/`drain`/`source`, `anode`/`cathode`, `terminal`) | `label` (its value: "R1 10 kΩ"); LED / HEATER / MOSFET `on`, OPAMP `high`, THERMISTOR `hot` |
 | Breadboard | `BREADBOARD` | — | `parts` (`id`, `kind`, `label`), `nets` (leads joined, a supply name first for a rail); `step`, `on` |
 | Microcontroller | `MICROCONTROLLER` | — | `label`, `instructions` (1 to 8 short texts); `run` |
+| Table | `TABLE` | — | `columns`, `rows` (short cells); `fill`, `row`, `column`, `total` (summed by the program) |
+| Chain of steps | `CHAIN` | — | `steps` (2 to 6), `loop`; `step`, `focus` |
+| Simple catalogue pieces | `TIMELINE`, `FRACTION_BAR`, `PIE_CHART`, `UNIT_CONVERTER`, `TREE`, `SET_DIAGRAM`, `GAME_MATRIX`, `BAR_CHART`, `EQUATION_STEPS`, `POWER_SUPPLY` (ports `negative`, `positive`) | see `models/visual_brief_schema.py` | their data only; every figure worked out |
 | Mechanical wave | `WAVE` | — | `mode` (`rope`, `water`, `crowd`, `spring`), `kind` (`pulse`, `continuous`); `go`, `mark`, `energy` |
 | Tunnel effect | `TUNNEL` | — | `particle`, `barrier` (short texts), `zoom` (true); `bounce`, `tunnel` |
 | Tides | `TIDES` | — | nothing to give (all drawn and labelled); `points`, `forces`, `relative`, `stretch`, `spin`, `sun` (`aligned` / `square`) |
@@ -683,7 +686,25 @@ harmonic); `parts` the two waves going opposite ways it is the sum of, each on i
 ("Onde qui va →" blue, "← Onde qui revient" pink), then "=" the rope. agent004 sends back a standing
 wave drawn travelling, and the two waves spoken of but not shown (`standing_waves`); a standing wave
 has no energy arrow (its energy does not travel). One wide drawing set alike in more than 3 scenes is
-sent back (`repeated_drawings`): each scene shows its own point (another harmonic, the two waves...). agent004 sends back a wave drawn as discs or
+sent back (`repeated_drawings`): each scene shows its own point (another harmonic, the two waves...).
+
+**Formulas in physics and maths.** agent003 says the key relation of the topic at least once, in
+words with the example's values (`FORMULA_RULES`, for the "math" and "physics_math" domains); agent004
+writes a relation said as a TEX_FORMULA in that scene and sends back a physics or maths video with
+none (`formulas_said`). Check: `python tests/test_formulas.py`.
+
+**The pieces catalogue.** `docs/pieces/` holds the user's 131 piece specifications (the four CSV files,
+their columns one to the left of their header: `catalogue.json` reads them right), grouped into 76
+pieces to build and ordered simplest first (`ORDRE.md`); each entry's "etat" says "fait", "partiel" or
+"à faire". Built: every simple piece, each figure on it worked out by the program, never given by the brief:
+TABLE (its total summed, French figures, a unit kept), CHAIN (steps and arrows, a loop around them),
+TIMELINE (to scale when the dates are years), FRACTION_BAR (the sum as a fraction and a percentage),
+PIE_CHART (shares adding up to 100 %), UNIT_CONVERTER (the units' ladder, the factor, the result),
+TREE (a path's probability, the product), SET_DIAGRAM (two sets, each region counted, its probability),
+GAME_MATRIX (best answers, the Nash equilibrium), BAR_CHART (one scale, negatives below, a reference
+line), EQUATION_STEPS (LaTeX lines, what is done on each arrow), POWER_SUPPLY (a bench supply wired
+like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: its mode, a beep under
+30 Ω). Check: `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. agent004 sends back a wave drawn as discs or
 icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
 A scene with a drawing as wide as the screen (WAVE, TIDES, TUNNEL, BREADBOARD, LOGIC_CIRCUIT...) stays
 "circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python tests/test_wave.py`.

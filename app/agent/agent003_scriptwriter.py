@@ -26,7 +26,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # standalone runs
 
-from app.agent import channel_dir, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
+from app.agent import channel_dir, find_route, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
 from app import provenance
 from app.qa_feedback import feedback_section
 
@@ -135,6 +135,15 @@ This video is a PROJECT BUILT STEP BY STEP, not a lesson on one concept:
 - The second to last scene builds it on a breadboard, part after part, in the same order.
 - The last scene powers it up and shows it doing its job, and closes the video.
 """
+# Physics and maths (routes.json domain): the key relation of the topic is said, so it can be written
+# (the standing waves of 2026-11-05 had none: all words, no formula on screen).
+FORMULA_DOMAINS = ("math", "physics_math")
+FORMULA_RULES = """
+- Physics and maths: say the KEY RELATION of the topic at least once, in words as a teacher says it,
+  with the values of the example ("la longueur d'onde vaut deux fois la longueur de la corde divisée par
+  n : pour une corde de 60 centimètres et n égal 2, 60 centimètres"); it is written on screen as a
+  formula in that scene. One or two relations in the video, explained, not a list of formulas.
+"""
 RETRY_NOTE = """
 
 Your previous answer has these problems; rewrite it without them (same JSON shape):
@@ -201,6 +210,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
         prompt = PROMPT.format(outline=outline, pace=WORDS_PER_SEC, least=MIN_WORDS, most=MAX_WORDS).replace(
             "\nAnswer with JSON only", qa_section + (PROJECT_RULES if outline.get("format") == "project" else "")
+            + (FORMULA_RULES if (find_route(routes, channel_id) or {}).get("domain") in FORMULA_DOMAINS else "")
             + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))
         acronyms, words = script_problems(answer)

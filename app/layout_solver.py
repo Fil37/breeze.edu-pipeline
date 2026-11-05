@@ -74,6 +74,50 @@ RACE_W, RACE_ROW, RACE_EXTRA = 1400, 120, 114   # SPEED_RACE: label + track + ti
 POPULATION_SIZE = (700, 520)               # POPULATION: the head, the grid of dots, its legend under it
 BREADBOARD_SIZE = (1080, 560)              # BREADBOARD: app/breadboard.py WIDTH, HEIGHT
 MCU_SIZE = (760, 480)                      # MICROCONTROLLER: the chip, its memory and its unit, the count under it
+TABLE_ROW, TABLE_CHAR, TABLE_COL = 64, 15, (130, 340)     # TABLE: a row's height, a character's width, a column's widths
+CHAIN_BOX, CHAIN_GAP, CHAIN_ROW = (250, 120), 80, 3         # CHAIN: a box, the arrow between two, boxes in a row
+
+
+def table_widths(state):
+    columns, rows = state.get("columns") or [], state.get("rows") or []
+    return [min(max(TABLE_COL[0], TABLE_CHAR * max([len(str(c))] + [len(str(r[j])) for r in rows if j < len(r)]) + 40), TABLE_COL[1])
+            for j, c in enumerate(columns)]
+
+
+def table_size(state):
+    return sum(table_widths(state)), TABLE_ROW * (len(state.get("rows") or []) + 2)     # the header, the rows, a total
+
+
+def chain_size(state):
+    n = len(state.get("steps") or [])
+    per_row = n if n <= 4 else CHAIN_ROW
+    rows = -(-n // per_row) if n else 1
+    loop = 70 if state.get("loop") else 0              # the way back: under the boxes and up their left side
+    return per_row * CHAIN_BOX[0] + (per_row - 1) * CHAIN_GAP + loop, rows * CHAIN_BOX[1] + (rows - 1) * 70 + loop
+
+
+SIMPLE_SIZES = {"TIMELINE": (1300, 300), "FRACTION_BAR": (1100, 300), "PIE_CHART": (1000, 560), "UNIT_CONVERTER": (1200, 360),
+                "SET_DIAGRAM": (960, 560), "GAME_MATRIX": (1000, 520), "BAR_CHART": (1100, 560), "POWER_SUPPLY": (300, 230)}
+TREE_LEVEL, TREE_LEAF = 330, 74             # TREE: a level's width, a leaf's height
+EQUATION_LINE = 112                         # EQUATION_STEPS: a line and the arrow under it
+
+
+def tree_leaves(branches):
+    return sum(tree_leaves(b["branches"]) if b.get("branches") else 1 for b in branches or [])
+
+
+def tree_depth(branches):
+    return 1 + max((tree_depth(b["branches"]) for b in branches or [] if b.get("branches")), default=0)
+
+
+def simple_size(kind, state):
+    if kind == "TREE":
+        return 200 + TREE_LEVEL * tree_depth(state.get("branches")) + 220, max(300, TREE_LEAF * tree_leaves(state.get("branches")) + 40)
+    if kind == "EQUATION_STEPS":
+        return 1000, EQUATION_LINE * len(state.get("steps") or [1])
+    return SIMPLE_SIZES[kind]
+
+
 WAVE_SIZE = (1300, 420)                    # WAVE: the medium across, its marked point, the energy over it
 TUNNEL_SIZE = (1300, 440)                  # TUNNEL: a tube across, the wall a line in its middle
 TIDES_SIZE = (1300, 600)                   # TIDES: the Earth in its ocean on the left, the Moon on the right
@@ -305,6 +349,12 @@ def shape_size(entity, graph_count):
         return TIDES_SIZE
     if kind == "TUNNEL":
         return TUNNEL_SIZE
+    if kind == "TABLE":
+        return table_size(state)
+    if kind in SIMPLE_SIZES or kind in ("TREE", "EQUATION_STEPS"):
+        return simple_size(kind, state)
+    if kind == "CHAIN":
+        return chain_size(state)
     if kind == "WAVE":                         # a standing wave: the two waves it is the sum of over it
         return (WAVE_SIZE[0], 620) if state.get("kind") == "standing" else WAVE_SIZE
     if kind == "MICROCONTROLLER":

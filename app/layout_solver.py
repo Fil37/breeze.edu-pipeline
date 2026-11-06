@@ -97,7 +97,7 @@ def chain_size(state):
 
 
 PHYS_SIZES = {"FREE_BODY": (1000, 600), "KINEMATICS": (1300, 560), "COLLISION": (1300, 470), "OSCILLATOR": (1300, 560),
-              "ORBIT": (1000, 640)}
+              "ORBIT": (1000, 740)}
 SIMPLE_SIZES = {"TIMELINE": (1300, 300), "FRACTION_BAR": (1100, 300), "PIE_CHART": (1000, 560), "UNIT_CONVERTER": (1200, 360),
                 "SET_DIAGRAM": (960, 560), "GAME_MATRIX": (1000, 520), "BAR_CHART": (1100, 560), "POWER_SUPPLY": (300, 230)}
 TREE_LEVEL, TREE_LEAF = 330, 74             # TREE: a level's width, a leaf's height

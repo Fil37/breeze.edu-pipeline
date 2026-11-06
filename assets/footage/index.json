@@ -272,6 +272,32 @@
       "ai_generated": false,
       "query": "calcul au tableau",
       "fetched_at": "2026-11-05T14:54:29Z"
+    },
+    "pixabay:83628": {
+      "source": "pixabay",
+      "id": 83628,
+      "file": "pixabay_83628_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-83628/",
+      "user": "11514282",
+      "tags": "satellite, espace, la nasa, terre, science, planète",
+      "duration": 20,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "espace satellite",
+      "fetched_at": "2026-11-05T20:49:15Z"
+    },
+    "pixabay:12564": {
+      "source": "pixabay",
+      "id": 12564,
+      "file": "pixabay_12564_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-12564/",
+      "user": "ARTXROOM",
+      "tags": "pièce de monnaie, dos, argent, lentement",
+      "duration": 22,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "lancer de pièce",
+      "fetched_at": "2026-11-05T21:02:57Z"
     }
   },
   "queries": {
@@ -296,7 +322,9 @@
     "corde de guitare": "pixabay:599",
     "foule urbaine dense": "pixabay:1694",
     "calcul au tableau": "pixabay:209855",
-    "personne écrivant calcul": "pixabay:209855"
+    "personne écrivant calcul": "pixabay:209855",
+    "espace satellite": "pixabay:83628",
+    "lancer de pièce": "pixabay:12564"
   },
   "checked": [
     "lune ciel nuit",
@@ -316,7 +344,9 @@
     "corde de guitare",
     "foule urbaine dense",
     "calcul au tableau",
-    "personne écrivant calcul"
+    "personne écrivant calcul",
+    "espace satellite",
+    "lancer de pièce"
   ],
   "rejected": {
     "pixabay:159674": "an electrician at an electrical panel, picked for 'usine de puces' (economics, 2026-11-03)",

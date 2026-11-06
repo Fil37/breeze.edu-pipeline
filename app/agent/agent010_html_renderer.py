@@ -570,8 +570,17 @@ def phys_data(kind, state):
             out.update(osc="spring", omega=w, gamma=d * w, amp=x0, T=2 * math.pi / w,
                        period=f"T = 2π √(m / k) = {figure(2 * math.pi / w, 2)} s")
     elif kind == "ORBIT":
-        out.update(e=float(state.get("e", 0.5)), central=plain_math(str(state.get("central") or "Terre")),
-                   body=plain_math(str(state.get("body") or "Satellite")))
+        e = float(state.get("e", 0.5))
+        central = plain_math(str(state.get("central") or "Terre"))
+        # the nearest and farthest points, named for the body at the focus
+        near, far = (("périgée", "apogée") if "terre" in central.lower() else ("périhélie", "aphélie")
+                     if "soleil" in central.lower() else ("point le plus proche", "point le plus loin"))
+        # equal areas in equal times: r_P v_P = r_A v_A, so v_P / v_A = r_A / r_P = (1 + e) / (1 - e)
+        ratio = (1 + e) / (1 - e)
+        out.update(e=e, central=central, body=plain_math(str(state.get("body") or "Satellite")),
+                   near=f"P : {near}", far=f"A : {far}",
+                   ratio=[f"r_A / r_P = (1 + e) / (1 − e) = {figure(ratio, 2)}",
+                          f"Aires égales : r_P × v_P = r_A × v_A, donc v_P = {figure(ratio, 2)} × v_A"])
     return out
 
 
@@ -2428,12 +2437,23 @@ function buildPhys(ent) {
     p.curve = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 4}, p.graph);
     p.period = txt(s, 380, z.height - 20, z.period, "middle", "big"); p.period.setAttribute("opacity", 0);
   } else if (z.kind === "ORBIT") {
-    const a = 340, b = a * Math.sqrt(1 - z.e * z.e), c = a * z.e, cx = z.width / 2 + c, cy = z.height / 2 - 10;
+    const a = 300, b = a * Math.sqrt(1 - z.e * z.e), c = a * z.e, cx = z.width / 2 + c, cy = z.height / 2 - 10;
     p.geo = {a, b, c, cx, cy};       // the ellipse's centre at (cx - c, cy); the central body at the focus (cx, cy)
     sv("ellipse", {cx: cx - c, cy, rx: a, ry: b, fill: "none", stroke: "var(--muted)", "stroke-width": 2, "stroke-dasharray": "6 8"}, s);
     p.areas = sv("g", {opacity: 0}, s);
     p.sweeps = [sv("path", {d: "", fill: "#3B82F6", opacity: 0.35}, p.areas), sv("path", {d: "", fill: "#F59E0B", opacity: 0.35}, p.areas)];
     sv("circle", {cx, cy, r: 46, fill: "#2563EB"}, s); txt(s, cx, cy + 80, z.central, "middle", "note");
+    // P (nearest, on the right: E = 0) and A (farthest), always named; their distances to the focus with the ratio
+    const px = cx - c + a, ax = cx - c - a;
+    p.dist = sv("g", {opacity: 0}, s);
+    sv("line", {x1: cx + 46, y1: cy, x2: px, y2: cy, stroke: "#3B82F6", "stroke-width": 3, "stroke-dasharray": "8 6"}, p.dist);
+    sv("line", {x1: ax, y1: cy, x2: cx - 46, y2: cy, stroke: "#F59E0B", "stroke-width": 3, "stroke-dasharray": "8 6"}, p.dist);
+    txt(p.dist, (cx + 46 + px) / 2, cy - 14, "r_P", "middle", "note"); txt(p.dist, (ax + cx - 46) / 2, cy - 14, "r_A", "middle", "note");
+    p.ratio = z.ratio.map((line, i) => txt(p.dist, z.width / 2, cy + b + 46 + 34 * i, line, "middle", "note"));
+    for (const [x, name, anchor, dx] of [[px, z.near, "start", 12], [ax, z.far, "end", -12]]) {
+      sv("circle", {cx: x, cy, r: 8, fill: "var(--ink)"}, s);
+      txt(s, x + dx, cy + 34, name, anchor, "note");
+    }
     p.force = sv("g", {}, s); p.speed = sv("g", {}, s);
     p.sat = sv("circle", {r: 14, fill: "#F59E0B"}, s); p.name = txt(s, 0, 0, z.body, "middle", "note");
   }
@@ -2531,6 +2551,7 @@ function seekPhys(e, t) {
     const sector = (m0, m1) => { const pts = []; for (let i = 0; i <= 24; i++) pts.push(at(m0 + (m1 - m0) * i / 24).map(v => v.toFixed(1)).join(" "));
       return `M${cx} ${cy} L${pts.join(" L")} Z`; };
     p.sweeps[0].setAttribute("d", sector(-0.35, 0.35)); p.sweeps[1].setAttribute("d", sector(Math.PI - 0.35, Math.PI + 0.35));
+    p.dist.setAttribute("opacity", Math.max(shownFrom(e, "ratio", t), shownFrom(e, "areas", t)));
   }
 }
 function tunnelWave(centre, spread, phase) {
@@ -3305,9 +3326,11 @@ for (const ent of D.entities) {
   else if (ent.type === "VOLTMETER_PROBES") {       // digital multimeter; its probes are drawn in #overlay
     shape = el("div", "card dmm");
     const head = el("div", "dmm-head"), jacks = el("div", "dmm-jacks");
-    head.append(el("span", "", "V DC"), el("span", "", ent.label || ""));
+    const ohmmeter = /ohmm|continuit/i.test(ent.label || "");    // named so: in ohms before any measure
+    head.append(el("span", "", ohmmeter ? "Ω / continuité" : "V DC"), el("span", "", ent.label || ""));
     jacks.append(el("div", "jack black"), el("div", "jack red"));
-    shape.append(head, el("div", "dmm-screen", "0,00 V"), jacks, el("div", "dmm-pins", ""));   // where its probes touch
+    shape.append(head, el("div", "dmm-screen", ohmmeter ? "0,0 Ω" : "0,00 V"), jacks, el("div", "dmm-pins", ""));   // where its probes touch
+    shape.dataset.ohms = ohmmeter ? "1" : "";
   }
   else if (PART_SYMBOLS[ent.type]) shape = buildPart(ent);     // a schematic symbol (resistor, AOP, MOSFET...)
   else if (ent.annotation) shape = el("div", "pill", ent.label || "");   // its arrow is drawn once it is placed
@@ -4662,6 +4685,9 @@ function cableArc(jack, tip) {
   return Math.max(Math.min(...crossed.map(r => r.t), jack[1], tip[1]) - CABLE_ARC, below(D.subtitle ? 200 : 150));
 }
 const OHM_BEEP = 30;               // ohms: under this a multimeter in continuity mode beeps
+function ohmReading(v) {           // 470,0 Ω, 1,000 kΩ, 2,200 MΩ: the range a multimeter picks
+  return v >= 1e6 ? `${frenchNumber(v / 1e6, 3)} MΩ` : v >= 1e3 ? `${frenchNumber(v / 1e3, 3)} kΩ` : `${frenchNumber(v, 1)} Ω`;
+}
 function seekProbes(t) {
   for (const p of P) {
     const e = p.e, shown = progress(t, e.spawn + 0.3, 0.4) * (1 - (e.out === null ? 0 : progress(t, e.out, 0.5)));
@@ -4669,11 +4695,12 @@ function seekProbes(t) {
     let current = null, before = 0;
     for (const m of p.measures) { if (m.at + LAG.b + MOVE > t) break; before = current ? current.value : 0; current = m; }
     const value = current ? before + (current.value - before) * easeInOut(progress(t, current.at + LAG.b + MOVE, 1.0)) : 0;
-    p.screen.textContent = `${frenchNumber(value, current ? current.decimals : 2)} ${current ? current.unit : "V"}`;
-    // as an ohmmeter (a measure in Ω): its mode written, and the continuity beep under OHM_BEEP
-    const ohms = current && current.unit === "Ω";
+    // as an ohmmeter (a measure in Ω, or a meter named so): its mode written, its range (kΩ, MΩ) as on a
+    // real one, and the continuity beep under OHM_BEEP
+    const ohms = current ? current.unit === "Ω" : e.shape.dataset.ohms === "1";
+    p.screen.textContent = ohms ? ohmReading(value) : `${frenchNumber(value, current ? current.decimals : 2)} ${current ? current.unit : "V"}`;
     if (p.mode) p.mode.textContent = ohms ? "Ω / continuité" : "V DC";
-    if (p.beep) p.beep.hidden = !(ohms && current.value < OHM_BEEP && value <= OHM_BEEP);
+    if (p.beep) p.beep.hidden = !(ohms && current && current.value < OHM_BEEP && value <= OHM_BEEP);
     p.screen.style.color = current ? "#4ADE80" : "#22C55E80";
     if (p.pinsText) p.pinsText.textContent = current ? `Rouge : ${current.names.a}\nNoire : ${current.names.b}` : "";   // LLM labels: textContent
     for (const which of ["a", "b"]) {

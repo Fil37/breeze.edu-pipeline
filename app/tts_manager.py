@@ -92,7 +92,9 @@ ACRONYM_LETTERS = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F":
 # Acronyms said as words: left alone; any other 2 to 4 capitals ("IPC", "PIB", "ISS") are spelled.
 SPOKEN_ACRONYMS = {"NASA", "ONU", "OTAN", "OPEP", "UNESCO", "UNICEF", "CAC", "SMIC", "LED", "OK"}
 UNITS = {"V": "volts", "mV": "millivolts", "kV": "kilovolts", "A": "ampères", "mA": "milliampères", "W": "watts",
-         "kW": "kilowatts", "Ω": "ohms", "N": "newtons", "J": "joules", "Hz": "hertz", "kg": "kilos"}
+         "kW": "kilowatts", "Ω": "ohms", "N": "newtons", "J": "joules", "Hz": "hertz", "kg": "kilos",
+         "kΩ": "kilo-ohms", "MΩ": "mégohms", "µA": "microampères", "μA": "microampères", "mW": "milliwatts",
+         "kHz": "kilohertz", "MHz": "mégahertz", "µF": "microfarads", "μF": "microfarads", "nF": "nanofarads", "pF": "picofarads"}
 
 
 def power(written):

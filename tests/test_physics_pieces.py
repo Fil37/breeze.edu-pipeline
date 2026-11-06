@@ -45,6 +45,9 @@ def case_worked_out():
         problems.append("pendulum period")
     if "1,63 s" not in d("KINEMATICS", STATES["KINEMATICS"])["text"]:
         problems.append(f"flight time: {d('KINEMATICS', STATES['KINEMATICS'])['text']}")
+    orbit = d("ORBIT", {"e": 0.6, "central": "Soleil"})       # (1 + 0.6) / (1 - 0.6) = 4
+    if not ("= 4" in orbit["ratio"][0] and "v_P = 4 × v_A" in orbit["ratio"][1] and "périhélie" in orbit["near"]):
+        problems.append(f"orbit: P, A and the speed ratio {orbit}")
     if "4,9 m/s²" not in d("FREE_BODY", STATES["FREE_BODY"])["sum_text"]:
         problems.append(f"resultant: {d('FREE_BODY', STATES['FREE_BODY'])['sum_text']}")
     for kind, bad in (("COLLISION", {"m1": 1, "v1": -1, "m2": 1, "v2": 1}), ("ORBIT", {"e": 0.95}),

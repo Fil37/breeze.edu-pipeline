@@ -58,6 +58,8 @@ Rules:
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.
+- Electrical values with their prefix, as a technician says them: "un kiloohm", "4,7 kΩ", "10 mA",
+  "100 µF", never "mille ohms" nor "1 000 Ω".
 - A temperature is written in digits followed by "degrés Celsius" ("37 degrés Celsius", never
   "trente-sept degrés" in words: the voice says the digits right).
 - An acronym is said in full the first time it is spoken, so a viewer who does not know it is never
@@ -143,6 +145,9 @@ FORMULA_RULES = """
   with the values of the example ("la longueur d'onde vaut deux fois la longueur de la corde divisée par
   n : pour une corde de 60 centimètres et n égal 2, 60 centimètres"); it is written on screen as a
   formula in that scene. One or two relations in the video, explained, not a list of formulas.
+- Never a measure out of nowhere ("l'arc mesure 1 200 kilomètres"): a number said comes with where it
+  comes from (a given of the example, or worked out aloud from one). Prefer how many times more
+  ("deux fois plus près, donc deux fois plus vite") to invented distances.
 """
 RETRY_NOTE = """
 

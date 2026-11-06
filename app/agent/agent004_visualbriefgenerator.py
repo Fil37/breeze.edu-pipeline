@@ -189,7 +189,8 @@ STATES = {
     ComponentType.OSCILLATOR: '{"go": true}, {"energy": true}, {"graph": true} x(t), {"period": true} (worked out); initial_state '
                               '{"kind": "spring", "k": 100, "m": 1, "damping": 0.1, "x0": 0.1} or {"kind": "pendulum", "L": 1, "theta0": 20}',
     ComponentType.ORBIT: '{"go": true}, {"force": true} the pull, {"speed": true} faster near the centre, {"areas": true} '
-                         'equal areas in equal times; initial_state {"e": 0.5, "central": "Terre", "body": "Satellite"}',
+                         'equal areas in equal times, {"ratio": true} the distances r_P, r_A and how much faster at P '
+                         '(worked out; P and A always named on it); initial_state {"e": 0.5, "central": "Terre", "body": "Satellite"}',
     ComponentType.WAVE: '{"go": true} sends the wave (never given: from its pop), {"mark": true} picks out one point '
                         'that only goes up and down (back and forth for a spring), {"energy": true} an arrow "Énergie" '
                         'travelling with it; initial_state {"mode": "rope" | "water" | "crowd" | "spring", "kind": '
@@ -466,7 +467,10 @@ STRICT RULES:
     ("je règle l'alimentation") a POWER_SUPPLY wired like a battery. Every figure they show (shares,
     sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
     results. A resistance measured ("à l'ohmmètre", "continuité") is a "measure" with "unit": "Ω"
-    (circuit off): the multimeter shows Ω and beeps under 30 Ω.
+    (circuit off): the multimeter shows Ω and beeps under 30 Ω. Its "value" is what the circuit drawn
+    gives between the two probes (worked out from the labels: two 1 kΩ across the same pins read
+    500 Ω); the ohmmeter brings its own small source: never a POWER_SUPPLY or BATTERY drawn as "the
+    ohmmeter's source". Values with their prefix: "1 kΩ", "4,7 kΩ", "10 mA", never "1 000 Ω".
   * mechanics, drawn by the program from the data (exact motions, never figures given): forces on a
     body ("le poids", "la réaction", "sur un plan incliné") ONE FREE_BODY; a motion (lancer, chute,
     trajectoire, vitesse, accélération) ONE KINEMATICS; a collision (choc, quantité de mouvement) ONE
@@ -999,6 +1003,151 @@ def electrons_as_discs(brief):
             f"start_flow along the circuit with \"carriers\": \"electrons\" (from - to +)"] if found else []
 
 
+# A part's value in ohms, read from its label ("R1 = 1 000 Ω", "R2 4,7 kΩ", "1 MΩ").
+OHM_LABEL = re.compile(r"(?<![\w.,])(\d{1,3}(?:[\s  ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*([kKM]?)\s*Ω")
+OHM_PREFIX = {"": 1, "k": 1e3, "K": 1e3, "M": 1e6}
+RESISTIVE = (ComponentType.RESISTOR, ComponentType.THERMISTOR, ComponentType.HEATER, ComponentType.POTENTIOMETER)
+SHORTS = (ComponentType.AMMETER, ComponentType.WIRE_BUS)
+SOURCES = (ComponentType.BATTERY, ComponentType.POWER_SUPPLY)
+OHM_TOLERANCE = 0.02             # a reading 2 % off the circuit drawn is wrong
+
+
+def label_ohms(label):
+    """The value in ohms in a label, or None."""
+    found = OHM_LABEL.search(str(label or ""))
+    if not found:
+        return None
+    number = re.sub(r"[\s  ]", "", found.group(1)).replace(",", ".")
+    try:
+        return float(number) * OHM_PREFIX[found.group(2)]
+    except ValueError:
+        return None
+
+
+def state_at(brief, entity, at):
+    """An entity's state at `at`: its initial_state with the set_states up to then."""
+    state = dict(entity.initial_state)
+    for action in brief.actions:
+        if action.get("target") == entity.id and action.get("action") == "set_state" and isinstance(action.get("state"), dict) \
+                and isinstance(action.get("at"), (int, float)) and action["at"] <= at:
+            state.update(action["state"])
+    return state
+
+
+def ohm_present(brief, at):
+    """The entities on screen at `at` ({id: entity}): not yet spawned, or faded out, are gone."""
+    there = {}
+    for entity in brief.entities:
+        times = {a.get("action"): a.get("at") for a in brief.actions if a.get("target") == entity.id}
+        gone = isinstance(times.get("fade_out"), (int, float)) and times["fade_out"] <= at
+        late = isinstance(times.get("spawn"), (int, float)) and times["spawn"] > at
+        if not (gone or late):
+            there[entity.id] = entity
+    return there
+
+
+def ohms_between(brief, pin_a, pin_b, at):
+    """The resistance an ohmmeter reads between two pins ("<id>.<port>") of the circuit drawn, at `at`:
+    resistors by their labels, closed switches and ammeters as wires, the rest open; parts faded out or
+    not yet there are gone. None when it cannot be worked out (a resistor with no value), inf with no path."""
+    there = ohm_present(brief, at)
+    parent = {}
+
+    def root(pin):
+        parent.setdefault(pin, pin)
+        while parent[pin] != pin:
+            pin = parent[pin]
+        return pin
+
+    def join(a, b):
+        parent[root(a)] = root(b)
+    for c in brief.connections:
+        if c.source_id in there and c.target_id in there:
+            join(f"{c.source_id}.{c.source_port}", f"{c.target_id}.{c.target_port}")
+    resistors = []
+    for entity in there.values():
+        ports = COMPONENT_PORTS.get(entity.type, ())
+        if entity.type in SHORTS or (entity.type == ComponentType.SWITCH and state_at(brief, entity, at).get("closed")):
+            join(f"{entity.id}.{ports[0]}", f"{entity.id}.{ports[1]}")
+        elif entity.type in RESISTIVE:
+            value = label_ohms(entity.initial_state.get("label"))
+            if value is None:
+                return None
+            resistors.append((f"{entity.id}.left", f"{entity.id}.right", value))
+    a, b = root(pin_a), root(pin_b)
+    if a == b:
+        return 0.0
+    nodes = sorted({a, b} | {root(x) for r in resistors for x in r[:2]})
+    index = {n: i for i, n in enumerate(nodes)}
+    laplacian = np.zeros((len(nodes), len(nodes)))
+    links = {n: set() for n in nodes}
+    for x, y, value in resistors:
+        i, j = index[root(x)], index[root(y)]
+        if i == j:
+            continue
+        g = 1 / max(value, 1e-9)
+        laplacian[i, i] += g; laplacian[j, j] += g; laplacian[i, j] -= g; laplacian[j, i] -= g
+        links[nodes[i]].add(nodes[j]); links[nodes[j]].add(nodes[i])
+    seen, todo = {a}, [a]
+    while todo:
+        for n in links[todo.pop()] - seen:
+            seen.add(n); todo.append(n)
+    if b not in seen:
+        return math.inf
+    probe = np.zeros(len(nodes)); probe[index[a]], probe[index[b]] = 1, -1
+    return float(probe @ np.linalg.pinv(laplacian) @ probe)
+
+
+def ohm_text(value):
+    """A resistance as written on a schematic: 470 Ω, 1 kΩ, 4,7 kΩ, 2,2 MΩ."""
+    value = float(f"{value:.3g}")
+    for factor, prefix in ((1e6, "M"), (1e3, "k"), (1, "")):
+        if value >= factor or factor == 1:
+            return f"{value / factor:.3g}".replace(".", ",") + f" {prefix}Ω"
+
+
+def ohmmeter_problems(brief):
+    """A measure in ohms that the circuit drawn does not give (the 2026-11-05 ohmmeter video read 500 Ω
+    on a lone 1 kΩ resistor), or taken on a powered circuit: an ohmmeter brings its own small source
+    through its probes; a supply drawn as "the ohmmeter's source", or left on, lies about the measure."""
+    where, errors = f"scene {brief.scene_id}", []
+    for entity in brief.entities:
+        if entity.type in SOURCES and re.search(r"ohmm|multim", str(entity.initial_state.get("label") or ""), re.IGNORECASE):
+            errors.append(f"{where}: {entity.id} is drawn as the ohmmeter's source: the ohmmeter makes its own small "
+                          f"current through its probes; drop {entity.id} and its wires, the measure alone shows it")
+    for action in brief.actions:
+        if action.get("action") != "measure" or action.get("unit") != "Ω" or not isinstance(action.get("at"), (int, float)):
+            continue
+        at, pins = action["at"], (action.get("target_pin_a"), action.get("target_pin_b"))
+        if not all(isinstance(p, str) and p.count(".") == 1 for p in pins):
+            continue                       # a breadboard lead: not worked out here
+        powered = [e.id for e in brief.entities if e.type in SOURCES and not re.search(r"ohmm|multim", str(e.initial_state.get("label") or ""), re.IGNORECASE)
+                   and (e.type == ComponentType.BATTERY or state_at(brief, e, at).get("output"))
+                   and any(c.source_id == e.id or c.target_id == e.id for c in brief.connections)]
+        if powered:
+            errors.append(f"{where}: the ohm measure at {at:g} s is taken with {powered} on: an ohmmeter measures a "
+                          f"circuit switched off; set_state {{\"output\": false}} (or open its switch) before it")
+            continue
+        missing = sorted({p.split(".")[0] for p in pins if p.split(".")[0] not in ohm_present(brief, at)})
+        if missing:
+            errors.append(f"{where}: the ohm measure at {at:g} s touches {missing} before it appears (or after it "
+                          f"faded out): spawn it first, measure on the word that names the reading")
+            continue
+        found = ohms_between(brief, *pins, at)
+        value = action.get("value")
+        if found is None or not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        if math.isinf(found):
+            errors.append(f"{where}: the ohm measure at {at:g} s between {pins[0]} and {pins[1]}: no path joins them in "
+                          f"the circuit drawn (the meter would read OL); wire them, or measure across a part")
+        elif abs(found - value) > OHM_TOLERANCE * max(found, 1):
+            errors.append(f"{where}: the ohm measure at {at:g} s says {ohm_text(value)}, but the circuit drawn gives "
+                          f"{ohm_text(found)} between {pins[0]} and {pins[1]}: measure {ohm_text(found)} (\"value\": "
+                          f"{found:.4g}), or draw what makes {ohm_text(value)} (a resistor wired across the same two pins "
+                          f"lowers the reading, one in series raises it)")
+    return errors
+
+
 SLOW_WORDS = re.compile(r"\b(?:lents?|lentes?|lentement|escargot|dérive)\b", re.IGNORECASE)
 FAST_WORDS = re.compile(r"\b(?:rapides?|vite|instantané(?:e|ment)?|immédiat(?:e|ement)?|vitesse de la lumière)\b", re.IGNORECASE)
 
@@ -1335,6 +1484,7 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += speeds_by_badges(brief, narration)
     errors += placeholder_graphs(brief)
     errors += electrons_as_discs(brief)
+    errors += ohmmeter_problems(brief)
     errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
@@ -1908,6 +2058,54 @@ SHARED_OFFSETS = ((0, -1.6), (0, 1.6), (-2.3, 0), (2.3, 0), (0, -3.2), (-2.3, -1
 PLACE_X, PLACE_Y = (-6.6, 6.6), (-3.4, 2.8)
 
 
+# Units with their prefix, as on a schematic: "1 000 Ω" -> "1 kΩ", "0,01 A" -> "10 mA" (the ohmmeter
+# video of 2026-11-05 wrote "R1 = 1 000 Ω" everywhere).
+BIG_OHMS = re.compile(r"(?<![\w.,])(\d{1,3}(?:[   ]\d{3})+|\d{4,})(?:[.,](\d+))?\s*Ω")
+TEX_OHMS = re.compile(r"(?<![\w.,])(\d{1,3}(?:\\,\d{3})+|\d{4,})\s*(?:\\,|\\ |~)?\s*\\Omega")
+SMALL_AMPS = re.compile(r"(?<![\w.,])0[.,](\d+)\s*A(?![\w])")
+
+
+def prefixed(value, unit):
+    """A value in its unit with the prefix a technician writes: 1000 Ω -> "1 kΩ", 0.01 A -> "10 mA"."""
+    for factor, prefix in ((1e6, "M"), (1e3, "k"), (1, ""), (1e-3, "m"), (1e-6, "µ")):
+        if value >= factor:
+            return f"{float(f'{value / factor:.3g}'):g}".replace(".", ",") + f" {prefix}{unit}"
+    return f"{value:g} {unit}"
+
+
+def si_prefixes(raw_scenes):
+    """Every text of the scenes with its units prefixed (see BIG_OHMS); numbers given as values untouched.
+    Returns how many were rewritten, for the log."""
+    count = 0
+
+    def ohms(m):
+        return prefixed(float(re.sub(r"\D", "", m.group(1)) + "." + (m.group(2) or "0")), "Ω")
+
+    def tex_ohms(m):
+        text = prefixed(float(re.sub(r"\D", "", m.group(1))), "Ω")
+        number, unit = text.split(" ")
+        return number + r"\,\text{" + unit[:-1] + r"}\Omega" if unit[:-1] else number + r"\,\Omega"
+
+    def amps(m):
+        return prefixed(float("0." + m.group(1)), "A")
+
+    def walk(node):
+        nonlocal count
+        if isinstance(node, dict):        # a cue is the narration's words: left as said
+            return {k: v if k == "cue" else walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        if isinstance(node, str):
+            text = SMALL_AMPS.sub(amps, BIG_OHMS.sub(ohms, TEX_OHMS.sub(tex_ohms, node)))
+            count += text != node
+            return text
+        return node
+    for i, scene in enumerate(raw_scenes):
+        if isinstance(scene, dict):
+            raw_scenes[i] = walk(scene)
+    return count
+
+
 def spread_shared_places(raw_scenes):
     """Two entities given the same named place ("RIGHT"): the second is put beside it, in numbers (below,
     above, left, right...), not sent back; a schematic of a dozen parts has more than the 9 places. The
@@ -2007,6 +2205,8 @@ def parse_storyboard(text, durations, narrations):
     kept = carry_circuit(raw_scenes)
     if kept:
         print(f"--- {AGENT}: put back what the circuit had: " + "; ".join(kept), file=sys.stderr, flush=True)
+    if si_prefixes(raw_scenes):
+        print(f"--- {AGENT}: units written with their prefix (1 kΩ, 10 mA)", file=sys.stderr, flush=True)
     moved = spread_shared_places(raw_scenes)
     if moved:
         print(f"--- {AGENT}: put beside a taken place: " + "; ".join(moved), file=sys.stderr, flush=True)

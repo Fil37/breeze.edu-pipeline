@@ -704,13 +704,19 @@ TREE (a path's probability, the product), SET_DIAGRAM (two sets, each region cou
 GAME_MATRIX (best answers, the Nash equilibrium), BAR_CHART (one scale, negatives below, a reference
 line), EQUATION_STEPS (LaTeX lines, what is done on each arrow), POWER_SUPPLY (a bench supply wired
 like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: its mode, a beep under
-30 Ω). Check: `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
+30 Ω, its range as on a real one: 4,700 kΩ). The reading is checked against the circuit drawn: agent004
+works out the resistance between the probes from the labels (`ohmmeter_problems`: two 1 kΩ across the
+same pins read 500 Ω, a part faded out is gone) and sends back a wrong value, a supply drawn as "the
+ohmmeter's source" or left on. Units are written with their prefix (`si_prefixes`: "1 000 Ω" -> "1 kΩ",
+"0,01 A" -> "10 mA"), the voice says "kilo-ohms" (`tests/test_ohmmeter.py`). Check:
+`python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
 (exact motions, conservation laws): FREE_BODY (forces to scale, components along the slope, the
 resultant, a = ΣF / m), KINEMATICS (a projectile, a uniform, accelerated or free fall: strobe images,
 v and a, x(t) and v(t)), COLLISION (velocities after an elastic or inelastic collision, momentum and
 energy before / after), OSCILLATOR (a damped spring or a pendulum: the motion, Ec / Ep, x(t), the
 period), ORBIT (Kepler's equation solved each frame: faster near the centre, the pull in 1/r², equal
-areas). Check: `python tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
+areas; P and A always named, {"ratio": true} their distances r_P, r_A and v_P / v_A = (1 + e) / (1 − e)
+worked out). Check: `python tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
 icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
 A scene with a drawing as wide as the screen (WAVE, TIDES, TUNNEL, BREADBOARD, LOGIC_CIRCUIT...) stays
 "circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python tests/test_wave.py`.

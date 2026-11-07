@@ -111,10 +111,10 @@ def case_plan():
 
 def case_voice():
     expected = {
-        "notons t_n = 0,999…9.": "notons t indice enne égal 0 virgule neuf neuf neuf, et ainsi de suite jusqu'à un dernier neuf.",
-        "1 − t_n = 10^{-n}": "1 moins t indice enne égal 10 puissance moins enne",
-        "0,999… < y < 1": "0 virgule neuf neuf neuf à l'infini inférieur à y inférieur à 1",
-        "t_n ≤ 1 et x ≥ 0": "t indice enne inférieur ou égal à 1 et ixe supérieur ou égal à 0",
+        "notons t_n = 0,999…9.": "notons té indice enne égal 0 virgule neuf neuf neuf, et ainsi de suite jusqu'à un dernier neuf.",
+        "1 − t_n = 10^{-n}": "1 moins té indice enne égal 10 puissance moins enne",
+        "0,999… < y < 1": "0 virgule neuf neuf neuf à l'infini inférieur à i grec inférieur à 1",
+        "t_n ≤ 1 et x ≥ 0": "té indice enne inférieur ou égal à 1 et ixe supérieur ou égal à 0",
         "le fichier snake_case": "le fichier snake_case",
     }
     problems = [f"{text!r} -> {normalize_text_for_tts(text)!r}" for text, said in expected.items()

@@ -493,7 +493,7 @@ def simple_piece_problem(kind, state):
     if kind == "EQUATION_STEPS":
         steps, notes = state.get("steps"), state.get("notes", [])
         return _short_texts(steps, 2, 6, 'EQUATION_STEPS "steps"') or (
-            None if all(isinstance(s, str) and s.strip() and len(s) <= 120 for s in steps) and isinstance(notes, list)
+            None if all(isinstance(s, str) and s.strip() and len(s) <= 160 for s in steps) and isinstance(notes, list)
             and len(notes) <= len(steps) - 1 and all(isinstance(n, str) for n in notes)
             else f'EQUATION_STEPS: "steps" short LaTeX lines, "notes" one text per arrow between two, got {steps!r}, {notes!r}'[:300])
     if kind == "POWER_SUPPLY":

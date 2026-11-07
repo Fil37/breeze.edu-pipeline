@@ -51,6 +51,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from app.agent import channel_dir, find_route, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
 from app import provenance
+from app.linear_system import linear_equations
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
@@ -175,7 +176,12 @@ STATES = {
     ComponentType.BAR_CHART: '{"step": n} the first n bars grow, {"focus": i} one picked out; initial_state {"bars": '
                              '[{"label": "2022", "value": 5.2}, ...], "unit": "%", "line": 2} (2 to 10; "line" a reference)',
     ComponentType.EQUATION_STEPS: '{"step": n} the first n lines in; initial_state {"steps": ["2x + 3 = 11", "2x = 8", "x = 4"], '
-                                  '"notes": ["-3", "÷ 2"]} (LaTeX lines, a note on each arrow: what is done to both sides)',
+                                  '"notes": ["-3", "÷ 2"]} (LaTeX lines, a note on each arrow: what is done to both sides); a '
+                                  'linear system (pivot de Gauss): each line the whole system, "\\begin{cases} x+y+z=6 \\\\ '
+                                  '2x+y-z=1 \\\\ x-y+2z=5 \\end{cases}", the note the row operation "L₂ ← L₂ − 2L₁", the last '
+                                  'line the solution "z = 3, y = 2, x = 1" (every line is checked to keep the solution; each reduction is worked '
+                                  'out term by term beside the steps by the program: no TEX_FORMULA repeating the operations; '
+                                  'an augmented TABLE goes with its whole system, never its first equation alone)',
     ComponentType.POWER_SUPPLY: '{"output": true} its output on, {"voltage": v} turned to v, {"cc": true} limiting the '
                                 'current (the CC light); ports negative, positive; initial_state {"voltage": 12, '
                                 '"current_limit": 2, "label": "Alimentation"}',
@@ -186,7 +192,9 @@ STATES = {
                               'initial_state {"kind": "projectile" | "uniform" | "accelerated" | "free_fall", "v0": [10, 5], "a": 2}',
     ComponentType.COLLISION: '{"go": true}, {"balance": true} momentum and energy before / after (worked out); initial_state '
                              '{"m1": 2, "v1": 5, "m2": 3, "v2": -2, "type": "elastic" | "inelastic"}',
-    ComponentType.OSCILLATOR: '{"go": true}, {"energy": true}, {"graph": true} x(t), {"period": true} (worked out); initial_state '
+    ComponentType.OSCILLATOR: '{"go": true}, {"energy": true}, {"graph": true} x(t), {"period": true} (worked out: a pendulum\'s exact '
+                              'period at its angle, with its angle in radians, its sine and how far they part), {"details": true} '
+                              'those lines alone, {"count": 10} ten oscillations timed (n × T); initial_state '
                               '{"kind": "spring", "k": 100, "m": 1, "damping": 0.1, "x0": 0.1} or {"kind": "pendulum", "L": 1, "theta0": 20}',
     ComponentType.ORBIT: '{"go": true}, {"force": true} the pull, {"speed": true} faster near the centre, {"areas": true} '
                          'equal areas in equal times, {"ratio": true} the distances r_P, r_A and how much faster at P '
@@ -1148,6 +1156,67 @@ def ohmmeter_problems(brief):
     return errors
 
 
+# EQUATION_STEPS solving a linear system (the pivot de Gauss): every line keeps the first system's
+# solution, else a row operation is wrong (lines read by app.linear_system, exactly).
+
+
+def gauss_problems(brief):
+    """An EQUATION_STEPS solving a system (two equations or more on its first line) whose later lines do
+    not keep its solution: a wrong row operation, shown and said as right."""
+    errors = []
+    for entity in brief.entities:
+        if entity.type != ComponentType.EQUATION_STEPS:
+            continue
+        steps = entity.initial_state.get("steps") or []
+        first = linear_equations(steps[0]) if steps else None
+        if not first or len(first) < 2:
+            continue
+        unknowns = sorted({k for eq in first for k in eq if k})
+        if len(unknowns) != len(first):
+            continue
+        matrix = np.array([[float(eq.get(u, 0)) for u in unknowns] for eq in first])
+        if abs(np.linalg.det(matrix)) < 1e-9:
+            continue
+        solution = np.linalg.solve(matrix, [-float(eq.get("", 0)) for eq in first])
+        values = dict(zip(unknowns, solution))
+        shown = ", ".join(f"{u} = {float(f'{v:.6g}'):g}" for u, v in values.items())
+        for i, step in enumerate(steps[1:], start=2):
+            for eq in linear_equations(step) or []:
+                if any(k and k not in values for k in eq):
+                    continue
+                if abs(sum(float(c) * values.get(k, 1) for k, c in eq.items())) > 1e-6:
+                    errors.append(f"scene {brief.scene_id}: {entity.id} line {i} ({step!r}) does not keep the solution of "
+                                  f"the first system ({shown}): a row operation is wrong; work each line out again")
+                    break
+    return errors
+
+
+ROW_OPERATION = re.compile(r"L_?\{?\d\}?\s*(?:\\leftarrow|←|\\gets)")
+AUGMENTED_COLUMN = re.compile(r"second\s+membre|^\s*=?\s*b\s*$|^\s*=\s*$", re.IGNORECASE)
+
+
+def system_display_problems(brief):
+    """A linear system shown in part (the maths run of 2026-11-06 filled the augmented table and wrote
+    only its first equation beside it), or its row operations shown twice (in boxes and on the arrows)."""
+    where, errors = f"scene {brief.scene_id}", []
+    formulas = [e for e in brief.entities if e.type == ComponentType.TEX_FORMULA]
+    for table in (e for e in brief.entities if e.type == ComponentType.TABLE):
+        columns, rows = table.initial_state.get("columns") or [], table.initial_state.get("rows") or []
+        if len(rows) < 2 or not any(AUGMENTED_COLUMN.search(str(c)) for c in columns):
+            continue
+        counts = [len(linear_equations(f.initial_state.get("latex") or "") or []) for f in formulas]
+        if not any(n >= len(rows) for n in counts) and any(n == 1 for n in counts):
+            errors.append(f"{where}: the augmented table {table.id} has {len(rows)} rows but beside it only one equation "
+                          f"is written: show the whole system, ONE TEX_FORMULA \"\\\\begin{{cases}} ... \\\\\\\\ ... \\\\end{{cases}}\" "
+                          f"with its {len(rows)} equations, each row of the table one of them")
+    if any(e.type == ComponentType.EQUATION_STEPS and e.initial_state.get("notes") for e in brief.entities):
+        twice = [f.id for f in formulas if ROW_OPERATION.search(str(f.initial_state.get("latex") or ""))]
+        if twice:
+            errors.append(f"{where}: {twice} repeat row operations the EQUATION_STEPS already shows on its arrows (and "
+                          f"works out beside them): drop them")
+    return errors
+
+
 SLOW_WORDS = re.compile(r"\b(?:lents?|lentes?|lentement|escargot|dérive)\b", re.IGNORECASE)
 FAST_WORDS = re.compile(r"\b(?:rapides?|vite|instantané(?:e|ment)?|immédiat(?:e|ement)?|vitesse de la lumière)\b", re.IGNORECASE)
 
@@ -1485,6 +1554,8 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += placeholder_graphs(brief)
     errors += electrons_as_discs(brief)
     errors += ohmmeter_problems(brief)
+    errors += gauss_problems(brief)
+    errors += system_display_problems(brief)
     errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "

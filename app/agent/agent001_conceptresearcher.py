@@ -61,7 +61,14 @@ Topics that performed well recently: {top}. NEVER pick any of these saturated to
 # A topic to BUILD ("réaliser un banc", "construire", "monter", "projet", "pas à pas"): the video is a
 # project made step by step, not one concept explained; agent002 and agent003 then plan and write it
 # as build stages (research "format": "project").
-PROJECT_WORDS = re.compile(r"\b(?:réalis\w*|construi\w*|fabriqu\w*|monter|montage|projet|pas à pas|banc)\b", re.IGNORECASE)
+# A build ("réaliser un banc"), in a channel where things are built: "pas à pas" alone is not one (the maths
+# run "le pivot de Gauss pas à pas" of 2026-11-06 became "a solver mounted on a board, switched on").
+PROJECT_WORDS = re.compile(r"\b(?:réalis\w*|construi\w*|fabriqu\w*|monter|montage|projet|banc)\b", re.IGNORECASE)
+PROJECT_DOMAINS = ("electronics", "physics_math")
+
+
+def is_project(topic, route):
+    return bool(topic and route.get("domain") in PROJECT_DOMAINS and PROJECT_WORDS.search(topic))
 IMPOSED_PROJECT = """Le sujet est imposé, et c'est un PROJET À RÉALISER pas à pas : {topic}. Ne pas en choisir un autre.
 The concept IS this project: what is built and what it does once finished. Research its stages in the
 order they are built (the parts of each, with real values, and what each does), how they are wired,
@@ -156,7 +163,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     rejected = []
     check = {"checked_against": len(past), "attempts": 0, "rejected": rejected, "verdict": "new"}
     for attempt in range(1, (1 if topic else TOPIC_ATTEMPTS) + 1):
-        project = bool(topic and PROJECT_WORDS.search(topic))
+        project = is_project(topic, route)
         choice = ((IMPOSED_PROJECT if project else IMPOSED).format(topic=topic) if topic
                   else FREE_CHOICE.format(top=analytics.get("top_topics", []), saturated=saturated))
         if past and not topic:
@@ -196,7 +203,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     # Keep only sources that carry a URL, and stamp the date we collected them.
     if topic:
         research["imposed_topic"] = topic
-    if topic and PROJECT_WORDS.search(topic):          # a build: the project itself, its stages in order
+    if is_project(topic, route):                       # a build: the project itself, its stages in order
         research.update(format="project", concept=topic)
     today = date.today().isoformat()
     research["sources"] = [

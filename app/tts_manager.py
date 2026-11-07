@@ -81,7 +81,10 @@ LETTER_NAMES = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F": "e
                 "S": "esse", "T": "té", "U": "u", "V": "vé", "W": "double vé", "X": "ixe", "Y": "i grec", "Z": "zède",
                 "x": "ixe", "n": "enne"}
 # Words the voice says wrong, written as they sound (the screen keeps the real spelling).
-PRONUNCIATIONS = {"quantum": "kwantome", "quanta": "kwanta"}
+PRONUNCIATIONS = {"quantum": "kwantome", "quanta": "kwanta",
+                  # "dix kiloohms" in one word came out garbled (electronics, 2026-11-06): two words
+                  "kiloohms": "kilo ohms", "kiloohm": "kilo ohm", "kilo-ohms": "kilo ohms", "kilo-ohm": "kilo ohm",
+                  "mégohms": "méga ohms", "mégohm": "méga ohm", "mégaohms": "méga ohms"}
 # Words written in capitals that are words, not acronyms (the logic gates ET, OU, NON, NON-ET): said as words.
 CAPITAL_WORDS = ("ET", "OU", "NON", "OUI")
 # A spelled acronym: each letter as it sounds, joined by hyphens ("FPGA" -> "èf-pé-jé-a"), so the voice
@@ -93,8 +96,22 @@ ACRONYM_LETTERS = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F":
 SPOKEN_ACRONYMS = {"NASA", "ONU", "OTAN", "OPEP", "UNESCO", "UNICEF", "CAC", "SMIC", "LED", "OK"}
 UNITS = {"V": "volts", "mV": "millivolts", "kV": "kilovolts", "A": "ampères", "mA": "milliampères", "W": "watts",
          "kW": "kilowatts", "Ω": "ohms", "N": "newtons", "J": "joules", "Hz": "hertz", "kg": "kilos",
-         "kΩ": "kilo-ohms", "MΩ": "mégohms", "µA": "microampères", "μA": "microampères", "mW": "milliwatts",
-         "kHz": "kilohertz", "MHz": "mégahertz", "µF": "microfarads", "μF": "microfarads", "nF": "nanofarads", "pF": "picofarads"}
+         "kΩ": "kilo ohms", "MΩ": "méga ohms", "µA": "microampères", "μA": "microampères", "mW": "milliwatts",
+         "kHz": "kilohertz", "MHz": "mégahertz", "µF": "microfarads", "μF": "microfarads", "nF": "nanofarads", "pF": "picofarads",
+         "m": "mètres", "cm": "centimètres", "mm": "millimètres", "km": "kilomètres", "s": "secondes", "ms": "millisecondes",
+         "min": "minutes", "h": "heures", "g": "grammes", "mg": "milligrammes", "m/s": "mètres par seconde",
+         "km/h": "kilomètres à l'heure", "m/s²": "mètres par seconde au carré"}
+# "y" alone is the word of "il y a" after a pronoun or before a verb; elsewhere the unknown, "i grec".
+Y_WORD_BEFORE = r"(?:il|elle|ils|elles|on|ne|nous|vous)\s+"
+Y_WORD_AFTER = r"\s+(?:a|avait|aura|aurait|ait|en|va|vont|est|sont|ont|allons|voit|trouve)\b"
+
+
+def letter_name(m):
+    """A single letter said by its name ("y" -> "i grec", "z" -> "zède"), the "y" of "il y a" left as a word."""
+    letter, text, at = m.group(1), m.string, m.start(1)
+    if letter in "yY" and (re.search(Y_WORD_BEFORE + r"$", text[:at], re.IGNORECASE) or re.match(Y_WORD_AFTER, text[at + 1:], re.IGNORECASE)):
+        return letter
+    return LETTER_NAMES[letter.upper()]
 
 
 def power(written):
@@ -139,7 +156,10 @@ TTS_RULES = [
                 rf"|{VAR_LEFT}\s+-\s+{VAR_RIGHT}|(?<![\w-])-(?=\s*\d)"), " moins "),
     (re.compile(r"(?<![\w-])([A-Z]{2,4})(?![\w'’-])"),                    # l'IPC -> l'i-pé-cé (not NASA)
      lambda m: m.group(1) if m.group(1) in SPOKEN_ACRONYMS else "-".join(ACRONYM_LETTERS[c] for c in m.group(1))),
-    (re.compile(r"(?<![\w'’-])([A-Zxn])(?![\w'’-])"), lambda m: LETTER_NAMES[m.group(1)]),   # I -> i, R -> erre
+    (re.compile(r"(?<![\w'’-])([A-Za-z])\(\s*([A-Za-z])\s*\)"), r"\1 de \2"),          # f(x) -> f de x
+    (re.compile(r"(?<![\w'’-])([A-Z])(\d{1,2})(?![\w'’-])"), lambda m: f"{LETTER_NAMES[m.group(1)]} {m.group(2)}"),   # L2 -> elle 2, R1 -> erre 1
+    # Any single letter by its name ("a" sounds as its name already: "il a" left alone)
+    (re.compile(r"(?<![\w'’-])([A-Zb-z])(?![\w'’-])"), letter_name),             # I -> i, y -> i grec, z -> zède
 ]
 
 
@@ -197,15 +217,15 @@ class ElevenLabsError(RuntimeError):
         self.retry = retry
 
 
-def elevenlabs_voice(text, mp3_path, key, voice_id=None):
+def elevenlabs_voice(text, mp3_path, key, voice_id=None, speed=None):
     """Write ElevenLabs' MP3 of `text` to mp3_path, in `voice_id` (else ELEVENLABS_VOICE_ID, else the
-    default); returns its word timings [(seconds, word)]."""
+    default), at `speed` (else ELEVENLABS_SETTINGS'); returns its word timings [(seconds, word)]."""
     voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or ELEVENLABS_DEFAULT_VOICE
     model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or ELEVENLABS_DEFAULT_MODEL
     try:
         response = requests.post(ELEVENLABS_URL.format(voice=voice), params={"output_format": ELEVENLABS_FORMAT},
                                  headers={"xi-api-key": key, "Content-Type": "application/json"},
-                                 json={"text": text, "model_id": model, "voice_settings": ELEVENLABS_SETTINGS},
+                                 json={"text": text, "model_id": model, "voice_settings": {**ELEVENLABS_SETTINGS, **({"speed": speed} if speed else {})}},
                                  timeout=ELEVENLABS_TIMEOUT_SEC)
     except requests.RequestException as exc:          # network error, timeout
         raise ElevenLabsError(f"{type(exc).__name__}: {exc}", retry=True) from exc
@@ -258,13 +278,14 @@ def edge_voice(text, mp3_path, words=None):
             time.sleep(wait)
 
 
-def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None):
+def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None, speed=None):
     """French voice-over of `text` in mp3_path: ElevenLabs, else edge-tts (see the module's notes).
     Returns the measured duration in seconds. Given a list `spoken`, fills it with when each word is
     said: [(seconds, word)] (agent010 times the actions' cues on them). Given a dict `engine`, sets
     engine["used"] to "elevenlabs" or "edge-tts", and engine["fallback"] to why ElevenLabs failed
     when edge-tts stood in for it (None otherwise: ElevenLabs worked, or there is no key).
-    `voice_id`: the channel's ElevenLabs voice (else ELEVENLABS_VOICE_ID, else the default).
+    `voice_id`: the channel's ElevenLabs voice (else ELEVENLABS_VOICE_ID, else the default); `speed` its pace
+    (ElevenLabs only; else ELEVENLABS_SETTINGS').
     Raises only if edge-tts fails too."""
     global _said_no_key
     text = normalize_text_for_tts(text)        # for both engines; the caller's text is left as it is
@@ -273,7 +294,7 @@ def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None):
     if key:
         for attempt in range(1, ELEVENLABS_ATTEMPTS + 1):
             try:
-                words = elevenlabs_voice(text, mp3_path, key, voice_id)
+                words = elevenlabs_voice(text, mp3_path, key, voice_id, speed)
                 used = "elevenlabs"
                 break
             except ElevenLabsError as exc:

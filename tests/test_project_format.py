@@ -35,8 +35,13 @@ def case_detect():
     for topic, project in (("Réaliser pas à pas un banc de régulation de température", True),
                            ("Construire un détecteur de lumière", True), ("FPGA", False),
                            ("Le prix Nobel de physique 2025", False), ("Ce qui a causé la hausse des prix des composants", False)):
-        if bool(agent001.PROJECT_WORDS.search(topic)) != project:
+        if agent001.is_project(topic, {"domain": "electronics"}) != project:
             problems.append(f"{topic!r} taken as a project: {not project}")
+    # the maths run of 2026-11-06: "pas à pas" made a solver "mounted on a board, switched on"
+    for topic, domain in (("Le pivot de Gauss : résoudre un système pas à pas", "math"),
+                          ("Construire un budget : épargne et dépenses", "economics")):
+        if agent001.is_project(topic, {"domain": domain}):
+            problems.append(f"{topic!r} ({domain}) taken as a build on a bench")
     if "stages" not in agent001.IMPOSED_PROJECT or "mistakes a beginner" not in agent001.IMPOSED_PROJECT:
         problems.append("agent001's project prompt asks no build stages")
     return report("1. agent001: a topic to build is a project", problems)

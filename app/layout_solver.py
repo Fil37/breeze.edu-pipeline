@@ -108,15 +108,60 @@ def tree_leaves(branches):
     return sum(tree_leaves(b["branches"]) if b.get("branches") else 1 for b in branches or [])
 
 
+EQUATION_ROW = 72                          # EQUATION_STEPS: one row of a system (\\begin{cases} a \\\\ b ...)
+
+
+def equation_heights(steps):
+    """EQUATION_STEPS: each step's height, a system of n equations n rows tall, and its arrow under it."""
+    return [EQUATION_ROW * (1 + str(s).count("\\\\")) + EQUATION_LINE - EQUATION_ROW for s in steps]
+
+
+EQUATION_STEPS_W = 700                     # EQUATION_STEPS: the steps' column beside a detail
+EQUATION_DETAIL_W = 640                    # EQUATION_STEPS of a system: a reduction worked out on the left of the steps
+
+
+def equation_details(steps):
+    """Each arrow's reduction worked out term by term (app.linear_system), None where it is not one."""
+    from app.linear_system import linear_equations, operation_detail
+    systems = [linear_equations(s) for s in steps]
+    return [operation_detail(a, b) if a and b and len(a) > 1 else None for a, b in zip(systems, systems[1:])]
+
+
+EQUATION_MAX = 780                         # EQUATION_STEPS: past this height the steps go on a new page
+
+
+def equation_pages(steps):
+    """EQUATION_STEPS on pages ([{"step", "page", "top", "carry"}], the tallest page): a step that would
+    pass EQUATION_MAX opens a new page, the previous step carried at its top (where it comes from)."""
+    heights, slots, page, y = equation_heights(steps), [], 0, 0
+    for i, h in enumerate(heights):
+        if y and y + h > EQUATION_MAX:
+            page += 1
+            slots.append({"step": i - 1, "page": page, "top": 0, "carry": True})
+            y = heights[i - 1]
+        slots.append({"step": i, "page": page, "top": y, "carry": False})
+        y += h
+    tallest = max(s["top"] + heights[s["step"]] for s in slots)
+    return slots, tallest
+
+
 def tree_depth(branches):
     return 1 + max((tree_depth(b["branches"]) for b in branches or [] if b.get("branches")), default=0)
+
+
+OSC_COMPACT_W = 740                        # OSCILLATOR never shown with its energies nor its graph: the drawing alone
 
 
 def simple_size(kind, state):
     if kind == "TREE":
         return 200 + TREE_LEVEL * tree_depth(state.get("branches")) + 220, max(300, TREE_LEAF * tree_leaves(state.get("branches")) + 40)
     if kind == "EQUATION_STEPS":
-        return 1000, EQUATION_LINE * len(state.get("steps") or [1])
+        steps = state.get("steps") or [""]
+        detailed = any(equation_details(steps))      # then the steps' column narrower: a system is ~400 px wide
+        return (EQUATION_STEPS_W + EQUATION_DETAIL_W if detailed else 1000), equation_pages(steps)[1]
+    if kind == "OSCILLATOR":         # a pendulum: room under it for its worked-out lines; compact: no energies nor graph
+        width, height = PHYS_SIZES[kind]
+        return (OSC_COMPACT_W if state.get("compact") else width), (height + 40 if state.get("kind") == "pendulum" else height)
     return PHYS_SIZES.get(kind) or SIMPLE_SIZES[kind]
 
 
@@ -535,6 +580,88 @@ def uses_column(brief):
                    for a in brief["actions"]))
 
 
+# A chain of resistors between a source's terminals (a voltage divider), drawn as on paper: the battery
+# upright on the left (+ at the top), the chain in one column, each resistor upright, the one fed by +
+# at the top, so "la résistance du bas" is the bottom one; a part across one of them (a load) upright
+# beside it. The run of 2026-11-06 stacked two horizontal resistors: the wire between them looped back.
+DIVIDER_PARTS = ("RESISTOR", "THERMISTOR")
+DIVIDER_X = (-5.0, -2.0, 2.3)               # the source, the chain, then each next column to the right
+DIVIDER_MID, DIVIDER_STEP = -0.25, 2.1       # the chain's middle height and the step between its parts
+
+
+def place_divider(brief):
+    """Lay a divider out (see above), in place. Returns True when the scene is one (else nothing moves):
+    its schematic parts are the chain and parts across its links, and nothing else."""
+    entities = brief.get("entities") or []
+    by_id = {e["id"]: e for e in entities}
+    source = next((e for e in entities if e["type"] in ("BATTERY", "POWER_SUPPLY")), None)
+    if source is None:
+        return False
+    parent = {}
+
+    def net(pin):
+        parent.setdefault(pin, pin)
+        while parent[pin] != pin:
+            pin = parent[pin]
+        return pin
+    for c in brief.get("connections") or []:
+        if c.get("source_id") in by_id and c.get("target_id") in by_id:
+            parent[net(f"{c['source_id']}.{c.get('source_port')}")] = net(f"{c['target_id']}.{c.get('target_port')}")
+    leads = {e["id"]: (net(f"{e['id']}.left"), net(f"{e['id']}.right")) for e in entities if e["type"] in DIVIDER_PARTS}
+    plus, minus = net(f"{source['id']}.positive"), net(f"{source['id']}.negative")
+
+    def walk(node, used):                     # the chain from + down to -, part by part
+        if node == minus:
+            return []
+        for i, (a, b) in leads.items():
+            if i not in used and node in (a, b) and (b if node == a else a) != node:
+                rest = walk(b if node == a else a, used | {i})
+                if rest is not None:
+                    return [(i, node == a)] + rest
+        return None
+    chain = walk(plus, frozenset()) if plus != minus else None
+    if not chain or len(chain) < 2 or len(chain) > 4:
+        return False
+    nodes = [plus]
+    for i, top_is_left in chain:
+        a, b = leads[i]
+        nodes.append(b if top_is_left else a)
+    across = {i: (a, b) for i, (a, b) in leads.items() if i not in dict(chain)}
+    if any(not (a in nodes and b in nodes) for a, b in across.values()):
+        return False                          # a part elsewhere: not a plain divider
+    others = [e for e in entities if e["type"] in SCHEMATIC_PARTS and e["id"] not in leads]
+    if others:
+        return False
+    n = len(chain)
+    y_of = lambda k: DIVIDER_MID + DIVIDER_STEP * ((n - 1) / 2 - k)
+    for k, (i, top_is_left) in enumerate(chain):
+        by_id[i]["position"] = [DIVIDER_X[1], round(y_of(k), 2), 0]
+        by_id[i].setdefault("initial_state", {})["vertical"] = 1 if top_is_left else -1
+    columns = {}
+    for i, (a, b) in across.items():          # beside the chain part spanning the same two nodes
+        k = min(nodes.index(a), nodes.index(b))
+        columns[k] = columns.get(k, 0) + 1
+        top_is_left = nodes.index(a) < nodes.index(b)
+        by_id[i]["position"] = [round(DIVIDER_X[1] + DIVIDER_X[2] * columns[k], 2), round(y_of(k), 2), 0]
+        by_id[i].setdefault("initial_state", {})["vertical"] = 1 if top_is_left else -1
+    # a part across the chain wired to the source: wired to the chain lead at the same node instead (the
+    # same point), so its wire joins the chain beside it, not a second wire all the way to the battery
+    lead_at = {}
+    for k, (i, top_is_left) in enumerate(chain):
+        lead_at.setdefault(nodes[k], (i, "left" if top_is_left else "right"))
+        lead_at[nodes[k + 1]] = (i, "right" if top_is_left else "left")
+    for c in brief.get("connections") or []:
+        for end, other in (("source", "target"), ("target", "source")):
+            if c.get(f"{end}_id") == source["id"] and c.get(f"{other}_id") in across:
+                node = net(f"{source['id']}.{c.get(f'{end}_port')}")
+                if node in lead_at:
+                    c[f"{end}_id"], c[f"{end}_port"] = lead_at[node]
+    source["position"] = [DIVIDER_X[0], DIVIDER_MID, 0]
+    if source["type"] == "BATTERY":
+        source.setdefault("initial_state", {})["upright"] = True
+    return True
+
+
 def solve_layout(brief, corrections, template="circuit"):
     """Make the brief's layout feasible (see the module's docstring). Edits `brief` in place, adds a
     line to `corrections` for each change, and returns the conflicts it could not resolve.
@@ -545,7 +672,8 @@ def solve_layout(brief, corrections, template="circuit"):
     where = f"scene {brief['scene_id']}"
     with_program(brief)
     split_rails(brief)
-    place_schematic(brief)
+    if not place_divider(brief):
+        place_schematic(brief)
     overlay = brief.get("text_overlay") or {}
     header = HEADER_WITH_SUBTITLE if overlay.get("subtitle") else HEADER
     column = uses_column(brief) and template == "circuit"

@@ -5,7 +5,7 @@ Offline (no ElevenLabs, no edge-tts call):
      would be finite: the run of 2026-11-01 on 0,999... = 1 said it so a dozen times)
   2. the other rules (ellipsis, digit + letter, decimal comma, = + × * / -, the maths minus, exponents,
      units, letters alone, acronyms), and the French text they must leave alone: "c'est-à-dire",
-     "a-t-il", "Covid-19", "km/h", "1er", "2e siècle", "10h30", "L'ascenseur", "NASA"...
+     "a-t-il", "Covid-19", "1er", "2e siècle", "10h30", "L'ascenseur", "NASA"...
   3. generate_voice sends the normalized text to ElevenLabs and to edge-tts (the fallback), and the
      caller's text is unchanged (script.json and the storyboard are never touched)
   4. agent010 still times a cue written "10x" / "0,999" on the voice's words ("10", "ixe" / "0",
@@ -28,7 +28,7 @@ RULES = [
     ("10x = 0,999...", "10 ixe égal 0 virgule neuf neuf neuf à l'infini"),
     ("0,999… = 1", "0 virgule neuf neuf neuf à l'infini égal 1"),
     ("0,999 et 2,5", "0 virgule 999 et 2 virgule 5"),
-    ("f(x) = 2x + 1", "f(ixe) égal 2 ixe plus 1"),
+    ("f(x) = 2x + 1", "effe de ixe égal 2 ixe plus 1"),
     ("U = R × I", "u égal erre fois i"),
     ("2*3", "2 fois 3"),
     ("1/2 et U/I", "1 sur 2 et u sur i"),
@@ -49,11 +49,17 @@ RULES = [
     ("c'est-à-dire", "c'est-à-dire"),
     ("y a-t-il, va-t-on, dis-moi, peut-être", "y a-t-il, va-t-on, dis-moi, peut-être"),
     ("Covid-19", "Covid-19"),
-    ("130 km/h", "130 km/h"),
+    ("130 km/h", "130 kilomètres à l'heure"),
     ("le 1er, le 2e siècle, le 21ème", "le 1er, le 2e siècle, le 21ème"),
-    ("à 10h30, à 10h", "à 10h30, à 10h"),
+    ("à 10h30, à 10h", "à 10h30, à 10 heures"),
     ("L'ascenseur, d'abord, il y a", "L'ascenseur, d'abord, il y a"),
     ("en 2024, 3 personnes", "en 2024, 3 personnes"),
+    # every letter by its name (the Gauss run of 2026-11-06 said "y" as in "il y a", "z" as written)
+    ("y égale trois, donc deux x plus y moins z égale huit", "i grec égale trois, donc deux ixe plus i grec moins zède égale huit"),
+    ("il y a une solution, on y va", "il y a une solution, on y va"),
+    ("On ajoute 2L1 à L3", "On ajoute 2 elle 1 à elle 3"),
+    ("b c d e f g h i j k l m n o p q r s t u v w x y z", "bé cé dé eu effe gé ache i ji ka elle emme enne o pé ku erre esse té u vé double vé ixe i grec zède"),
+    ("il parcourt 100 m en 10 s", "il parcourt 100 mètres en 10 secondes"),
 ]
 
 
@@ -82,7 +88,7 @@ def case_engines():
     narration = "On a 10x = 0,999..."
     original = {name: getattr(tts_manager, name) for name in ("elevenlabs_voice", "edge_voice", "media_duration")}
 
-    def failing_elevenlabs(text, mp3_path, key, voice_id=None):
+    def failing_elevenlabs(text, mp3_path, key, voice_id=None, speed=None):
         sent["elevenlabs"], sent["voice_id"] = text, voice_id
         raise tts_manager.ElevenLabsError("HTTP 401 (test)", retry=False)
 

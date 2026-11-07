@@ -670,7 +670,11 @@ schematic's parts are laid out by the program (`place_schematic`), not where the
 column per stage of the signal at a fixed x (sensors and setpoint, divider, AOP, gate, MOSFET, load: a
 part keeps its place from one build step to the next), a resistor or diode at the stage between what
 it joins, in a column the parts ordered by what they are wired to (the AOP's − input above its +),
-each ground or supply symbol at the end of its lead. Wires of one node (leads joined) share their way and part at a
+each ground or supply symbol at the end of its lead. A voltage divider (a chain of resistors between a
+battery's terminals, nothing else but parts across its links) is drawn as on paper (`place_divider`):
+the battery upright, + at the top, the chain in one column of upright resistors, the one fed by + at
+the top ("la résistance du bas" is the bottom one), a load upright beside the part it is across and
+wired to its foot; a flow follows two wires meeting at a lead (`tests/test_divider.py`). Wires of one node (leads joined) share their way and part at a
 junction dot, rather than running side by side (`wireNets`, `sharedLength`); "37 °C" is said "37
 degrés Celsius", "90°" "90 degrés"; agent003 writes a temperature in digits with "degrés Celsius"
 (the voice garbled "trente-sept degrés" written in words).
@@ -702,19 +706,21 @@ TIMELINE (to scale when the dates are years), FRACTION_BAR (the sum as a fractio
 PIE_CHART (shares adding up to 100 %), UNIT_CONVERTER (the units' ladder, the factor, the result),
 TREE (a path's probability, the product), SET_DIAGRAM (two sets, each region counted, its probability),
 GAME_MATRIX (best answers, the Nash equilibrium), BAR_CHART (one scale, negatives below, a reference
-line), EQUATION_STEPS (LaTeX lines, what is done on each arrow), POWER_SUPPLY (a bench supply wired
+line), EQUATION_STEPS (LaTeX lines, what is done on each arrow; a linear system solved by the pivot de Gauss, each step as tall as its system, every line checked by agent004 to keep the first system's solution: `gauss_problems`, `tests/test_gauss.py`; each reduction found and worked out term by term beside the steps by `app/linear_system.py` (L₂, + 3/2 L₁, the result, what vanishes); an augmented TABLE goes with its whole system and no TEX_FORMULA repeats the operations: `system_display_problems`), POWER_SUPPLY (a bench supply wired
 like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: its mode, a beep under
 30 Ω, its range as on a real one: 4,700 kΩ). The reading is checked against the circuit drawn: agent004
 works out the resistance between the probes from the labels (`ohmmeter_problems`: two 1 kΩ across the
 same pins read 500 Ω, a part faded out is gone) and sends back a wrong value, a supply drawn as "the
 ohmmeter's source" or left on. Units are written with their prefix (`si_prefixes`: "1 000 Ω" -> "1 kΩ",
-"0,01 A" -> "10 mA"), the voice says "kilo-ohms" (`tests/test_ohmmeter.py`). Check:
+"0,01 A" -> "10 mA"), the voice says "kilo ohms", two words ("dix kiloohms" in one came out garbled) (`tests/test_ohmmeter.py`). Check:
 `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
 (exact motions, conservation laws): FREE_BODY (forces to scale, components along the slope, the
 resultant, a = ΣF / m), KINEMATICS (a projectile, a uniform, accelerated or free fall: strobe images,
 v and a, x(t) and v(t)), COLLISION (velocities after an elastic or inelastic collision, momentum and
 energy before / after), OSCILLATOR (a damped spring or a pendulum: the motion, Ec / Ep, x(t), the
-period), ORBIT (Kepler's equation solved each frame: faster near the centre, the pull in 1/r², equal
+period; a pendulum's exact period at its angle, T₀ / agm(1, cos(θ₀/2)), not 2π √(L / g) alone, with its
+angle in radians and its sine under it, {"count": 10} ten oscillations timed, in real time so two side by
+side drift apart; drawn narrower when never asked for its energies nor its graph), ORBIT (Kepler's equation solved each frame: faster near the centre, the pull in 1/r², equal
 areas; P and A always named, {"ratio": true} their distances r_P, r_A and v_P / v_A = (1 + e) / (1 − e)
 worked out). Check: `python tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
 icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
@@ -737,8 +743,12 @@ spread again, up to four times (`shrinkToFit`). A badge may take a longer arrow 
 margins may hold anything) and leaves out two things never on screen together.
 Check: `python tests/test_overlaps.py`.
 
-**The project format.** A topic to build ("réaliser", "construire", "monter", "banc", "projet",
-"pas à pas") is a project made step by step, not one concept explained: agent001 researches its build
+**Titles on one line.** A title or subtitle too long for one line is made smaller (to 40 px and 22 px),
+never left to wrap onto the subtitle (`oneLine` in agent010).
+
+**The project format.** A topic to build ("réaliser", "construire", "monter", "banc", "projet"), in
+the electronics or physics channel only (`is_project`: "le pivot de Gauss pas à pas" in maths once
+became a solver "mounted on a board, switched on"), is a project made step by step, not one concept explained: agent001 researches its build
 stages (research "format": "project", the topic as its concept), agent002 plans one beat per stage in
 the order it is built (`PROJECT_PROMPT`), agent003 writes one stage a scene (the parts it adds with
 their values, what is connected to what, how to check it), the breadboard build then the power-up
@@ -839,6 +849,7 @@ agent010 makes each scene's voice with `generate_voice(text, mp3_path, spoken, e
    physics, Anaïs - Instructor for maths and economics; Voice Library voices, used by their id alone).
    A channel without one gets `ELEVENLABS_VOICE_ID`, else "Olivier D" (`GFj5Qf6cNQ3Lgp8VKBwc`).
    Settings: stability 0.5 (below, the voice now and then restarts a sentence), style 0.2, speed 1.12
+   (1.0 for maths, `VOICE_SPEEDS` in agent010, or `voice_by_channel.<channel>.speed` in the settings)
    (the pace and short pauses of the educators it was compared with: 5.5 to 6.9 syllables a second
    while speaking, pauses of 0.2 to 0.3 s). `ELEVENLABS_MODEL_ID` changes the model. It calls the `with-timestamps` endpoint (plain
    `requests`, no extra package), which also says when each word is spoken, for agent010's cues.
@@ -855,9 +866,11 @@ ellipses become a pause; exponents are "puissance" ("10⁻ⁿ", "10^(-n)"; 2 and
 the maths minus "−" is "moins"; a digit and a letter stuck together are split; a decimal comma is
 "virgule"; a unit after a number is its name ("6 V" -> "6 volts", "12 Ω" -> "12 ohms"); `= + × * / -`
 are "égal", "plus", "fois", "sur", "moins" (`/` and `-` only in a calculation, brackets included:
-"1/(1 − 1/10)", so "c'est-à-dire", "a-t-il", "Covid-19", "km/h", "1er", "10h30" are read as before); a
-capital letter alone, and x or n, is said by its French name ("I = U / R" -> "i égal u sur erre", never
-the English "aï"); 2 to 4 capitals are spelled ("l'IPC" -> "l'i pé cé"), except the acronyms said as
+"1/(1 − 1/10)", so "c'est-à-dire", "a-t-il", "Covid-19", "1er", "10h30" are read as before); any
+letter alone is said by its French name ("I = U / R" -> "i égal u sur erre", never the English "aï";
+"y" -> "i grec", "z" -> "zède"), but the "y" of "il y a" / "on y va" and the verb "a"; a name with a
+number too ("L2" -> "elle 2", "R1" -> "erre 1"), "f(x)" -> "effe de ixe", short units after a number
+("100 m en 10 s" -> "100 mètres en 10 secondes", "km/h" -> "kilomètres à l'heure"); 2 to 4 capitals are spelled ("l'IPC" -> "l'i pé cé"), except the acronyms said as
 words (`SPOKEN_ACRONYMS`: NASA, ONU...). agent010 normalizes each action's `cue` the same way, so a cue
 written "10x" still meets the spoken "10 ixe". The maths a script may still write is said too: an
 index "t_n" is "t indice n", "10^{-n}" "10 puissance moins n", `< > ≤ ≥ ≠ ≈ →` "inférieur à",

@@ -107,10 +107,10 @@ def case_units():
         problems.append(f"rewritten: {found}")
     if agent004.label_ohms("R2 4,7 kΩ") != 4700 or agent004.label_ohms("R3 470Ω") != 470:
         problems.append("a label's value misread")
-    for text, said in (("R1 vaut 4,7 kΩ", "R1 vaut 4 virgule 7 kilo-ohms"), ("100 µF", "100 microfarads")):
+    for text, said in (("R1 vaut 4,7 kΩ", "erre 1 vaut 4 virgule 7 kilo ohms"), ("100 µF", "100 microfarads")):
         if normalize_text_for_tts(text) != said:
             problems.append(f"{text!r} said {normalize_text_for_tts(text)!r}")
-    return report("2. units with their prefix on screen (1 kΩ, 10 mA), cues untouched, the voice says kilo-ohms", problems)
+    return report("2. units with their prefix on screen (1 kΩ, 10 mA), cues untouched, the voice says kilo ohms", problems)
 
 
 def case_page():

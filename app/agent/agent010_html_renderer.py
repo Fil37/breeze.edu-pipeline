@@ -68,8 +68,8 @@ from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.breadboard import breadboard_data
-from app.layout_solver import (TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
-                               logic_size, place_schematic, split_rails, target_first_timing, with_program)
+from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
+                               logic_size, place_divider, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
@@ -508,7 +508,10 @@ def simple_data(kind, state):
                    low=min(0, min(values)), high=max(0, max(values)), line=state.get("line"),
                    line_text=None if state.get("line") is None else f"{figure(state['line'])} {unit}".strip())
     elif kind == "EQUATION_STEPS":
-        out.update(steps=list(state["steps"]), notes=[plain_math(n) for n in state.get("notes", [])], line=EQUATION_LINE)
+        heights = equation_heights(state["steps"])
+        out.update(steps=list(state["steps"]), notes=[plain_math(n) for n in state.get("notes", [])], line=EQUATION_LINE,
+                   slots=equation_pages(state["steps"])[0], heights=heights, details=equation_details(state["steps"]))
+        out["pane"] = EQUATION_DETAIL_W if any(out["details"]) else 0
     elif kind == "POWER_SUPPLY":
         out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1))
     return out
@@ -562,8 +565,20 @@ def phys_data(kind, state):
         if state.get("kind", "spring") == "pendulum":
             L, g, th = float(state.get("L", 1)), float(state.get("g", 9.8)), float(state.get("theta0", 20))
             w = math.sqrt(g / L)
-            out.update(osc="pendulum", omega=w, gamma=0.0, amp=th, T=2 * math.pi / w,
-                       period=f"T = 2π √(L / g) = {figure(2 * math.pi / w, 2)} s")
+            # the exact period: T = T₀ · 2/π · K(sin(θ₀/2)), K by the arithmetic-geometric mean (T = T₀ / agm);
+            # 2π √(L / g) holds for small angles only (both pendulums of 5° and 45° once showed 2,01 s)
+            a, b = 1.0, math.cos(math.radians(th) / 2)
+            for _ in range(12):
+                a, b = (a + b) / 2, math.sqrt(a * b)
+            t0, t = 2 * math.pi / w, 2 * math.pi / w / a
+            rad, sine = math.radians(th), math.sin(math.radians(th))
+            slower = (t / t0 - 1) * 100
+            out.update(osc="pendulum", omega=2 * math.pi / t, gamma=0.0, amp=th, T=t, real_time=True,
+                       period=(f"T = 2π √(L / g) = {figure(t0, 2)} s" if slower < 0.2
+                               else f"T = {figure(t, 2)} s, {figure(slower, 1)} % de plus que T₀ = {figure(t0, 2)} s"),
+                       details=[f"θ₀ = {figure(th)}° = {figure(rad, 3)} rad, sin θ₀ = {figure(sine, 3)}",
+                                f"sin θ₀ ≈ θ₀ : écart {figure((rad - sine) / rad * 100, 1)} %"
+                                + (" (petit angle)" if slower < 0.2 else " : rappel plus faible, plus lent")])
         else:
             k, m, d, x0 = float(state.get("k", 100)), float(state.get("m", 1)), float(state.get("damping", 0)), float(state.get("x0", 0.1))
             w = math.sqrt(k / m)
@@ -619,6 +634,9 @@ def population_data(state):
             "head": people(total) + (f" · 1 point = {people(1)}" if per > 1 else "")}
 
 
+VOICE_SPEEDS = {"breeze_(math)": 1.0}     # slower than the default 1.12: maths read aloud (a system, its steps) needs time
+
+
 def plain_math(text):
     if not isinstance(text, str):
         return text
@@ -629,7 +647,15 @@ def plain_math(text):
         return shown if all(ord(c) > 127 for c in shown) else m.group(0)
     if "_" in text and " " not in text.strip() and not re.search(r"[\^{}]", text) and len(text) > 4:
         return text                       # an identifier ("body_0999"), not maths
+    text = re.sub(r"\\[dt]?frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"\1/\2 ", text)   # \frac{3}{2}L_1 -> 3/2 L₁
+    for command, sign in LATEX_SIGNS.items():   # a note written in LaTeX ("L_3 \\leftarrow L_3 - 2L_2"): its signs
+        text = re.sub(re.escape(command) + r"(?![A-Za-z])\s?", sign if sign == " " else sign + " ", text)
     return PLAIN_MATH.sub(script, text)
+
+
+LATEX_SIGNS = {"\\leftarrow": "←", "\\rightarrow": "→", "\\to": "→", "\\times": "×", "\\div": "÷", "\\cdot": "·",
+               "\\leq": "≤", "\\geq": "≥", "\\neq": "≠", "\\approx": "≈", "\\Leftrightarrow": "⇔", "\\Rightarrow": "⇒",
+               "\\,": " "}
 
 
 def entity_data(entity, entities_by_id, ink="#0F172A"):
@@ -637,7 +663,9 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
     data = {"id": entity["id"], "type": entity["type"], "label": plain_math(state.get("label")), "latex": state.get("latex"),
             "tone": state.get("tone") if state.get("tone") in TONES else None,
             "initial": state, "xy": to_pixels(entity["position"]),
-            "instrument": entity["type"] in {t.value for t in INSTRUMENT_TYPES}}
+            "instrument": entity["type"] in {t.value for t in INSTRUMENT_TYPES},
+            # upright, from the divider layout (layout_solver.place_divider): 1 its left lead at the top, -1 its right
+            "vertical": state.get("vertical") if state.get("vertical") in (1, -1) else None, "upright": state.get("upright") is True}
     if entity["type"] in {t.value for t in SVG_TYPES}:
         data["icon"] = icon_data_uri(entity["type"], ink)
     if entity["type"] in ICON_STANDINS:
@@ -995,11 +1023,22 @@ def centre_content(entities, brief, horizontal=True):
                         d["xy"] = [round(d["xy"][0] + shift), d["xy"][1]]
 
 
+def compact_oscillators(brief):
+    """An OSCILLATOR never given {"energy"} nor {"graph"} is drawn alone, narrower (three side by side fit)."""
+    asked = {a.get("target") for a in brief.get("actions") or [] if a.get("action") == "set_state"
+             and isinstance(a.get("state"), dict) and ({"energy", "graph"} & set(a["state"]))}
+    for e in brief.get("entities") or []:
+        if e.get("type") == "OSCILLATOR" and e.get("id") not in asked:
+            e["initial_state"] = {**(e.get("initial_state") or {}), "compact": True}
+
+
 def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circuit", panel_titles=None,
               style=None, scene_number=1):
     with_program(brief)
     split_rails(brief)
-    place_schematic(brief)
+    if not place_divider(brief):
+        place_schematic(brief)
+    compact_oscillators(brief)
     by_id = {e["id"]: e for e in brief["entities"]}
     overlay = brief.get("text_overlay") or {}
     style = style or dict(DEFAULT_STYLE)
@@ -1209,6 +1248,10 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .simple text.note { font-size:22px; font-weight:500; fill:var(--muted); }
   .simple text.big { font-size:40px; font-weight:700; }
   .simple .eq { position:absolute; left:0; display:flex; align-items:center; justify-content:center; font-size:40px; color:var(--text); }
+  .simple .eq-detail { position:absolute; padding:16px 20px; border:2px solid var(--accent); border-radius:14px; background:var(--card);
+                       font-size:30px; color:var(--text); box-sizing:border-box; }
+  .simple .eq-detail-title { font-size:24px; font-weight:700; color:var(--accent); margin:4px 0 8px; }
+  .simple .eq-detail-line { margin:6px 0; }
   .chain .step { position:absolute; display:flex; align-items:center; justify-content:center; text-align:center; padding:10px 16px;
                  box-sizing:border-box; border-radius:16px; border:3px solid var(--border); background:var(--card); color:var(--text);
                  font-size:26px; font-weight:600; line-height:1.15; }
@@ -1296,6 +1339,9 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .battery { width:190px; height:96px; display:flex; justify-content:space-between; align-items:center; padding:0 28px;
              box-sizing:border-box; font-size:52px; font-weight:700; min-width:0; }
   .battery .neg { color:var(--neg); } .battery .pos { color:var(--pos); }
+  .battery.upright { width:110px; height:170px; flex-direction:column-reverse; padding:18px 0; }   /* + at the top */
+  .pop.aside { flex-direction:row; align-items:center; } .pop.aside > .label { margin:0 0 0 14px; }   /* label beside an upright part */
+  .pop.aside.flip { flex-direction:row-reverse; } .pop.aside.flip > .label { margin:0 14px 0 0; }
   .switch { width:200px; height:90px; position:relative; }
   .switch .dot { position:absolute; bottom:8px; width:22px; height:22px; border-radius:50%; border:5px solid var(--ink);
                  background:var(--card); }
@@ -2237,14 +2283,31 @@ function buildSimple(ent) {
       sv("line", {x1: left, y1: y(z.line), x2: right, y2: y(z.line), stroke: "#EF4444", "stroke-width": 3, "stroke-dasharray": "10 8"}, p.line);
       txt(p.line, right, y(z.line) - 10, z.line_text, "end", "note"); }
   } else if (z.kind === "EQUATION_STEPS") {
-    p.lines = z.steps.map((latex, i) => { const box = el("div", "eq");
-      Object.assign(box.style, {top: `${i * z.line}px`, width: `${z.width}px`, height: `${z.line - 40}px`, opacity: 0});
-      if (window.katex) katex.render(latex, box, {throwOnError: false, trust: false, strict: "ignore", maxSize: 10, maxExpand: 200});
-      else box.textContent = latex;
+    // the steps on pages (equation_pages): a step past the room opens a new page, the step before carried at its top;
+    // a system's reductions worked out on the left (z.pane px), the steps on the right
+    const cx = z.pane + (z.width - z.pane) / 2;
+    p.lines = z.slots.map(slot => { const box = el("div", "eq");
+      Object.assign(box.style, {left: `${z.pane}px`, top: `${slot.top}px`, width: `${z.width - z.pane}px`, height: `${z.heights[slot.step] - 40}px`, opacity: 0});
+      if (window.katex) katex.render(z.steps[slot.step], box, {throwOnError: false, trust: false, strict: "ignore", maxSize: 10, maxExpand: 200});
+      else box.textContent = z.steps[slot.step];
       shape.append(box); return box; });
-    p.notes = z.notes.map((note, i) => { const g = sv("g", {opacity: 0}, s), y = (i + 1) * z.line - 26;
-      sv("path", {d: `M${z.width / 2} ${y - 16} V${y + 12}`, stroke: "var(--accent)", "stroke-width": 4, "marker-end": "url(#annHead)"}, g);
-      txt(g, z.width / 2 + 30, y + 6, note, "start", "note"); return g; });
+    p.notes = z.notes.map((note, i) => {   // under step i, on the page where step i + 1 is
+      const page = z.slots.find(sl => sl.step === i + 1 && !sl.carry).page, above = z.slots.find(sl => sl.step === i && sl.page === page);
+      const g = sv("g", {opacity: 0}, s), y = above.top + z.heights[i] - 26;
+      sv("path", {d: `M${cx} ${y - 16} V${y + 12}`, stroke: "var(--accent)", "stroke-width": 4, "marker-end": "url(#annHead)"}, g);
+      txt(g, cx + 30, y + 6, note, "start", "note"); g.page = page; g.y = y; return g; });
+    // each reduction's detail (app.linear_system): the rows, the multiple added, the result, what vanished
+    p.details = (z.details || []).map((ops, i) => {
+      if (!ops) return null;
+      const box = el("div", "eq-detail");
+      for (const op of ops) {
+        box.append(el("div", "eq-detail-title", `Calcul : ${op.title}`));     // computed text: textContent
+        for (const line of op.lines) { const l = el("div", "eq-detail-line");
+          if (window.katex) katex.render(line, l, {throwOnError: false, trust: false, strict: "ignore"}); else l.textContent = line;
+          box.append(l); }
+      }
+      Object.assign(box.style, {left: "0px", width: `${z.pane - 40}px`, opacity: 0});
+      shape.append(box); return box; });
   } else if (z.kind === "POWER_SUPPLY") {
     sv("rect", {x: 10, y: 10, width: z.width - 20, height: z.height - 60, rx: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
     sv("rect", {x: 30, y: 30, width: z.width - 60, height: 70, rx: 8, fill: "#0F2A1F"}, s);
@@ -2320,8 +2383,16 @@ function seekSimple(e, t) {
       b.val.setAttribute("opacity", k >= 1 ? 1 : 0); });
     if (p.line) p.line.setAttribute("opacity", ease((e.spawn || 0) + 0.3));
   } else if (z.kind === "EQUATION_STEPS") {
-    p.lines.forEach((l, i) => { const k = ease(inTurn(e, "step", i, 0.3)); l.style.opacity = k; l.style.transform = `translateY(${(1 - k) * 14}px)`; });
-    p.notes.forEach((g, i) => g.setAttribute("opacity", ease(inTurn(e, "step", i + 1, 0.3) - 0.4)));
+    const ks = z.steps.map((_, i) => ease(inTurn(e, "step", i, 0.3))), last = ks.reduce((m, k, i) => k > 0 ? i : m, 0);
+    const page = z.slots.find(sl => sl.step === last && !sl.carry).page;     // the page of the last step in
+    p.lines.forEach((l, j) => { const sl = z.slots[j], k = sl.page !== page ? 0 : sl.carry ? 1 : ks[sl.step];
+      l.style.opacity = k; l.style.transform = `translateY(${(1 - k) * 14}px)`; });
+    p.notes.forEach((g, i) => g.setAttribute("opacity", g.page === page ? ease(inTurn(e, "step", i + 1, 0.3) - 0.4) : 0));
+    // the detail of the reduction that made the last step in, beside its arrow, until the next step comes
+    p.details.forEach((box, i) => { if (!box) return;
+      const g = p.notes[i], on = g && g.page === page && last === i + 1;
+      if (on && !box.placed) { box.style.top = `${clamp(g.y - box.offsetHeight / 2, 0, Math.max(0, z.height - box.offsetHeight))}px`; box.placed = true; }
+      box.style.opacity = on ? ks[i + 1] : 0; });
   } else if (z.kind === "POWER_SUPPLY") {
     const on = lastState(e, t, "output") === true, v = lastState(e, t, "voltage"), cc = lastState(e, t, "cc") === true;
     const target = typeof v === "number" ? v : z.voltage;
@@ -2435,7 +2506,13 @@ function buildPhys(ent) {
     sv("line", {x1: 1000, y1: 250, x2: z.width - 20, y2: 250, stroke: "var(--muted)", "stroke-width": 2}, p.graph);
     txt(p.graph, 1010, 110, z.osc === "spring" ? "x(t)" : "θ(t)", "start", "note");
     p.curve = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 4}, p.graph);
-    p.period = txt(s, 380, z.height - 20, z.period, "middle", "big"); p.period.setAttribute("opacity", 0);
+    // a pendulum's lines under it, worked out in phys_data: its angle and sine, its period, n oscillations timed
+    p.period = txt(s, 370, z.osc === "pendulum" ? 520 : z.height - 20, z.period, "middle", z.osc === "pendulum" ? "note" : "big");
+    p.period.setAttribute("opacity", 0);
+    if (z.osc === "pendulum") {
+      p.details = (z.details || []).map((line, i) => { const n = txt(s, 370, 440 + 36 * i, line, "middle", "note"); n.setAttribute("opacity", 0); return n; });
+      p.count = txt(s, 370, 560, "", "middle", "note");
+    }
   } else if (z.kind === "ORBIT") {
     const a = 300, b = a * Math.sqrt(1 - z.e * z.e), c = a * z.e, cx = z.width / 2 + c, cy = z.height / 2 - 10;
     p.geo = {a, b, c, cx, cy};       // the ellipse's centre at (cx - c, cy); the central body at the focus (cx, cy)
@@ -2510,7 +2587,8 @@ function seekPhys(e, t) {
     }
     p.balance.setAttribute("opacity", shownFrom(e, "balance", t));
   } else if (z.kind === "OSCILLATOR") {
-    const go = physStart(e), shownT = z.T * 2.2, slow = shownT / (PHYS_RUN * 2), u = go === null || t < go ? 0 : (t - go) * slow;
+    // a pendulum in real time (two of them side by side drift apart as their periods differ), a spring slowed
+    const go = physStart(e), shownT = z.T * 2.2, slow = z.real_time ? 1 : shownT / (PHYS_RUN * 2), u = go === null || t < go ? 0 : (t - go) * slow;
     const wd = Math.sqrt(Math.max(z.omega * z.omega - z.gamma * z.gamma, 1e-9)), at = tt => Math.exp(-z.gamma * tt) * Math.cos(wd * tt);
     const f = go === null || t < go ? 1 : at(u);      // released from its start position
     const v = go === null || t < go ? 0 : -Math.exp(-z.gamma * u) * (z.gamma * Math.cos(wd * u) + wd * Math.sin(wd * u)) / z.omega;
@@ -2533,6 +2611,14 @@ function seekPhys(e, t) {
     for (let i = 0; i <= 80; i++) { const ti = u * i / 80; pts.push(`${1010 + gw * ti / shownT} ${250 - 110 * at(ti)}`); }
     p.curve.setAttribute("d", go === null || t < go ? "" : "M" + pts.join(" L"));
     p.period.setAttribute("opacity", shownFrom(e, "period", t));
+    if (p.details) {
+      const shown = Math.max(shownFrom(e, "period", t), shownFrom(e, "details", t));
+      p.details.forEach(n => n.setAttribute("opacity", shown));
+      const n = lastState(e, t, "count");
+      p.count.textContent = Number.isInteger(n) && n > 0 ? `${n} oscillations : ${n} × ${frenchNumber(z.T, 2)} s = ${frenchNumber(n * z.T, 1)} s` : "";
+      const counted = e.states.find(s => s.at >= 0 && s.at <= t && s.state && typeof s.state === "object" && "count" in s.state);
+      p.count.setAttribute("opacity", Number.isInteger(n) && counted ? clamp((t - counted.at) / 0.5, 0, 1) : 0);
+    }
   } else if (z.kind === "ORBIT") {
     const {a, b, c, cx, cy} = p.geo, go = physStart(e), M = go === null || t < go ? 0 : 2 * Math.PI * (t - go) / (PHYS_RUN * 1.6);
     const at = Mx => { const E = keplerAt(z.e, Mx); return [cx - c + a * Math.cos(E), cy + b * Math.sin(E)]; };
@@ -3122,10 +3208,13 @@ const PART_SYMBOLS = {
 };
 function buildPart(ent) {
   const [w, h, draw] = PART_SYMBOLS[ent.type], shape = el("div", "part");
-  Object.assign(shape.style, {width: `${w}px`, height: `${h}px`});
-  const svg = sv("svg", {width: w, height: h, viewBox: `0 0 ${w} ${h}`, overflow: "visible"});
+  // upright (a divider's column): drawn turned a quarter, its left lead at the top (vertical 1) or the bottom (-1)
+  const [W, H] = ent.vertical ? [h, w] : [w, h];
+  Object.assign(shape.style, {width: `${W}px`, height: `${H}px`});
+  const svg = sv("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`, overflow: "visible"});
+  const g = !ent.vertical ? svg : sv("g", {transform: ent.vertical === 1 ? `translate(${h} 0) rotate(90)` : `translate(0 ${w}) rotate(-90)`}, svg);
   ent.partParts = {label: ent.rail || ""};      // a supply's voltage (LLM text: textContent only)
-  draw(svg, ent.partParts);
+  draw(g, ent.partParts);
   shape.append(svg);
   return shape;
 }
@@ -3274,6 +3363,14 @@ if (STYLE.title === "kinetic") String(D.title || "").split(/(\s+)/).forEach(part
   const w = el("span", "word", part); TITLE.append(w); TITLE_WORDS.push(w); });
 else TITLE.textContent = D.title || "";
 SUBTITLE.textContent = (STYLE.subtitle === "code" && !D.plan ? `// étape ${String(D.scene_number || 1).padStart(2, "0")} : ` : "") + (D.subtitle || "");
+// Title and subtitle on one line each, smaller if need be: a title on two lines ran over its subtitle
+// (physics, 2026-11-06: "Pourquoi la période d'un pendule augmente-t-elle avec l'amplitude ?").
+function oneLine(node, smallest) {
+  let size = parseFloat(getComputedStyle(node).fontSize);
+  const lines = () => node.getBoundingClientRect().height / (parseFloat(getComputedStyle(node).lineHeight) || size * 1.2);
+  while (node.textContent.trim() && lines() > 1.5 && size > smallest) { size -= 2; node.style.fontSize = `${size}px`; }
+}
+oneLine(TITLE, 40); oneLine(SUBTITLE, 22);
 // The plan: one row per chapter, PLAN_PAGE rows a page; the next page takes the place of the last one
 // when its first chapter is named (ten chapters no longer run over the titles).
 const PLAN = [], PLAN_PAGE = 6;
@@ -3307,7 +3404,7 @@ for (const ent of D.entities) {
   if (ent.compact) box.classList.add("compact");
   if (ent.rides) box.classList.add("passenger");
   if (ent.type === "LAMP") { shape = el("div", "bulb"); lamp = buildLamp(shape); }
-  else if (ent.type === "BATTERY") { shape = el("div", "card battery"); shape.append(el("span", "neg", "−"), el("span", "pos", "+")); }
+  else if (ent.type === "BATTERY") { shape = el("div", "card battery" + (ent.upright ? " upright" : "")); shape.append(el("span", "neg", "−"), el("span", "pos", "+")); }
   else if (ent.type === "SWITCH") { shape = el("div", "switch"); const l = el("div", "lever");
     const a = el("div", "dot"), b = el("div", "dot"); a.style.left = "6px"; b.style.right = "6px"; shape.append(a, b, l); }
   else if (ent.type === "AMMETER") { shape = el("div", "meter"); shape.append(el("div", "unit", "A"), el("div", "reading", "0,00 A")); }
@@ -3375,6 +3472,8 @@ for (const ent of D.entities) {
   if (!shape) continue;
   if (ent.tone) { shape.classList.add("toned"); shape.style.setProperty("--tone", `var(--tone-${ent.tone})`); }
   pop.append(shape);
+  if (ent.vertical || ent.upright) pop.classList.add("aside");          // its label beside it, not on its lead
+  if (ent.upright) pop.classList.add("flip");                            // the battery's on its left: its wires leave right
   // A curve's label is its legend, a meter's is in its header; a junction has none.
   if (ent.label && !["CURVE_PLOT", "WIRE_BUS"].includes(ent.type) && !ent.instrument && !ent.annotation)
     pop.append(el("div", "label", ent.label));
@@ -3635,7 +3734,14 @@ const PORTS = {
   PEDAL_CRANK: {rim: [1, 0.5, RIGHT]},
   SPROCKET: {rim: [1, 0.5, RIGHT]},
 };
-const portsOf = e => PORTS[e.data.type] || (e.data.icon ? SIDE_PORTS : {});
+const UPRIGHT_BATTERY = {positive: [1, 0.27, RIGHT], negative: [1, 0.73, RIGHT]};
+function turned(ports, way) {      // a part's ports turned a quarter: way 1 clockwise (left lead on top), -1 the other way
+  const dir = d => way === 1 ? [-d[1], d[0]] : [d[1], -d[0]];
+  return Object.fromEntries(Object.entries(ports).map(([k, [fx, fy, d]]) => [k, way === 1 ? [1 - fy, fx, dir(d)] : [fy, 1 - fx, dir(d)]]));
+}
+const portsOf = e => e.data.type === "BATTERY" && e.data.upright ? UPRIGHT_BATTERY
+  : e.data.vertical && PORTS[e.data.type] ? turned(PORTS[e.data.type], e.data.vertical)
+  : PORTS[e.data.type] || (e.data.icon ? SIDE_PORTS : {});
 function anchor(e, port) {
   // The exact point of a named port on the drawing, and its outward direction; null if unknown.
   const spec = portsOf(e)[port];
@@ -4578,7 +4684,13 @@ function buildFlows() {
     let pts = [], used = [];
     for (let i = 1; i < ids.length; i++) {
       const w = W.find(w => !used.includes(w) && w.a === ids[i - 1] && w.b === ids[i]) || W.find(w => !used.includes(w) && w.a === ids[i] && w.b === ids[i - 1]);
-      if (w) { used.push(w); pts = pts.concat(w.a === ids[i - 1] ? w.pts : [...w.pts].reverse()); }
+      if (w) { used.push(w); pts = pts.concat(w.a === ids[i - 1] ? w.pts : [...w.pts].reverse()); continue; }
+      // no wire between them: two wires meeting at one lead of a third part (the divider's load wired to
+      // the bottom resistor's foot, layout_solver.place_divider): along both, never through that part
+      const ends = w => [[w.a, w.ap, w.b, w.bp, w.pts], [w.b, w.bp, w.a, w.ap, [...w.pts].reverse()]];
+      const via = W.flatMap(w1 => ends(w1).filter(([from]) => from === ids[i - 1]).flatMap(([, , x, xp, p1]) =>
+        W.flatMap(w2 => w2 === w1 ? [] : ends(w2).filter(([from, fp, to]) => from === x && fp === xp && to === ids[i]).map(([, , , , p2]) => p1.concat(p2)))))[0];
+      if (via) pts = pts.concat(via);
       else pts.push(E[ids[i - 1]].data.xy, E[ids[i]].data.xy);
     }
     if (pts.length < 2) continue;
@@ -5293,7 +5405,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
             audio_path = os.path.join(temp_dir, name + ".mp3")
             spoken = []                    # when each word is said: the actions' cues are timed on it
             engine = {}
-            voice = generate_voice(narration, audio_path, spoken, engine, (sound or {}).get("voice_id"))
+            voice = generate_voice(narration, audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"))
             jobs.append({"name": name, "scene": scene, "source": source, "audio": audio_path, "voice": voice, "spoken": spoken,
                          "subtitles": subtitle_cues(narration, spoken, voice, plain_math),
                          "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, name + "_visual.mp4"),
@@ -5304,7 +5416,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
         if plan:                           # the plan, after the hook
             audio_path = os.path.join(temp_dir, "plan.mp3")
             spoken, engine = [], {}
-            voice = generate_voice(plan["narration"], audio_path, spoken, engine, (sound or {}).get("voice_id"))
+            voice = generate_voice(plan["narration"], audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"))
             jobs.insert(PLAN_AFTER, {"name": "plan", "plan": plan, "audio": audio_path, "voice": voice, "spoken": spoken,
                                      "subtitles": subtitle_cues(plan["narration"], spoken, voice, plain_math),
                                      "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, "plan_visual.mp4"),
@@ -5427,7 +5539,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     warnings, scenes, duration = [], [], None
     sound = {"channel": channel_id, "music": settings.get("background_music", True), "effects": settings.get("sound_effects", True),
              "style": settings.get("music_style_by_channel", {}).get(channel_id) or settings.get("music_style", "ambient"),
-             "voice_id": str((settings.get("voice_by_channel", {}).get(channel_id) or {}).get("voice_id") or "").strip() or None}
+             "voice_id": str((settings.get("voice_by_channel", {}).get(channel_id) or {}).get("voice_id") or "").strip() or None,
+             "speed": (settings.get("voice_by_channel", {}).get(channel_id) or {}).get("speed") or VOICE_SPEEDS.get(channel_id)}
     try:
         if settings.get("dry_run", True):
             with open(video_path, "wb") as f:

@@ -41,7 +41,8 @@ def case_worked_out():
         problems.append(f"inelastic collision: {inel['u1']}, {inel['verdict']}")
     if abs(d("OSCILLATOR", STATES["OSCILLATOR"])["T"] - 2 * math.pi / 10) > 1e-9:
         problems.append("spring period")
-    if abs(d("OSCILLATOR", {"kind": "pendulum", "L": 1, "theta0": 10, "g": 9.8})["T"] - 2 * math.pi * math.sqrt(1 / 9.8)) > 1e-9:
+    # the exact period: at 10°, 0,19 % over 2π √(L / g)
+    if abs(d("OSCILLATOR", {"kind": "pendulum", "L": 1, "theta0": 10, "g": 9.8})["T"] / (2 * math.pi * math.sqrt(1 / 9.8)) - 1.0019) > 0.0002:
         problems.append("pendulum period")
     if "1,63 s" not in d("KINEMATICS", STATES["KINEMATICS"])["text"]:
         problems.append(f"flight time: {d('KINEMATICS', STATES['KINEMATICS'])['text']}")
@@ -69,5 +70,35 @@ def case_drawn():
     return report("2. the five physics pieces drawn and moving, no conflict", problems)
 
 
+def case_pendulum():
+    """The physics run of 2026-11-06: pendulums of 5° and 45° both showed 2,01 s (the small-angle formula),
+    swung at one pace, and a long title ran over its subtitle."""
+    problems = []
+    big, small = (renderer.phys_data("OSCILLATOR", {"kind": "pendulum", "L": 1, "theta0": th}) for th in (45, 5))
+    if abs(big["T"] / small["T"] - 1.0400 / 1.0002) > 0.002 or "2,09 s" not in big["period"] or "2π √(L / g) = 2,01 s" not in small["period"]:
+        problems.append(f"exact periods: {big['T']}, {big['period']}; {small['T']}, {small['period']}")
+    if not any("0,707" in line for line in big["details"]) or not any("10 %" in line for line in big["details"]):
+        problems.append(f"the angle and its sine not shown: {big['details']}")
+    title = "Pourquoi la période d’un pendule augmente-t-elle avec l’amplitude ?"
+    brief = {"scene_id": "2", "text_overlay": {"title": title, "subtitle": "Petits et grands balancements"}, "connections": [],
+             "entities": [{"id": i, "type": "OSCILLATOR", "position": [x, -0.3, 0], "initial_state": {"kind": "pendulum", "L": 1, "theta0": th}}
+                          for i, x, th in (("p5", -3, 5), ("p45", 3, 45))],
+             "actions": [{"at": 0.5, "action": "set_state", "target": i, "state": st, "cue": "x"}
+                         for i in ("p5", "p45") for st in ({"go": True}, {"period": True}, {"count": 10})]}
+    data = renderer.page_data(brief, 8, None)
+    data["events"] = brief["actions"]
+    found = open_pages({"p": data}, """() => { window.seek(7);
+      const t = TITLE.getBoundingClientRect(), s = SUBTITLE.getBoundingClientRect();
+      return {gap: s.top - t.bottom, count: E.p45.data.physParts.count.textContent, x5: +E.p5.data.physParts.bob.getAttribute('cx'),
+              x45: +E.p45.data.physParts.bob.getAttribute('cx'), conflicts: window.layoutConflicts}; }""")["p"]
+    if found["gap"] < 0:
+        problems.append(f"the title runs over its subtitle by {-found['gap']:.0f} px")
+    if found["count"] != "10 oscillations : 10 × 2,09 s = 20,9 s":
+        problems.append(f"ten oscillations timed: {found['count']!r}")
+    if found["conflicts"]:
+        problems.append(f"conflicts: {found['conflicts']}")
+    return report("3. a pendulum's exact period at its angle, its sine shown, ten oscillations timed; the title on one line", problems)
+
+
 if __name__ == "__main__":
-    sys.exit(0 if all([case_worked_out(), case_drawn()]) else 1)
+    sys.exit(0 if all([case_worked_out(), case_drawn(), case_pendulum()]) else 1)

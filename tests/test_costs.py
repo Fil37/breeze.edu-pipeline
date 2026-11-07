@@ -56,7 +56,7 @@ def case_voice():
     costs.PENDING.clear()
     saved = (tts_manager.elevenlabs_voice, tts_manager.media_duration, os.environ.get("ELEVENLABS_API_KEY"))
     try:
-        tts_manager.elevenlabs_voice = lambda text, mp3_path, key, voice_id=None: [(0.0, "Bonjour")]
+        tts_manager.elevenlabs_voice = lambda text, mp3_path, key, voice_id=None, speed=None: [(0.0, "Bonjour")]
         tts_manager.media_duration = lambda path: 1.0
         os.environ["ELEVENLABS_API_KEY"] = "test-key"
         tts_manager.generate_voice("Bonjour à tous.", os.devnull)

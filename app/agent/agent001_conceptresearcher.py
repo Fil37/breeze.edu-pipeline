@@ -42,9 +42,16 @@ Channel: {name} (domain: {domain}). Audience: age {age}, persona: {persona}.
 {scope}
 {choice}
 Every factual claim must come from a source with a real, public URL. If you cannot cite it, leave it out.
+"facts": the 4 to 8 facts a viewer needs to know what is being talked about, each with the figures and
+its source. For a measure, a law, a tax, a policy or a news event, ALWAYS: what it is, who proposed it
+and when, where it stands now (proposed, voted, rejected, in force), who is concerned (the thresholds,
+how many people), what it would bring or cost, the main argument for and against. (A video on the
+Zucman tax never said who Zucman is, nor that it concerns fortunes over a threshold, nor where the law
+stands: viewers did not know what it was about.)
 IMPORTANT: The target audience is French. You MUST write all your output (text, explanations, titles, descriptions, tags) in PERFECT FRENCH. The JSON keys must remain in English, but the VALUES must be in French.
 Answer with JSON only:
 {{"concept": "...", "misconceptions": ["..."], "analogies": ["..."],
+  "facts": [{{"fact": "...", "source": "https://..."}}],
   "sources": [{{"title": "...", "url": "https://..."}}],
   "difficulty_assessment": "...", "why_now": "..."}}"""
 # What each domain covers: the concept stays inside it (a "math" channel never gets the seasons).

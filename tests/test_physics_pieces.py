@@ -97,7 +97,18 @@ def case_pendulum():
         problems.append(f"ten oscillations timed: {found['count']!r}")
     if found["conflicts"]:
         problems.append(f"conflicts: {found['conflicts']}")
-    return report("3. a pendulum's exact period at its angle, its sine shown, ten oscillations timed; the title on one line", problems)
+    from app.agent import agent004_visualbriefgenerator as agent004
+    from models.visual_brief_schema import SceneVisualBrief
+    pend = lambda i, x, th: {"id": i, "type": "OSCILLATOR", "position": [x, 0, 0], "initial_state": {"kind": "pendulum", "L": 1, "theta0": th}}
+    axes = {"id": "ax", "type": "AXES_GRAPH", "position": [0, 0, 0], "initial_state": {"x_range": [0, 1.2, 0.2], "y_range": [0, 1.2, 0.2],
+                                                                                    "x_label": "θ (rad)", "y_label": "sin θ"}}
+    comp = lambda ents: agent004.comparison_problem(SceneVisualBrief.model_validate(
+        {"scene_id": "5", "text_overlay": {"title": "x"}, "connections": [], "actions": [], "entities": ents}))
+    if not comp([pend("a", -3, 10), pend("b", 3, 60), axes]) or not comp([pend("a", -3, 10), pend("b", 3, 60), {**axes, "position": [3, -1, 0]}]):
+        problems.append("a graph on the middle line, or two drawings in one panel, kept (the run of 2026-11-07)")
+    if comp([pend("a", -3, 10), pend("b", 3, 60)]):
+        problems.append("one pendulum a panel sent back")
+    return report("3. a pendulum's exact period at its angle, its sine shown, ten oscillations timed; the title on one line; one drawing a panel", problems)
 
 
 if __name__ == "__main__":

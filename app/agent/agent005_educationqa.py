@@ -144,7 +144,12 @@ VOLTMETER_PROBES reads a voltage: {{"action": "measure", "target": "<its id>", "
 probe), "target_pin_b": "<id>.<port>" (black probe), "value": volts, "unit": "V"}}.
 
 TASK:
-1. Score from 0 to 10: accuracy (claims match the research and the domain rules), simplicity
+1. Score from 0 to 10: accuracy (claims match the research and the domain rules; every real-world figure
+   said or shown is in the research's "facts", an example respects them: a figure out of nowhere, or an
+   example that contradicts them (a fortune under the tax's threshold), scores accuracy 5 at most and
+   rejects to agent003; a computed result shown without the formula and values that give it ("-4 V"
+   alone instead of "V_s = -R_2/R_1 × V_e = -2 × 2 = -4 V") lowers clarity and is fixed by a
+   set_initial_state patch on its latex / text), simplicity
    (the audience can follow), clarity (each visual supports its narration).
 2. Correct the storyboard with patches, ONLY of these kinds (scene_id as in the storyboard):
    {{"op": "set_overlay", "scene_id": "1", "title": "...", "subtitle": "..."}}

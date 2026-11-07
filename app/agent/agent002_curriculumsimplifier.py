@@ -22,6 +22,8 @@ AGENT = "agent002"
 PROMPT = """You are a curriculum designer. Turn this research into a learning arc for age {age}.
 Research: {research}
 Start from the misconception, build up step by step, and land on one clear "aha moment".
+For a measure, a law, a tax, a policy or a news event, the first beats say what it is, who proposed it
+and when, where it stands and who is concerned (from the research's facts), before its mechanism.
 Do not write narration and do not describe visuals in detail: only the teaching steps.
 IMPORTANT: The target audience is French. You MUST write all your output (text, explanations, titles, descriptions, tags) in PERFECT FRENCH. The JSON keys must remain in English, but the VALUES must be in French.
 Answer with JSON only:
@@ -59,6 +61,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         outline = parse_llm_json(llm_call((PROJECT_PROMPT if project else PROMPT).format(age=route["target_age_band"], research=research)))
         if project:
             outline["format"] = "project"
+        if research.get("facts"):          # the script says only these figures (agent003), the QA checks them (agent005)
+            outline["facts"] = research["facts"]
     except (RuntimeError, ValueError) as exc:
         return finish(channel_id, AGENT, "outline", "critical", output_path, error=str(exc))
 

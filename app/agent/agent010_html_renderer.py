@@ -69,7 +69,7 @@ from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.breadboard import breadboard_data
 from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
-                               logic_size, place_divider, place_schematic, split_rails, target_first_timing, with_program)
+                               logic_size, place_divider, place_opamp, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
@@ -468,20 +468,23 @@ def simple_data(kind, state):
     elif kind == "TREE":
         nodes, leaves = [], [0]
 
-        def walk(branches, depth, path, prob):
+        def walk(branches, depth, path, prob, factors=()):
             """Lay out a node's branches (leaves one under the other, a node at its leaves' middle)."""
             ys = []
             for b in branches:
                 p = b.get("p")
                 here, chance = path + [b["label"]], (prob * p if prob is not None and p is not None else None)
+                along = factors + ((figure(p),) if p is not None else ())
                 if b.get("branches"):
-                    y = walk(b["branches"], depth + 1, here, chance)
+                    y = walk(b["branches"], depth + 1, here, chance, along)
                 else:
                     y = 20 + TREE_LEAF * (leaves[0] + 0.5)
                     leaves[0] += 1
                 nodes.append({"label": plain_math(b["label"]), "p": None if p is None else figure(p), "x": 110 + TREE_LEVEL * (depth + 1), "y": round(y, 1),
                               "depth": depth, "path": [plain_math(x) for x in here], "parent": [plain_math(x) for x in path],
-                              "product": None if chance is None else figure(chance), "leaf": not b.get("branches")})
+                              # a result shown with what gives it: the probabilities along the path multiplied
+                              "product": None if chance is None else (f"{' × '.join(along)} = {figure(chance)}" if len(along) > 1 else figure(chance)),
+                              "leaf": not b.get("branches")})
                 ys.append(y)
             return sum(ys) / len(ys)
         root_y = walk(state["branches"], 0, [], 1.0)
@@ -513,7 +516,7 @@ def simple_data(kind, state):
                    slots=equation_pages(state["steps"])[0], heights=heights, details=equation_details(state["steps"]))
         out["pane"] = EQUATION_DETAIL_W if any(out["details"]) else 0
     elif kind == "POWER_SUPPLY":
-        out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1))
+        out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1), output=state.get("output") is True)
     return out
 
 
@@ -537,16 +540,17 @@ def phys_data(kind, state):
         k, (vx, vy), g, a = state.get("kind", "projectile"), state.get("v0", [10, 5]), float(state.get("g", 9.8)), float(state.get("a", 2))
         if k == "projectile":
             T = 2 * vy / g
-            out["text"] = f"Durée {figure(T, 2)} s · portée {figure(vx * T, 1)} m · hauteur max {figure(vy * vy / (2 * g), 1)} m"
+            out["text"] = (f"t = 2 v₀y / g = {figure(T, 2)} s · portée = v₀x × t = {figure(vx * T, 1)} m · "
+                           f"h max = v₀y² / (2g) = {figure(vy * vy / (2 * g), 1)} m")
         elif k == "free_fall":
             T, vx, vy = 2.0, 0.0, 0.0
-            out["text"] = f"En 2 s : chute de {figure(0.5 * g * 4, 1)} m, vitesse {figure(g * 2, 1)} m/s"
+            out["text"] = f"En 2 s : h = ½ g t² = {figure(0.5 * g * 4, 1)} m, v = g t = {figure(g * 2, 1)} m/s"
         elif k == "accelerated":
             T = 4.0
-            out["text"] = f"En 4 s : {figure(vx * T + a * T * T / 2, 1)} m, vitesse {figure(vx + a * T, 1)} m/s"
+            out["text"] = f"En 4 s : x = v₀ t + ½ a t² = {figure(vx * T + a * T * T / 2, 1)} m, v = v₀ + a t = {figure(vx + a * T, 1)} m/s"
         else:
             T = 4.0
-            out["text"] = f"Vitesse constante {figure(vx, 1)} m/s : {figure(vx * T, 1)} m en 4 s"
+            out["text"] = f"Vitesse constante {figure(vx, 1)} m/s : x = v t = {figure(vx, 1)} × 4 = {figure(vx * T, 1)} m en 4 s"
         out.update(motion=k, vx=vx, vy=vy, g=g, a=a, T=T)
     elif kind == "COLLISION":
         m1, v1, m2, v2 = (float(state[k]) for k in ("m1", "v1", "m2", "v2"))
@@ -556,14 +560,16 @@ def phys_data(kind, state):
             u1 = u2 = (m1 * v1 + m2 * v2) / (m1 + m2)
         e0, e1 = 0.5 * m1 * v1 ** 2 + 0.5 * m2 * v2 ** 2, 0.5 * m1 * u1 ** 2 + 0.5 * m2 * u2 ** 2
         out.update(m1=m1, m2=m2, v1=v1, v2=v2, u1=u1, u2=u2, elastic=state.get("type", "elastic") == "elastic",
-                   before=f"Avant : p = {figure(m1 * v1 + m2 * v2, 2)} kg·m/s, Ec = {figure(e0, 2)} J",
-                   after=f"Après : p = {figure(m1 * u1 + m2 * u2, 2)} kg·m/s, Ec = {figure(e1, 2)} J",
+                   before=(f"Avant : p = m₁v₁ + m₂v₂ = {figure(m1 * v1 + m2 * v2, 2)} kg·m/s, "
+                           f"Ec = ½m₁v₁² + ½m₂v₂² = {figure(e0, 2)} J"),
+                   after=(f"Après : p = m₁v₁' + m₂v₂' = {figure(m1 * u1 + m2 * u2, 2)} kg·m/s, "
+                          f"Ec = ½m₁v₁'² + ½m₂v₂'² = {figure(e1, 2)} J"),
                    verdict="Quantité de mouvement conservée" + (", énergie cinétique conservée" if abs(e1 - e0) < 1e-6 * max(e0, 1)
                                                                 else f", {figure(e0 - e1, 2)} J perdus (déformation, chaleur)"),
                    speeds=[f"{figure(v, 2)} m/s" for v in (v1, v2, u1, u2)], masses=[f"{figure(m1)} kg", f"{figure(m2)} kg"])
     elif kind == "OSCILLATOR":
         if state.get("kind", "spring") == "pendulum":
-            L, g, th = float(state.get("L", 1)), float(state.get("g", 9.8)), float(state.get("theta0", 20))
+            L, g, th = float(state.get("L", 1)), float(state.get("g", 9.81)), float(state.get("theta0", 20))
             w = math.sqrt(g / L)
             # the exact period: T = T₀ · 2/π · K(sin(θ₀/2)), K by the arithmetic-geometric mean (T = T₀ / agm);
             # 2π √(L / g) holds for small angles only (both pendulums of 5° and 45° once showed 2,01 s)
@@ -573,9 +579,14 @@ def phys_data(kind, state):
             t0, t = 2 * math.pi / w, 2 * math.pi / w / a
             rad, sine = math.radians(th), math.sin(math.radians(th))
             slower = (t / t0 - 1) * 100
+            borda = 1 + rad ** 2 / 16              # the first correction, T ≈ T₀ (1 + θ₀²/16): within reach of a lycée
             out.update(osc="pendulum", omega=2 * math.pi / t, gamma=0.0, amp=th, T=t, real_time=True,
                        period=(f"T = 2π √(L / g) = {figure(t0, 2)} s" if slower < 0.2
-                               else f"T = {figure(t, 2)} s, {figure(slower, 1)} % de plus que T₀ = {figure(t0, 2)} s"),
+                               else f"exacte : T = 4 √(L / g) · K(sin θ₀/2) = {figure(t, 2)} s, +{figure(slower, 1)} %"),
+                       # how the period is worked out, shown above it once the angle is not small
+                       formulas=[] if slower < 0.2 else [
+                           f"petits angles : T₀ = 2π √(L / g) = {figure(t0, 2)} s",
+                           f"T ≈ T₀ (1 + θ₀²/16) = {figure(t0, 2)} × {figure(borda, 3)} = {figure(t0 * borda, 2)} s"],
                        details=[f"θ₀ = {figure(th)}° = {figure(rad, 3)} rad, sin θ₀ = {figure(sine, 3)}",
                                 f"sin θ₀ ≈ θ₀ : écart {figure((rad - sine) / rad * 100, 1)} %"
                                 + (" (petit angle)" if slower < 0.2 else " : rappel plus faible, plus lent")])
@@ -1036,7 +1047,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
               style=None, scene_number=1):
     with_program(brief)
     split_rails(brief)
-    if not place_divider(brief):
+    if not place_opamp(brief) and not place_divider(brief):
         place_schematic(brief)
     compact_oscillators(brief)
     by_id = {e["id"]: e for e in brief["entities"]}
@@ -2394,7 +2405,9 @@ function seekSimple(e, t) {
       if (on && !box.placed) { box.style.top = `${clamp(g.y - box.offsetHeight / 2, 0, Math.max(0, z.height - box.offsetHeight))}px`; box.placed = true; }
       box.style.opacity = on ? ks[i + 1] : 0; });
   } else if (z.kind === "POWER_SUPPLY") {
-    const on = lastState(e, t, "output") === true, v = lastState(e, t, "voltage"), cc = lastState(e, t, "cc") === true;
+    // on from the start when its initial_state says so (every supply of the AOP run of 2026-11-07 read 0,00 V)
+    const set = lastState(e, t, "output"), on = set === undefined ? z.output : set === true;
+    const v = lastState(e, t, "voltage"), cc = lastState(e, t, "cc") === true;
     const target = typeof v === "number" ? v : z.voltage;
     p.volts.textContent = on ? `${frenchNumber(cc ? target * 0.6 : target, 2)} V` : "0,00 V";
     p.amps.textContent = `Limite ${frenchNumber(z.limit, 2)} A`;
@@ -2507,11 +2520,13 @@ function buildPhys(ent) {
     txt(p.graph, 1010, 110, z.osc === "spring" ? "x(t)" : "θ(t)", "start", "note");
     p.curve = sv("path", {d: "", fill: "none", stroke: "#3B82F6", "stroke-width": 4}, p.graph);
     // a pendulum's lines under it, worked out in phys_data: its angle and sine, its period, n oscillations timed
-    p.period = txt(s, 370, z.osc === "pendulum" ? 520 : z.height - 20, z.period, "middle", z.osc === "pendulum" ? "note" : "big");
+    // a pendulum: its angle and sine, how its period is worked out (T₀, Borda, exact), n oscillations timed
+    const pendLines = z.osc === "pendulum" ? [...(z.details || []), ...(z.formulas || [])] : [];
+    p.period = txt(s, 370, z.osc === "pendulum" ? 440 + 36 * pendLines.length : z.height - 20, z.period, "middle", z.osc === "pendulum" ? "note" : "big");
     p.period.setAttribute("opacity", 0);
     if (z.osc === "pendulum") {
-      p.details = (z.details || []).map((line, i) => { const n = txt(s, 370, 440 + 36 * i, line, "middle", "note"); n.setAttribute("opacity", 0); return n; });
-      p.count = txt(s, 370, 560, "", "middle", "note");
+      p.details = pendLines.map((line, i) => { const n = txt(s, 370, 440 + 36 * i, line, "middle", "note"); n.setAttribute("opacity", 0); return n; });
+      p.count = txt(s, 370, 476 + 36 * pendLines.length, "", "middle", "note");
     }
   } else if (z.kind === "ORBIT") {
     const a = 300, b = a * Math.sqrt(1 - z.e * z.e), c = a * z.e, cx = z.width / 2 + c, cy = z.height / 2 - 10;
@@ -3475,7 +3490,9 @@ for (const ent of D.entities) {
   if (ent.vertical || ent.upright) pop.classList.add("aside");          // its label beside it, not on its lead
   if (ent.upright) pop.classList.add("flip");                            // the battery's on its left: its wires leave right
   // A curve's label is its legend, a meter's is in its header; a junction has none.
-  if (ent.label && !["CURVE_PLOT", "WIRE_BUS"].includes(ent.type) && !ent.instrument && !ent.annotation)
+  // an AOP's "AOP" label: its symbol says it already, and under it the label sat on its 0 V lead
+  if (ent.label && !["CURVE_PLOT", "WIRE_BUS"].includes(ent.type) && !ent.instrument && !ent.annotation
+      && !(ent.type === "OPAMP" && /^\s*(aop|ampli)/i.test(ent.label)))
     pop.append(el("div", "label", ent.label));
   box.append(pop);
   if ((ent.instrument || (ent.annotation && ent.annotation.status)) && SIDE) {   // instruments and status badges: in the column

@@ -54,7 +54,7 @@ def case_worked_out():
     if (u["result"], u["factor"]) != ("2 500", "× 1 000"):
         problems.append(f"conversion: {u['result']}, {u['factor']}")
     leaf = next(n for n in d("TREE", STATES["TREE"])["nodes"] if n["path"] == ["Pile", "Face"])
-    if leaf["product"] != "0,25":
+    if leaf["product"] != "0,5 × 0,5 = 0,25":          # the result with what gives it
         problems.append(f"tree path: {leaf}")
     v = d("SET_DIAGRAM", STATES["SET_DIAGRAM"])
     if v["counts"]["either"] != 40 or v["counts"]["neither"] != 20 or not v["p"]["both"].endswith("0,167"):

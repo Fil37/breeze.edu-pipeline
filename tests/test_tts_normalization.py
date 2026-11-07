@@ -57,6 +57,9 @@ RULES = [
     # every letter by its name (the Gauss run of 2026-11-06 said "y" as in "il y a", "z" as written)
     ("y égale trois, donc deux x plus y moins z égale huit", "i grec égale trois, donc deux ixe plus i grec moins zède égale huit"),
     ("il y a une solution, on y va", "il y a une solution, on y va"),
+    # "y" a word but in maths (said "i grec" everywhere, "y compris" became "i grec compris")
+    ("y compris les riches, pour y voir clair, allez-y", "y compris les riches, pour y voir clair, allez-y"),
+    ("Y a-t-il une solution ? x et y sont positifs", "Y a-t-il une solution ? ixe et i grec sont positifs"),
     ("On ajoute 2L1 à L3", "On ajoute 2 elle 1 à elle 3"),
     ("b c d e f g h i j k l m n o p q r s t u v w x y z", "bé cé dé eu effe gé ache i ji ka elle emme enne o pé ku erre esse té u vé double vé ixe i grec zède"),
     ("il parcourt 100 m en 10 s", "il parcourt 100 mètres en 10 secondes"),

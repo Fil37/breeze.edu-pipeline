@@ -132,7 +132,14 @@ def case_detail():
     if shown["first"] != ["Calcul : L2 ← L2 − 2 L1", "Calcul : L3 ← L3 − L1"][:len(shown["first"])] or not shown["first"] \
             or shown["second"] != ["Calcul : L3 ← L3 − 2 L2"] or shown["conflicts"]:
         problems.append(f"the detail on the page: {shown}")
-    return report("3. each reduction worked out beside the steps; a system shown whole, its operations once", problems)
+    # the run of 2026-11-07: "le pivot de Gauss" narrated over a substitution, no row operation shown
+    substitution = scene([{**steps, "initial_state": {"steps": [r"\\begin{cases} 3a-c=0 \\\\ 8a-2d=0 \\end{cases}", "c=3a,\\ d=4a"], "notes": ["en a"]}}])
+    if not agent004.gauss_by_hand(substitution, "On élimine une inconnue sous le pivot."):
+        problems.append("a pivot narrated over a substitution kept")
+    if agent004.gauss_by_hand(scene([steps]), "On élimine x sous le pivot, ligne par ligne.") \
+            or agent004.gauss_by_hand(scene([one]), "Le pivot de Gauss simplifie sans changer la solution."):
+        problems.append("real row operations, or a pivot only named in a summing up, sent back")
+    return report("3. each reduction worked out beside the steps; a system shown whole, its operations once; a pivot shows row operations", problems)
 
 
 if __name__ == "__main__":

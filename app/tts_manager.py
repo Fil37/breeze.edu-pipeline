@@ -101,16 +101,28 @@ UNITS = {"V": "volts", "mV": "millivolts", "kV": "kilovolts", "A": "ampères", "
          "m": "mètres", "cm": "centimètres", "mm": "millimètres", "km": "kilomètres", "s": "secondes", "ms": "millisecondes",
          "min": "minutes", "h": "heures", "g": "grammes", "mg": "milligrammes", "m/s": "mètres par seconde",
          "km/h": "kilomètres à l'heure", "m/s²": "mètres par seconde au carré"}
-# "y" alone is the word of "il y a" after a pronoun or before a verb; elsewhere the unknown, "i grec".
-Y_WORD_BEFORE = r"(?:il|elle|ils|elles|on|ne|nous|vous)\s+"
-Y_WORD_AFTER = r"\s+(?:a|avait|aura|aurait|ait|en|va|vont|est|sont|ont|allons|voit|trouve)\b"
+# "y" alone is a word ("il y a", "y compris", "on y va") but in maths: beside a sign or a digit, or a
+# maths word ("égal", "plus", "x et y", "les y"), it is the unknown, said "i grec". (Said "i grec"
+# everywhere, "y compris" became "i grec compris".)
+Y_WORD_BEFORE = re.compile(r"(?:\b(?:il|elle|ils|elles|on|ne|nous|vous)\s+|[jnsmtl]['’])$", re.IGNORECASE)
+Y_MATHS_NEAR = re.compile(r"[=+\-−×*/<>≤≥≠≈(),;:\d]")
+Y_MATHS_BEFORE = re.compile(r"(?:\b(?:égale?s?|égalent|plus|moins|fois|sur|les|des|axe)|\b[a-z]\s+(?:et|ou)|(?<![\w'’])[b-xz]|"
+                            r"(?:inférieur|supérieur|égal)e?(?:\s+ou\s+égale?)?\s+à)\s+$", re.IGNORECASE)
+Y_MATHS_AFTER = re.compile(r"^\s+(?:égale?s?|égalent|vaut|valent|plus|moins|fois|sur|et\s+[a-z]\b|ou\s+[a-z]\b|"
+                           r"est\s+(?:égal|positif|négatif|nul)|inférieur|supérieur|indice)", re.IGNORECASE)
 
 
 def letter_name(m):
-    """A single letter said by its name ("y" -> "i grec", "z" -> "zède"), the "y" of "il y a" left as a word."""
+    """A single letter said by its name ("z" -> "zède"); "y" only in maths (see above), else left as a word."""
     letter, text, at = m.group(1), m.string, m.start(1)
-    if letter in "yY" and (re.search(Y_WORD_BEFORE + r"$", text[:at], re.IGNORECASE) or re.match(Y_WORD_AFTER, text[at + 1:], re.IGNORECASE)):
-        return letter
+    if letter in "yY":
+        before, after = text[:at], text[at + 1:]
+        if Y_WORD_BEFORE.search(before.rstrip(" ") + (" " if before.endswith(" ") else "")):
+            return letter
+        near = before.rstrip()[-1:] + after.lstrip()[:1]
+        maths = (Y_MATHS_NEAR.search(near) or Y_MATHS_BEFORE.search(before) or Y_MATHS_AFTER.match(after))
+        if not maths or re.match(r"^\s+compris\b", after, re.IGNORECASE):
+            return letter
     return LETTER_NAMES[letter.upper()]
 
 

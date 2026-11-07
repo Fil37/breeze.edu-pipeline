@@ -224,7 +224,12 @@ STATES = {
     ComponentType.POTENTIOMETER: NO_STATE + '; ports left, right and wiper (the middle point: a setpoint); label "P1 10 kΩ"',
     ComponentType.THERMISTOR: '{"hot": true} it warms (its resistance falls: a CTN); label "CTN 10 kΩ"',
     ComponentType.OPAMP: '{"high": true} its output at the high level, {"high": false} low; ports in_plus, in_minus, out, '
-                         'vcc (to the + supply), gnd (to 0 V); label "AOP (LM358)"',
+                         'vcc (to the + supply), gnd (to 0 V, or to a - supply for a negative output); label "AOP (LM358)". '
+                         'ONE AOP circuit per scene; every resistor with its value ("R1 10 kΩ", "Rf 20 kΩ"); the input '
+                         'signal a POWER_SUPPLY labelled "Ve" with "output": true; every voltage measured is worked out '
+                         'by the program (an ideal AOP: V+ = V- with feedback, else a comparator, its output within its '
+                         'supplies) and a wrong one is sent back; the layout is the program\'s (feedback over the AOP, '
+                         'inputs on the left, the supply as a "+12 V" symbol on its pin)',
     ComponentType.MOSFET: '{"on": true} it conducts (gate high), {"on": false} it blocks; ports gate, drain, source (to 0 V)',
     ComponentType.DIODE: NO_STATE + '; ports anode, cathode',
     ComponentType.LED: '{"on": true} lit; ports anode, cathode (with a resistor in series)',
@@ -474,7 +479,10 @@ STRICT RULES:
     equation solved step by step ONE EQUATION_STEPS (not one TEX_FORMULA per line); a lab supply
     ("je règle l'alimentation") a POWER_SUPPLY wired like a battery. Every figure they show (shares,
     sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
-    results. A resistance measured ("à l'ohmmètre", "continuité") is a "measure" with "unit": "Ω"
+    results. A RESULT IS NEVER SHOWN WITHOUT ITS FORMULA: a TEX_FORMULA, a label or an annotation giving a
+    computed value writes the formula and the values that give it ("V_s = -\\frac{{R_2}}{{R_1}} V_e = -2 \\times
+    2 = -4\\,V", "T = 2\\pi\\sqrt{{L/g}} = 2{{,}}01\\,s"), never the number alone ("-4 V"); a datum (L = 1 m)
+    is not a result. A resistance measured ("à l'ohmmètre", "continuité") is a "measure" with "unit": "Ω"
     (circuit off): the multimeter shows Ω and beeps under 30 Ω. Its "value" is what the circuit drawn
     gives between the two probes (worked out from the labels: two 1 kΩ across the same pins read
     500 Ω); the ohmmeter brings its own small source: never a POWER_SUPPLY or BATTERY drawn as "the
@@ -1156,6 +1164,185 @@ def ohmmeter_problems(brief):
     return errors
 
 
+# Circuits with an AOP: the voltages worked out from the circuit drawn (the AOP run of 2026-11-07 showed
+# every reading at 0 V, two circuits tangled in one scene, resistors with no value). An ideal AOP: with
+# a feedback path from its output to its - input, V+ = V- and the output what makes it so; without, a
+# comparator; its output always between its supply pins.
+VOLT_LABEL = re.compile(r"([+\-−]?\d+(?:[.,]\d+)?)\s*V\b")
+GROUNDS = (ComponentType.CHASSIS_MASS, ComponentType.EARTH_GROUND)
+
+
+def source_volts(entity, state):
+    """A source's voltage now: a supply's "voltage" when on, a battery's or a rail's from its label; None off."""
+    if entity.type == ComponentType.POWER_SUPPLY:
+        return float(state.get("voltage", 12)) if state.get("output") is True else None
+    found = VOLT_LABEL.search(str(state.get("label") or state.get("voltage") or ""))
+    if entity.type == ComponentType.BATTERY and isinstance(state.get("voltage"), (int, float)):
+        return float(state["voltage"])
+    return float(found.group(1).replace(",", ".").replace("−", "-")) if found else None
+
+
+def circuit_volts(brief, at):
+    """{"<id>.<port>": volts} for every lead of the circuit drawn at `at` (grounds 0 V), or None when it
+    cannot be worked out (a resistor with no value). Ideal AOPs (see above), LEDs and lamps as open."""
+    there = ohm_present(brief, at)
+    parent = {}
+
+    def root(pin):
+        parent.setdefault(pin, pin)
+        while parent[pin] != pin:
+            pin = parent[pin]
+        return pin
+
+    def join(a, b):
+        parent[root(a)] = root(b)
+    for c in brief.connections:
+        if c.source_id in there and c.target_id in there:
+            join(f"{c.source_id}.{c.source_port}", f"{c.target_id}.{c.target_port}")
+    resistors, sources, amps, grounds = [], [], [], []
+    for e in there.values():
+        ports = COMPONENT_PORTS.get(e.type, ())
+        for p in ports:
+            root(f"{e.id}.{p}")
+        state = state_at(brief, e, at)
+        if e.type in SHORTS or (e.type == ComponentType.SWITCH and state.get("closed")):
+            join(f"{e.id}.{ports[0]}", f"{e.id}.{ports[1]}")
+        elif e.type in RESISTIVE:
+            value = label_ohms(e.initial_state.get("label"))
+            if value is None:
+                return None
+            resistors.append((f"{e.id}.left", f"{e.id}.right", value))
+        elif e.type in SOURCES:
+            volts = source_volts(e, state)
+            if volts is not None:
+                sources.append((f"{e.id}.positive", f"{e.id}.negative", volts))
+        elif e.type == ComponentType.SUPPLY_RAIL:
+            volts = source_volts(e, state)
+            if volts is not None:
+                sources.append((f"{e.id}.terminal", None, volts))
+        elif e.type in GROUNDS:
+            grounds.append(f"{e.id}.terminal")
+        elif e.type == ComponentType.OPAMP:
+            amps.append(e.id)
+    nodes = sorted({root(p) for p in parent})
+    ground = root(grounds[0]) if grounds else None
+    for g in grounds:
+        join(g, grounds[0])
+    nodes = sorted({root(p) for p in parent})
+    ground = root(grounds[0]) if grounds else None
+    index = {n: i for i, n in enumerate(nodes)}
+    # feedback: the output reaches the - input through resistors and wires, not through the AOP itself
+    links = {n: set() for n in nodes}
+    for a, b, _ in resistors:
+        links[root(a)].add(root(b)); links[root(b)].add(root(a))
+
+    def reaches(start, goal):
+        seen, todo = {start}, [start]
+        while todo:
+            n = todo.pop()
+            if n == goal:
+                return True
+            for m in links[n] - seen:
+                if m != ground:
+                    seen.add(m); todo.append(m)
+        return False
+    feedback = {a: reaches(root(f"{a}.out"), root(f"{a}.in_minus")) for a in amps}
+    fixed = {}                                  # an AOP's output held at a supply pin (comparator, saturated)
+
+    def solve():
+        n = len(nodes)
+        rows_extra = [s for s in sources] + [("amp", a) for a in amps]
+        size = n + len(rows_extra)
+        m, rhs = np.zeros((size, size)), np.zeros(size)
+        for a, b, value in resistors:
+            i, j, g = index[root(a)], index[root(b)], 1 / max(value, 1e-9)
+            m[i, i] += g; m[j, j] += g; m[i, j] -= g; m[j, i] -= g
+        for i in range(n):
+            m[i, i] += 1e-12                    # a floating node at 0 V rather than no answer
+        if ground is not None:
+            g = index[ground]
+            m[g, :] = 0; m[g, g] = 1; rhs[g] = 0
+        for k, extra in enumerate(rows_extra):
+            col = n + k
+            if extra[0] == "amp":
+                a = extra[1]
+                o = index[root(f"{a}.out")]
+                if o != (index[ground] if ground is not None else -1):
+                    m[o, col] += 1
+                if a in fixed:
+                    m[col, o] = 1; rhs[col] = fixed[a]
+                else:
+                    m[col, index[root(f"{a}.in_plus")]] = 1; m[col, index[root(f"{a}.in_minus")]] -= 1
+                continue
+            plus, minus, volts = extra
+            p = index[root(plus)]
+            q = index[root(minus)] if minus else (index[ground] if ground is not None else None)
+            for node, sign in ((p, 1), (q, -1)):
+                if node is not None and node != (index[ground] if ground is not None else -1):
+                    m[node, col] += sign
+            m[col, p] = 1
+            if q is not None:
+                m[col, q] = -1
+            rhs[col] = volts
+        x = np.linalg.lstsq(m, rhs, rcond=None)[0]
+        return {nd: x[index[nd]] for nd in nodes}
+    for a in amps:
+        if not feedback[a]:
+            fixed[a] = 0.0
+    volts = solve()
+    for _ in range(3):                          # comparators and saturation: the output at a supply pin
+        changed = False
+        for a in amps:
+            top, low = volts[root(f"{a}.vcc")], volts[root(f"{a}.gnd")]
+            if top <= low:
+                continue                        # not powered: left ideal
+            out = volts[root(f"{a}.out")]
+            if not feedback[a]:
+                want = top if volts[root(f"{a}.in_plus")] > volts[root(f"{a}.in_minus")] else low
+            else:
+                want = min(max(out, low), top) if (a in fixed or out > top or out < low) else None
+            if want is not None and fixed.get(a) != want:
+                fixed[a], changed = want, True
+        if not changed:
+            break
+        volts = solve()
+    return {pin: float(volts[root(pin)]) for pin in parent}
+
+
+def aop_problems(brief):
+    """An AOP circuit that cannot be read or does not say what it shows: two AOP circuits in one scene
+    (a tangle), a resistor of an AOP circuit with no value (no gain can be worked out), a reading in
+    volts the circuit drawn does not give."""
+    where, errors = f"scene {brief.scene_id}", []
+    amps = [e for e in brief.entities if e.type == ComponentType.OPAMP]
+    if not amps:
+        return []
+    if len(amps) > 1:
+        errors.append(f"{where}: {len(amps)} AOP circuits {[a.id for a in amps]} in one scene: they tangle into one "
+                      f"unreadable drawing; keep ONE circuit here (the one the narration builds), the other in its "
+                      f"own scene or as its gain formula")
+    bare = [e.id for e in brief.entities if e.type in RESISTIVE and label_ohms(e.initial_state.get("label")) is None]
+    if bare:
+        errors.append(f"{where}: the resistors {bare} of an AOP circuit have no value: write it in each label "
+                      f"(\"R1 10 kΩ\"), the program works the gain and the output voltage out from them")
+        return errors
+    for action in brief.actions:
+        if action.get("action") != "measure" or action.get("unit", "V") != "V" or not isinstance(action.get("at"), (int, float)):
+            continue
+        pins, value = (action.get("target_pin_a"), action.get("target_pin_b")), action.get("value")
+        if not all(isinstance(p, str) and p.count(".") == 1 for p in pins) or not isinstance(value, (int, float)):
+            continue
+        volts = circuit_volts(brief, action["at"])
+        if volts is None or any(p not in volts for p in pins):
+            continue
+        found = volts[pins[0]] - volts[pins[1]]
+        if abs(found - value) > max(0.05, 0.02 * abs(found)):
+            errors.append(f"{where}: the measure at {action['at']:g} s says {value:g} V, but the circuit drawn gives "
+                          f"{found:.3g} V between {pins[0]} and {pins[1]} (an ideal AOP, its supplies as drawn and on): "
+                          f"measure {found:.3g} V, or change the circuit so that it gives {value:g} V")
+    return errors
+
+
 # EQUATION_STEPS solving a linear system (the pivot de Gauss): every line keeps the first system's
 # solution, else a row operation is wrong (lines read by app.linear_system, exactly).
 
@@ -1193,6 +1380,32 @@ def gauss_problems(brief):
 
 ROW_OPERATION = re.compile(r"L_?\{?\d\}?\s*(?:\\leftarrow|←|\\gets)")
 AUGMENTED_COLUMN = re.compile(r"second\s+membre|^\s*=?\s*b\s*$|^\s*=\s*$", re.IGNORECASE)
+
+
+GAUSS_WORDS = re.compile(r"\b(?:pivot|combinaison|élimin\w*|L\s?[123]\b|(?:première|deuxième|troisième|1re|2e|3e)\s+ligne)",
+                         re.IGNORECASE)
+
+
+def gauss_by_hand(brief, narration):
+    """A narration doing the pivot de Gauss (pivot, eliminate, rows) with no row operation shown: the
+    maths run of 2026-11-07 solved by substitution ("c = 3a, d = 4a") under the title "Le pivot de Gauss"."""
+    if not GAUSS_WORDS.search(str(narration or "")):
+        return []
+    from app.linear_system import operation_detail
+    steps = [e for e in brief.entities if e.type == ComponentType.EQUATION_STEPS]
+    systems = [[linear_equations(s) for s in e.initial_state.get("steps") or []] for e in steps]
+    systems = [[s for s in line if s and len(s) > 1] for line in systems]
+    if any(operation_detail(a, b) for line in systems for a, b in zip(line, line[1:])):
+        return []
+    if not any(systems):
+        if not re.search(r"élimin|ligne|\bL\s?[123]\b|combinaison", str(narration), re.IGNORECASE):
+            return []                     # "le pivot de Gauss" named in a summing up: nothing to show
+        return [f"scene {brief.scene_id}: the narration does the pivot de Gauss but no system is shown: an EQUATION_STEPS, "
+                f"each line the whole system (\\begin{{cases}} ... \\end{{cases}}) after one row operation, the "
+                f"operation on its arrow (\"L₂ ← L₂ − 2L₁\")"]
+    return [f"scene {brief.scene_id}: the narration does the pivot de Gauss but the EQUATION_STEPS shows no row operation "
+            f"(a line replaced by itself plus a multiple of another): write each line as the whole system after ONE "
+            f"operation, the unknowns eliminated one by one under the pivot, not a substitution"]
 
 
 def system_display_problems(brief):
@@ -1554,8 +1767,10 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += placeholder_graphs(brief)
     errors += electrons_as_discs(brief)
     errors += ohmmeter_problems(brief)
+    errors += aop_problems(brief)
     errors += gauss_problems(brief)
     errors += system_display_problems(brief)
+    errors += gauss_by_hand(brief, narration)
     errors += battery_in_column(brief)
     errors += icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
@@ -1854,6 +2069,19 @@ def comparison_problem(brief):
     if crossing:
         return (f"wires {crossing[:3]} go from one panel to the other: a circuit belongs in one panel (or use "
                 f"\"circuit\"); each panel shows one side of the comparison")
+    # a big drawing on the middle line belongs to no panel (the physics run of 2026-11-07: a sin θ graph
+    # at x = 0 went into panel B, over its pendulum); two big drawings in one panel cover each other
+    from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES
+    big = {"AXES_GRAPH", "WAVE", "TABLE", "CHAIN", *PHYS_PIECES, *SIMPLE_PIECES}
+    drawings = [(e.id, scene_point(e.position)[0]) for e in brief.entities if e.type.value in big]
+    middle = [i for i, x in drawings if abs(x) < 0.6]
+    if middle:
+        return (f"{middle} on the middle line (x = 0) belong to no panel: put each in panel A (x < 0) or B (x > 0), "
+                f"or in another scene")
+    for side, inside in (("A", [i for i, x in drawings if x < 0]), ("B", [i for i, x in drawings if x > 0])):
+        if len(inside) > 1:
+            return (f"{inside} are both in panel {side}: a panel holds ONE drawing (they cover each other); keep "
+                    f"one, show the other in another scene")
     return None
 
 

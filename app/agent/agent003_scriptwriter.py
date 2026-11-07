@@ -53,11 +53,19 @@ Rules:
 - The last scene CLOSES the video: it answers the hook's question in one clear sentence (the "aha"),
   sums up the key idea, and ends on a closing sentence. Never end on a question, a colon, "Vérifions"
   or a new example left unexplained: an example used to check the idea is given AND explained.
+- Facts and figures: the outline's "facts" are the only real-world figures you may state (a threshold,
+  a number of people, an amount, a date); never another one. A measure, a law, a tax, a policy or a
+  news event: its first scene(s) say what it is, who proposed it and when, where it stands and who is
+  concerned, before its mechanism. An illustrative example is said as one ("imaginons une fortune de
+  200 millions d'euros") and respects the facts (above the threshold if there is one).
 - One example, the same values all along: the same battery (6 V in one scene stays 6 V), the same
   prices, the same object, unless the change itself is what a scene shows (then say so).
 - The narration is SPOKEN aloud: write every formula and symbol in words, as a teacher says it
   ("t indice n", "dix puissance moins n", "y est inférieur à 1", "zéro virgule neuf neuf neuf, à l'infini").
   No LaTeX, no _ ^ {{ }} < > ≤ ≥ in narration_text.
+- Electronics: ONE circuit per scene (two amplifiers in one drawing tangle into an unreadable picture);
+  each resistor named with its value ("R1 de 10 kΩ"), the gain worked out with those values ("moins
+  R2 sur R1 : moins 2"), and the input and output voltages said, so the drawing can show them.
 - Electrical values with their prefix, written with the unit's symbol: "10 kΩ", "4,7 kΩ", "10 mA",
   "100 µF" (the voice says "dix kilo ohms"), never "mille ohms" nor "1 000 Ω".
 - A temperature is written in digits followed by "degrés Celsius" ("37 degrés Celsius", never

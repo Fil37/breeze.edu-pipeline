@@ -674,7 +674,14 @@ each ground or supply symbol at the end of its lead. A voltage divider (a chain 
 battery's terminals, nothing else but parts across its links) is drawn as on paper (`place_divider`):
 the battery upright, + at the top, the chain in one column of upright resistors, the one fed by + at
 the top ("la résistance du bas" is the bottom one), a load upright beside the part it is across and
-wired to its foot; a flow follows two wires meeting at a lead (`tests/test_divider.py`). Wires of one node (leads joined) share their way and part at a
+wired to its foot; a flow follows two wires meeting at a lead (`tests/test_divider.py`). One AOP circuit
+is drawn as in a course too (`place_opamp`): the AOP in the middle, the feedback resistor over it, the
+input resistors on the left at the − input's height, a source on the + input beside it, the supply that
+only feeds the AOP a "+12 V" symbol on its pin, a junction between two leads one wire; parts laid out so
+are not pushed by the overlap pass. agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
+V− with feedback, else a comparator, its output within its supplies) and sends back a wrong reading, two
+AOP circuits in one scene, a resistor with no value (`aop_problems`, `tests/test_opamp.py`); a supply
+on from its initial_state shows its voltage. Wires of one node (leads joined) share their way and part at a
 junction dot, rather than running side by side (`wireNets`, `sharedLength`); "37 °C" is said "37
 degrés Celsius", "90°" "90 degrés"; agent003 writes a temperature in digits with "degrés Celsius"
 (the voice garbled "trente-sept degrés" written in words).
@@ -742,6 +749,14 @@ spread again, up to four times (`shrinkToFit`). A badge may take a longer arrow 
 300 px) rather than sit on another. The conflict check counts a graph by its drawn part (its empty
 margins may hold anything) and leaves out two things never on screen together.
 Check: `python tests/test_overlaps.py`.
+
+**Facts and figures.** agent001 brings the topic's key facts with their sources (`"facts"`: for a
+measure, a law, a tax, a policy or a news event, what it is, who proposed it and when, where it
+stands, who is concerned, what it brings, the debate); agent002 puts them in the outline, agent003
+says only those real-world figures and opens on that context, its examples respecting them; agent005
+scores accuracy 5 at most for a figure out of nowhere (the Zucman tax video never said what it was,
+and its example fortune was under the tax's threshold). A narration doing the pivot de Gauss shows
+row operations (`gauss_by_hand`); a comparison panel holds one drawing, none on the middle line.
 
 **Titles on one line.** A title or subtitle too long for one line is made smaller (to 40 px and 22 px),
 never left to wrap onto the subtitle (`oneLine` in agent010).
@@ -868,7 +883,8 @@ the maths minus "−" is "moins"; a digit and a letter stuck together are split;
 are "égal", "plus", "fois", "sur", "moins" (`/` and `-` only in a calculation, brackets included:
 "1/(1 − 1/10)", so "c'est-à-dire", "a-t-il", "Covid-19", "1er", "10h30" are read as before); any
 letter alone is said by its French name ("I = U / R" -> "i égal u sur erre", never the English "aï";
-"y" -> "i grec", "z" -> "zède"), but the "y" of "il y a" / "on y va" and the verb "a"; a name with a
+"z" -> "zède"; "y" -> "i grec" only in maths, beside a sign, a digit or a maths word, "x et y": "y
+compris", "il y a", "pour y voir" stay words), the verb "a" left alone; a name with a
 number too ("L2" -> "elle 2", "R1" -> "erre 1"), "f(x)" -> "effe de ixe", short units after a number
 ("100 m en 10 s" -> "100 mètres en 10 secondes", "km/h" -> "kilomètres à l'heure"); 2 to 4 capitals are spelled ("l'IPC" -> "l'i pé cé"), except the acronyms said as
 words (`SPOKEN_ACRONYMS`: NASA, ONU...). agent010 normalizes each action's `cue` the same way, so a cue

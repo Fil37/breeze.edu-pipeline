@@ -42,6 +42,14 @@ def case_detect():
                           ("Construire un budget : épargne et dépenses", "economics")):
         if agent001.is_project(topic, {"domain": domain}):
             problems.append(f"{topic!r} ({domain}) taken as a build on a bench")
+    # the economics run of 2026-11-07 never said what the Zucman tax was: the research brings its key facts,
+    # the outline carries them, the script says only those figures, the QA checks them
+    from app.agent import agent003_scriptwriter as agent003, agent005_educationqa as agent005
+    import inspect
+    from app.agent import agent002_curriculumsimplifier as agent002
+    if '"facts"' not in agent001.PROMPT or "who proposed it" not in agent001.PROMPT or 'outline["facts"]' not in inspect.getsource(agent002) \
+            or "facts" not in agent003.PROMPT or '"facts"' not in agent005.PROMPT:
+        problems.append("the key facts not carried from the research to the script and the QA")
     if "stages" not in agent001.IMPOSED_PROJECT or "mistakes a beginner" not in agent001.IMPOSED_PROJECT:
         problems.append("agent001's project prompt asks no build stages")
     return report("1. agent001: a topic to build is a project", problems)

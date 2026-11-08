@@ -127,7 +127,7 @@ def equation_details(steps):
     return [operation_detail(a, b) if a and b and len(a) > 1 else None for a, b in zip(systems, systems[1:])]
 
 
-EQUATION_MAX = 780                         # EQUATION_STEPS: past this height the steps go on a new page
+EQUATION_MAX = 720                         # EQUATION_STEPS: past this height the steps go on a new page
 
 
 def equation_pages(steps):
@@ -311,6 +311,7 @@ def place_rails(brief, parts):
     from models.visual_brief_schema import scene_point
     entities = brief.get("entities") or []
     ids, kinds = {e["id"] for e in parts}, {e["id"]: e["type"] for e in entities}
+    by_ids = {e["id"]: e for e in entities}
     for rail in (e for e in entities if e["type"] in RAIL_TYPES):
         wire = next((c for c in brief.get("connections") or [] if rail["id"] in (c.get("source_id"), c.get("target_id"))), None)
         if wire is None:
@@ -320,7 +321,13 @@ def place_rails(brief, parts):
             continue
         ox, oy = scene_point(next(e["position"] for e in parts if e["id"] == other))
         dx, dy, side = port_offset(kinds[other], port)
+        way = (by_ids[other].get("initial_state") or {}).get("vertical")
+        if way in (1, -1) and side in ("left", "right"):     # an upright part: its leads at its top and bottom
+            top = (side == "left") == (way == 1)
+            dx, dy, side = 0.0, (1 if top else -1) * SHAPES.get(kinds[other], (140, 60))[0] / 2 / UNIT, "up" if top else "down"
         up = RAIL_TYPES[rail["type"]] > 0
+        if rail["type"] == "SUPPLY_RAIL":       # a supply symbol under its lead is drawn upside down (lead on top)
+            rail.setdefault("initial_state", {})["below"] = side == "down"
         if side in ("up", "down"):
             # under a supply's leads, past its label (between its leads): else pushed aside, its wire looped
             reach = 1.25 if kinds[other] in ("POWER_SUPPLY", "BATTERY") and side == "down" else 0.75
@@ -595,6 +602,9 @@ def uses_column(brief):
 # upright on the left (+ at the top), the chain in one column, each resistor upright, the one fed by +
 # at the top, so "la résistance du bas" is the bottom one; a part across one of them (a load) upright
 # beside it. The run of 2026-11-06 stacked two horizontal resistors: the wire between them looped back.
+# The formulas of a circuit laid out by the program (the AOP run of 2026-11-07: a wide gain formula left
+# where the LLM put it covered the feedback resistor): over the circuit, then low on the right.
+FORMULA_SPOTS = ((0.0, 2.15), (3.4, -2.7))
 DIVIDER_PARTS = ("RESISTOR", "THERMISTOR")
 DIVIDER_X = (-5.0, -2.0, 2.3)               # the source, the chain, then each next column to the right
 DIVIDER_MID, DIVIDER_STEP = -0.25, 2.1       # the chain's middle height and the step between its parts
@@ -670,7 +680,10 @@ def place_divider(brief):
     source["position"] = [DIVIDER_X[0], DIVIDER_MID, 0]
     if source["type"] == "BATTERY":
         source.setdefault("initial_state", {})["upright"] = True
-    return {i for i, _ in chain} | set(across) | {source["id"]}
+    formulas = [e for e in entities if e["type"] == "TEX_FORMULA"]   # never over the circuit (FORMULA_SPOTS)
+    for k, f in enumerate(formulas):
+        f["position"] = [*FORMULA_SPOTS[min(k, len(FORMULA_SPOTS) - 1)], 0]
+    return {i for i, _ in chain} | set(across) | {source["id"]}            # its formulas may still move or shrink
 
 
 # One AOP circuit drawn as in a course (the AOP run of 2026-11-07: a small AOP low on the page, two big
@@ -679,14 +692,17 @@ def place_divider(brief):
 # input's height (stacked down for a summer), a source on the + input below-left, a resistor from the
 # - input to 0 V upright under it, the load upright on the right; the supply that only feeds the AOP
 # becomes a "+12 V" symbol on its pin, as on paper.
-OPAMP_AT = (0.0, -0.3)
+OPAMP_AT = (0.0, -0.4)
 
 
 def place_opamp(brief):
     """Lay one AOP circuit out (see above), in place. The ids laid out (empty: not one AOP circuit)."""
     entities = brief.get("entities") or []
     amps = [e for e in entities if e["type"] == "OPAMP"]
-    if len(amps) != 1:
+    # a basic AOP circuit only (resistors, sources, a load); a bench with a MOSFET, a sensor, a heater is
+    # laid out by place_schematic (its stages in columns)
+    if len(amps) != 1 or any(e["type"] in ("MOSFET", "THERMISTOR", "POTENTIOMETER", "HEATER", "DIODE", "BREADBOARD")
+                             for e in entities):
         return set()
     amp, wires = amps[0], brief.get("connections") or []
     by_id = {e["id"]: e for e in entities}
@@ -704,7 +720,7 @@ def place_opamp(brief):
         _, pin, mine = pins[0]
         state = psu.get("initial_state") or {}
         volts = state.get("voltage", 12)
-        sign = "+" if (pin == "vcc") == (mine == "positive") else "−"
+        sign = "+" if mine == "positive" else "−"            # its + on a pin: a positive supply; its − (on gnd): a negative one
         psu.update(type="SUPPLY_RAIL", initial_state={"label": f"{sign}{volts:g} V" if isinstance(volts, (int, float)) else "+V"})
         for c in own:
             if c in wires:
@@ -720,7 +736,24 @@ def place_opamp(brief):
         wires.append({"source_id": ends[0][0], "source_port": ends[0][1], "target_id": ends[1][0], "target_port": ends[1][1]})
         entities.remove(bus)
         brief["actions"] = [a for a in brief.get("actions") or [] if a.get("target") != bus["id"]]
-    for g in [e for e in entities if e["type"] in RAIL_TYPES]:     # a ground left wired to nothing goes
+    # its supply pins drawn as in a course: not wired (the run of 2026-11-08: the "+12 V" symbol under the
+    # feedback resistor, the schematic too tall for the screen); the supply written under the AOP instead
+    supplies = []
+    for c in [c for c in wires if amp["id"] in (c.get("source_id"), c.get("target_id"))]:
+        mine, (other, _) = ((c.get("source_port"), (c["target_id"], c.get("target_port"))) if c["source_id"] == amp["id"]
+                            else (c.get("target_port"), (c["source_id"], c.get("source_port"))))
+        rail = by_id.get(other)
+        if mine in ("vcc", "gnd") and rail and rail["type"] in RAIL_TYPES and other not in used and \
+                not any(other in (d.get("source_id"), d.get("target_id")) for d in wires if d is not c):
+            wires.remove(c)
+            supplies.append(str((rail.get("initial_state") or {}).get("label") or "0 V") if rail["type"] == "SUPPLY_RAIL" else "0 V")
+    volts = sorted({v.replace("−", "-").replace(" ", "") for v in supplies} - {"0V"} or {"0V"})   # 0 V goes without saying
+    if volts:
+        amp.setdefault("initial_state", {})["label"] = (
+            f"±{volts[0].lstrip('+-').rstrip('V')} V" if len(volts) == 2 and volts[0].lstrip("+-") == volts[1].lstrip("+-")
+            and any(v.startswith("-") for v in volts)
+            else "alimentation " + " / ".join(v.replace("-", "−").rstrip("V") + " V" for v in volts))
+    for g in [e for e in entities if e["type"] in RAIL_TYPES]:     # a ground or rail left wired to nothing goes
         if not any(g["id"] in (c.get("source_id"), c.get("target_id")) for c in wires):
             entities.remove(g)
             brief["actions"] = [a for a in brief.get("actions") or [] if a.get("target") != g["id"]]
@@ -743,14 +776,19 @@ def place_opamp(brief):
     two_leads.update({e["id"]: (net(f"{e['id']}.left_terminal"), net(f"{e['id']}.right_terminal")) for e in entities if e["type"] == "LAMP"})
     two_leads.update({e["id"]: (net(f"{e['id']}.anode"), net(f"{e['id']}.cathode")) for e in entities if e["type"] in ("LED", "DIODE")})
     x0, y0 = OPAMP_AT
-    ym, yp = y0 + 0.24, y0 - 0.24                             # the - and + inputs' heights
+    feeding = [i for i, (a, b) in two_leads.items() if minus in (a, b) and not {a, b} & ({out} | ground)]
+    # the signal on the + input (non-inverting, follower, comparator): + drawn on top, the feedback under
+    # the AOP, the resistor to 0 V hanging from the - input; else (inverting, summer) - on top, feedback over
+    plus_top = not feeding
+    amp.setdefault("initial_state", {})["plus_top"] = plus_top
+    ym, yp = (y0 - 0.24, y0 + 0.24) if plus_top else (y0 + 0.24, y0 - 0.24)   # the - and + inputs' heights
     placed = {amp["id"]: [x0, y0]}
     inputs = []
     for i, (a, b) in two_leads.items():
         if {a, b} == {minus, out}:
-            placed[i] = [x0, y0 + 1.5]                         # feedback over the AOP
+            placed[i] = [x0, y0 - 1.5 if plus_top else y0 + 1.5]          # the feedback, away from the + input's wire
         elif minus in (a, b) and (b if a == minus else a) in ground:
-            placed[i] = [x0 - 1.5, y0 - 1.6]                   # - input to 0 V, upright under it
+            placed[i] = [x0 - 1.5, y0 - 1.2] if not plus_top else [x0 - 2.0, y0 - 1.5]   # - input to 0 V, upright
             by_id[i].setdefault("initial_state", {})["vertical"] = 1 if a == minus else -1
         elif minus in (a, b):
             inputs.append((i, b if a == minus else a))
@@ -759,7 +797,7 @@ def place_opamp(brief):
             if by_id[i]["type"] in ("RESISTOR", "THERMISTOR", "HEATER"):
                 by_id[i].setdefault("initial_state", {})["vertical"] = 1 if a == out else -1
     for k, (i, far) in enumerate(inputs):                    # input resistors on the left, then what feeds them
-        y = ym - 1.9 * k
+        y = ym - 2.9 * k                                     # room for a lab supply (2,4 units tall) per input
         placed[i] = [x0 - 2.4, y]
         for e in entities:
             if e["id"] in placed:
@@ -768,18 +806,18 @@ def place_opamp(brief):
                 placed[e["id"]] = [x0 - 3.8, y]
             elif e["type"] in ("POWER_SUPPLY", "BATTERY") and net(f"{e['id']}.positive") == far:
                 placed[e["id"]] = [x0 - 5.4, y + 0.9]           # its leads (underneath) just over the input's height
-    # a source on the + input on the left, its leads just over that input (one bend down to it); under it
-    # when the - input goes straight to 0 V (that ground's lead would cross its wire)
-    grounded_minus = minus in ground
+    # a source on the + input on the left, its leads just over that input (one bend down to it)
     for e in entities:
         if e["id"] not in placed and e["type"] in ("POWER_SUPPLY", "BATTERY") and net(f"{e['id']}.positive") == plus:
-            placed[e["id"]] = [x0 - 3.6, yp - 1.4 if grounded_minus else yp + 1.2]
+            placed[e["id"]] = [x0 - 3.6, yp + 1.2]
+    for k, f in enumerate(e for e in entities if e["type"] == "TEX_FORMULA"):   # never over the circuit
+        placed[f["id"]] = list(FORMULA_SPOTS[min(k, len(FORMULA_SPOTS) - 1)])
     for i, xy in placed.items():
         by_id[i]["position"] = [round(xy[0], 2), round(xy[1], 2), 0]
-    place_rails(brief, [by_id[i] for i in placed])
+    place_rails(brief, [by_id[i] for i in placed if by_id[i]["type"] != "TEX_FORMULA"])
     rails = {e["id"] for e in entities if e["type"] in RAIL_TYPES and any(
         e["id"] in (c.get("source_id"), c.get("target_id")) and ({c.get("source_id"), c.get("target_id")} & set(placed)) for c in wires)}
-    return set(placed) | rails
+    return {i for i in placed if by_id[i]["type"] != "TEX_FORMULA"} | rails   # a formula may still move or shrink
 
 
 def solve_layout(brief, corrections, template="circuit"):
@@ -1182,6 +1220,7 @@ def verify(items, header, right, where):
             conflicts.append(f"{where}: {item.id} reaches into the instrument column")
     for i, a in enumerate(values):
         for b in values[i + 1:]:
-            if not related(a, b) and collide(a.box(), b.box()):
+            designed = getattr(a, "designed", False) and getattr(b, "designed", False)   # laid out together: they touch
+            if not related(a, b) and not designed and collide(a.box(), b.box()):
                 conflicts.append(f"{where}: {a.id} overlaps {b.id}")
     return conflicts

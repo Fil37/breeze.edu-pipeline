@@ -76,6 +76,46 @@ PROJECT_DOMAINS = ("electronics", "physics_math")
 
 def is_project(topic, route):
     return bool(topic and route.get("domain") in PROJECT_DOMAINS and PROJECT_WORDS.search(topic))
+
+
+# A worked problem ("résoudre un problème", "trouver le prix"): the problem is stated, set up and solved,
+# not turned into one misconception (the cinema problem of 2026-11-07 became "why row operations keep the
+# solutions", its statement never given). A course on several things ("les différents montages", or a
+# list: "suiveur, inverseur, non inverseur et comparateur"): one scene each, none left out (the AOP
+# video of 2026-11-07 was built around "why does it saturate" and dropped the inverter).
+PROBLEM_WORDS = re.compile(r"\b(?:résoudre|résolution|problème|trouver|calculer)\b", re.IGNORECASE)
+COURSE_WORDS = re.compile(r"\b(?:les\s+différent\w*|cours\s+sur|panorama|tour\s+d['’]horizon|les\s+types\s+de|les\s+familles\s+de)\b",
+                          re.IGNORECASE)
+
+
+def topic_items(topic):
+    """The things a topic lists after its colon ("suiveur, inverseur, non inverseur et comparateur, leurs
+    gains"): 3 or more short names (a longer tail, "leurs formules de gain", is not one), else []."""
+    tail = re.split(r"\s:\s", str(topic or ""), maxsplit=1)[-1]
+    items = [i.strip(" .") for i in re.split(r",|\bet\b", tail) if i.strip(" .")]
+    items = [i for i in items if len(i.split()) <= 3 and not re.match(r"(?:leurs?|ses|les)\b", i, re.IGNORECASE)]
+    return items if len(items) >= 3 else []
+
+
+def video_format(topic, route):
+    """The video's format: "project" (a build), "problem" (a worked problem), "course" (several things,
+    one scene each), else None (one concept explained, from its misconception)."""
+    if is_project(topic, route):
+        return "project"
+    if topic and PROBLEM_WORDS.search(topic):
+        return "problem"
+    if topic and (COURSE_WORDS.search(topic) or topic_items(topic)):
+        return "course"
+    return None
+IMPOSED_PROBLEM = """Le sujet est imposé, et c'est un PROBLÈME À RÉSOUDRE : {topic}. Ne pas en choisir un autre.
+The concept IS solving this problem. Write a concrete statement a student of the level could be given
+(realistic everyday values, ONE solution, whole numbers or simple decimals), its unknowns, the equations
+it gives, how the method solves them step by step, and how the answer is checked. The misconceptions are
+the mistakes students make solving it (a sign lost, a row operation applied to one side only)."""
+IMPOSED_COURSE = """Le sujet est imposé, et c'est un COURS sur plusieurs éléments : {topic}. Ne pas en choisir un autre.
+The concept IS the set of these elements, every one of them (none left out): for each, what it is, how it
+works, its key formula with typical values (worked out), and a concrete use. The misconceptions are the
+confusions between them."""
 IMPOSED_PROJECT = """Le sujet est imposé, et c'est un PROJET À RÉALISER pas à pas : {topic}. Ne pas en choisir un autre.
 The concept IS this project: what is built and what it does once finished. Research its stages in the
 order they are built (the parts of each, with real values, and what each does), how they are wired,
@@ -170,8 +210,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     rejected = []
     check = {"checked_against": len(past), "attempts": 0, "rejected": rejected, "verdict": "new"}
     for attempt in range(1, (1 if topic else TOPIC_ATTEMPTS) + 1):
-        project = is_project(topic, route)
-        choice = ((IMPOSED_PROJECT if project else IMPOSED).format(topic=topic) if topic
+        kind = video_format(topic, route)
+        imposed = {"project": IMPOSED_PROJECT, "problem": IMPOSED_PROBLEM, "course": IMPOSED_COURSE}.get(kind, IMPOSED)
+        choice = (imposed.format(topic=topic) if topic
                   else FREE_CHOICE.format(top=analytics.get("top_topics", []), saturated=saturated))
         if past and not topic:
             choice += "\n" + COVERED.format(past=past)
@@ -210,8 +251,11 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     # Keep only sources that carry a URL, and stamp the date we collected them.
     if topic:
         research["imposed_topic"] = topic
-    if is_project(topic, route):                       # a build: the project itself, its stages in order
-        research.update(format="project", concept=topic)
+    kind = video_format(topic, route)
+    if kind:                                           # a build, a worked problem, a course: the topic itself
+        research.update(format=kind, concept=topic)
+        if kind == "course" and topic_items(topic):
+            research["items"] = topic_items(topic)     # every one gets its scene (agent002)
     today = date.today().isoformat()
     research["sources"] = [
         {"title": s.get("title", ""), "url": s["url"], "accessed": today}

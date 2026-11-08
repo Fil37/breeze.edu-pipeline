@@ -675,10 +675,12 @@ battery's terminals, nothing else but parts across its links) is drawn as on pap
 the battery upright, + at the top, the chain in one column of upright resistors, the one fed by + at
 the top ("la résistance du bas" is the bottom one), a load upright beside the part it is across and
 wired to its foot; a flow follows two wires meeting at a lead (`tests/test_divider.py`). One AOP circuit
-is drawn as in a course too (`place_opamp`): the AOP in the middle, the feedback resistor over it, the
-input resistors on the left at the − input's height, a source on the + input beside it, the supply that
-only feeds the AOP a "+12 V" symbol on its pin, a junction between two leads one wire; parts laid out so
-are not pushed by the overlap pass. agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
+is drawn as in a course too (`place_opamp`, a basic circuit: no MOSFET, sensor nor heater): the AOP in
+the middle, + on top when the signal comes in by it (non-inverting, follower) and its feedback under
+it, else − on top and the feedback over it, input resistors on the left, the supply written under the
+AOP ("±12 V") rather than wired, a junction between two leads one wire, its formulas over the circuit;
+parts laid out so are moved neither by the overlap pass nor by the page (`laid_out`, `LAID_OUT`), an
+upright part's label beside it, a supply symbol under its lead drawn upside down. agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
 V− with feedback, else a comparator, its output within its supplies) and sends back a wrong reading, two
 AOP circuits in one scene, a resistor with no value (`aop_problems`, `tests/test_opamp.py`); a supply
 on from its initial_state shows its voltage. Wires of one node (leads joined) share their way and part at a
@@ -719,7 +721,7 @@ like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: 
 works out the resistance between the probes from the labels (`ohmmeter_problems`: two 1 kΩ across the
 same pins read 500 Ω, a part faded out is gone) and sends back a wrong value, a supply drawn as "the
 ohmmeter's source" or left on. Units are written with their prefix (`si_prefixes`: "1 000 Ω" -> "1 kΩ",
-"0,01 A" -> "10 mA"), the voice says "kilo ohms", two words ("dix kiloohms" in one came out garbled) (`tests/test_ohmmeter.py`). Check:
+"0,01 A" -> "10 mA"), comparison panels over a film nearly opaque; equation pages 720 px tall (two systems of three rows); the voice says "kilo ohms", two words ("dix kiloohms" in one came out garbled) (`tests/test_ohmmeter.py`). Check:
 `python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
 (exact motions, conservation laws): FREE_BODY (forces to scale, components along the slope, the
 resultant, a = ΣF / m), KINEMATICS (a projectile, a uniform, accelerated or free fall: strobe images,
@@ -757,6 +759,14 @@ says only those real-world figures and opens on that context, its examples respe
 scores accuracy 5 at most for a figure out of nowhere (the Zucman tax video never said what it was,
 and its example fortune was under the tax's threshold). A narration doing the pivot de Gauss shows
 row operations (`gauss_by_hand`); a comparison panel holds one drawing, none on the middle line.
+
+**Problems and courses.** Besides the project format, agent001 tells two more apart (`video_format`): a
+worked problem ("résoudre", "problème", "trouver": stated in full, unknowns, equations, each step of the
+method, the check, the answer in the situation's words) and a course on several things ("les
+différents", a list after a colon: one scene each, none left out, then when to use which); agent002
+and agent003 follow them (`PROBLEM_PROMPT`, `COURSE_PROMPT`, `PROBLEM_RULES`, `COURSE_RULES`). Without
+them a topic was turned into one misconception (the cinema problem never stated, the AOP course
+without its inverter).
 
 **Titles on one line.** A title or subtitle too long for one line is made smaller (to 40 px and 22 px),
 never left to wrap onto the subtitle (`oneLine` in agent010).

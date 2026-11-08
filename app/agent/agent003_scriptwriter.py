@@ -145,6 +145,23 @@ This video is a PROJECT BUILT STEP BY STEP, not a lesson on one concept:
 - The second to last scene builds it on a breadboard, part after part, in the same order.
 - The last scene powers it up and shows it doing its job, and closes the video.
 """
+PROBLEM_RULES = """
+This video SOLVES A PROBLEM, not a lesson on why the method works:
+- The hook states the situation and asks its question ("Au cinéma, combien coûte une place adulte ?").
+- One scene states the problem IN FULL, every number of it, then one scene names the unknowns and writes
+  the equations, each from one sentence of the statement.
+- Then one scene per step of the method, saying the operation and what it eliminates ("je retire deux
+  fois la première ligne à la deuxième : les adultes disparaissent"), the system shown after it.
+- Then the back substitution, the check (the values put back into the statement), and the last scene
+  gives the answer in the situation's words ("une place adulte coûte 12 euros") and closes the video.
+"""
+COURSE_RULES = """
+This video is a COURSE on several things, not one idea from one angle:
+- The hook says what they are all for (the need they share) and announces them.
+- Then ONE scene per item of the outline, every one (none left out, none merged): what it is, how it
+  works, its key formula with values and the result worked out aloud, a concrete use.
+- The last scene compares them (when to use which) and closes the video.
+"""
 # Physics and maths (routes.json domain): the key relation of the topic is said, so it can be written
 # (the standing waves of 2026-11-05 had none: all words, no formula on screen).
 FORMULA_DOMAINS = ("math", "physics_math")
@@ -225,7 +242,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             print(f"--- {AGENT}: QA feedback (revision {qa_feedback['revision']}): {qa_feedback['blocking_issues']} "
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
         prompt = PROMPT.format(outline=outline, pace=WORDS_PER_SEC, least=MIN_WORDS, most=MAX_WORDS).replace(
-            "\nAnswer with JSON only", qa_section + (PROJECT_RULES if outline.get("format") == "project" else "")
+            "\nAnswer with JSON only", qa_section + {"project": PROJECT_RULES, "problem": PROBLEM_RULES, "course": COURSE_RULES}.get(outline.get("format"), "")
             + (FORMULA_RULES if (find_route(routes, channel_id) or {}).get("domain") in FORMULA_DOMAINS else "")
             + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))

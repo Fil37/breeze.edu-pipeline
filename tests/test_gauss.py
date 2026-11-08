@@ -72,7 +72,7 @@ def case_page():
     for name, shown in pages.items():
         if any(shown[i][1] > shown[i + 1][0] for i in range(len(shown) - 1)) or max(b for _, b in shown) > 1000:
             problems.append(f"{name} page: steps overlap or run off the screen: {shown}")
-    if len(pages["first"]) != 3 or len(pages["last"]) != 2:
+    if len(pages["first"]) != 2 or len(pages["last"]) != 3:          # two systems a page, the last carried over
         problems.append(f"six three-row steps not put on pages: {pages}")
     return report("1. each step as tall as its system, none overlapping; past the room, a new page", problems)
 

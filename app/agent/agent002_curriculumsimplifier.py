@@ -31,6 +31,32 @@ Answer with JSON only:
   "prerequisites": ["..."], "visual_metaphors": ["..."], "scene_count_target": 6}}"""
 
 
+# A worked problem (research "format": "problem"): stated, set up, solved, checked.
+PROBLEM_PROMPT = """You are a curriculum designer. This video SOLVES A PROBLEM for age {age}.
+Research: {research}
+The learning outline follows the solving, in order: the statement (the situation and its numbers, said in
+full), the unknowns named (with letters), the equations written from the statement (one per sentence of
+it), then ONE beat per step of the method (for a system: each row operation, the unknown it eliminates),
+then the back substitution, then the check (the answer put back into the statement), then the answer
+said in the situation's words ("une place adulte coûte 12 €"). The aha moment is the method working on
+this problem. Do not turn it into a lesson on why the method works.
+IMPORTANT: The target audience is French. You MUST write all your output in PERFECT FRENCH (JSON keys in English).
+Answer with JSON only:
+{{"learning_outline": ["beat 1", "beat 2", "..."], "aha_moment": "...",
+  "prerequisites": ["..."], "visual_metaphors": ["..."], "scene_count_target": 7}}"""
+# A course on several things (research "format": "course", its "items"): one beat each, none left out.
+COURSE_PROMPT = """You are a curriculum designer. This video is a COURSE on several things for age {age}.
+Research: {research}
+The learning outline: first what they are all FOR (the need they share), then ONE beat per item, in a
+sensible order, EVERY item of the research's "items" (none left out, none merged): what it is, how it
+works, its key formula with values worked out, a concrete use; then a last beat comparing them (when to
+use which). The aha moment is seeing how they differ and when to pick each.
+IMPORTANT: The target audience is French. You MUST write all your output in PERFECT FRENCH (JSON keys in English).
+Answer with JSON only:
+{{"learning_outline": ["beat 1", "beat 2", "..."], "aha_moment": "...",
+  "prerequisites": ["..."], "visual_metaphors": ["..."], "scene_count_target": 7}}"""
+
+
 # A project to build (research "format": "project", agent001): the arc is the build itself.
 PROJECT_PROMPT = """You are a curriculum designer. This video is a PROJECT BUILT STEP BY STEP for age {age}.
 Research: {research}
@@ -57,10 +83,13 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
                       error="missing research.json or channel route")
 
     try:
-        project = research.get("format") == "project"
-        outline = parse_llm_json(llm_call((PROJECT_PROMPT if project else PROMPT).format(age=route["target_age_band"], research=research)))
-        if project:
-            outline["format"] = "project"
+        kind = research.get("format")
+        prompt = {"project": PROJECT_PROMPT, "problem": PROBLEM_PROMPT, "course": COURSE_PROMPT}.get(kind, PROMPT)
+        outline = parse_llm_json(llm_call(prompt.format(age=route["target_age_band"], research=research)))
+        if kind in ("project", "problem", "course"):
+            outline["format"] = kind
+        if research.get("items"):
+            outline["items"] = research["items"]
         if research.get("facts"):          # the script says only these figures (agent003), the QA checks them (agent005)
             outline["facts"] = research["facts"]
     except (RuntimeError, ValueError) as exc:

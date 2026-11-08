@@ -24,7 +24,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.agent import agent004_visualbriefgenerator as agent004         # noqa: E402
 from app.agent import agent010_html_renderer as renderer                # noqa: E402
-from app.layout_solver import place_opamp, solve_layout                 # noqa: E402
+from app.layout_solver import place_opamp, solve_layout, split_rails                 # noqa: E402
 from models.visual_brief_schema import SceneVisualBrief                 # noqa: E402
 from test_reactive import open_pages                                    # noqa: E402
 
@@ -103,6 +103,7 @@ def case_worked_out():
 def case_layout():
     problems = []
     b = circuit("inv", dual=False)
+    split_rails(b)                                         # as solve_layout: one ground symbol a part first
     laid = place_opamp(b)
     at = {e["id"]: e for e in b["entities"]}
     if not laid or "u" not in laid:
@@ -112,15 +113,27 @@ def case_layout():
         problems.append(f"the feedback resistor not over the AOP: {at['r2']['position']} vs {at['u']['position']}")
     if not (at["r1"]["position"][0] < ux - 1.5 and abs(at["r1"]["position"][1] - (uy + 0.24)) < 0.2):
         problems.append(f"the input resistor not on the left at the - input: {at['r1']['position']}")
-    if at["ps"]["type"] != "SUPPLY_RAIL" or at["ps"]["initial_state"]["label"] != "+12 V":
-        problems.append(f"the AOP's supply not a +12 V symbol: {at['ps']}")
+    # its supply not wired as in a course: written under the AOP, the supply and its 0 V gone
+    if "ps" in at or at["u"]["initial_state"].get("label") != "alimentation +12 V" or any("u" in (c["source_id"], c["target_id"])
+            and {c["source_port"], c["target_port"]} & {"vcc", "gnd"} for c in b["connections"]):
+        problems.append(f"the AOP's supply not written under it: {at['u']}, {[c for c in b['connections'] if 'u' in (c['source_id'], c['target_id'])]}")
+    if not at["u"]["initial_state"].get("plus_top") is False or at["r2"]["position"][1] < uy:
+        problems.append("an inverting amplifier not drawn - on top, its feedback over it")
+    n = circuit("ninv")
+    split_rails(n)
+    place_opamp(n)
+    nat = {e["id"]: e for e in n["entities"]}
+    if not nat["u"]["initial_state"].get("plus_top") or nat["r2"]["position"][1] > nat["u"]["position"][1] \
+            or nat["u"]["initial_state"].get("label") != "±12 V":
+        problems.append(f"a non-inverting amplifier not drawn + on top, its feedback under it, ±12 V: {nat['u']}, {nat['r2']['position']}")
     f = circuit("follower")
+    split_rails(f)
     place_opamp(f)
     if any(e["type"] == "WIRE_BUS" for e in f["entities"]) or not any(
             {c["source_id"], c["target_id"]} == {"u"} and {c["source_port"], c["target_port"]} == {"out", "in_minus"} for c in f["connections"]):
         problems.append("the follower's junction not made one wire from the output to the - input")
     SceneVisualBrief.model_validate(b)
-    return report("2. layout_solver: an AOP circuit as in a course; its supply a symbol, a junction one wire", problems)
+    return report("2. layout_solver: an AOP circuit as in a course (+ on top when the signal comes in by it); its supply written under it", problems)
 
 
 def case_page():

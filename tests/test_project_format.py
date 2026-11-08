@@ -52,7 +52,22 @@ def case_detect():
         problems.append("the key facts not carried from the research to the script and the QA")
     if "stages" not in agent001.IMPOSED_PROJECT or "mistakes a beginner" not in agent001.IMPOSED_PROJECT:
         problems.append("agent001's project prompt asks no build stages")
-    return report("1. agent001: a topic to build is a project", problems)
+    # a worked problem and a course (2026-11-07: the cinema problem became "why row operations work", the
+    # AOP course "why does it saturate", the inverter left out)
+    for topic, domain, kind in (("Résoudre un problème de lycée : au cinéma, trouver le prix d'une place", "math", "problem"),
+                                ("L'AOP en détail : suiveur, inverseur, non inverseur, sommateur et comparateur, leurs gains", "electronics", "course"),
+                                ("Les différents montages de l'AOP", "electronics", "course"),
+                                ("Le pendule et le ressort : pourquoi la période ne dépend pas de l'amplitude", "physics_math", None),
+                                ("Réaliser un banc de régulation de température", "electronics", "project")):
+        if agent001.video_format(topic, {"domain": domain}) != kind:
+            problems.append(f"{topic!r}: {agent001.video_format(topic, {'domain': domain})}, expected {kind}")
+    if agent001.topic_items("L'AOP : suiveur, inverseur, non inverseur, sommateur et comparateur, leurs formules de gain") != \
+            ["suiveur", "inverseur", "non inverseur", "sommateur", "comparateur"]:
+        problems.append(f"the course's items: {agent001.topic_items('L AOP : suiveur, inverseur, non inverseur, sommateur et comparateur, leurs formules')}")
+    from app.agent import agent003_scriptwriter as agent003
+    if "IN FULL" not in agent003.PROBLEM_RULES or "none left out" not in agent003.COURSE_RULES:
+        problems.append("agent003 not told to state the problem in full, or to give every item its scene")
+    return report("1. agent001: a topic to build is a project, a problem is solved, a course gives each item its scene", problems)
 
 
 def case_prompts():

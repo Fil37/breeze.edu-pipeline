@@ -676,7 +676,9 @@ def entity_data(entity, entities_by_id, ink="#0F172A"):
             "initial": state, "xy": to_pixels(entity["position"]),
             "instrument": entity["type"] in {t.value for t in INSTRUMENT_TYPES},
             # upright, from the divider layout (layout_solver.place_divider): 1 its left lead at the top, -1 its right
-            "vertical": state.get("vertical") if state.get("vertical") in (1, -1) else None, "upright": state.get("upright") is True}
+            "vertical": state.get("vertical") if state.get("vertical") in (1, -1) else None, "upright": state.get("upright") is True,
+            "below": state.get("below") is True,       # a supply symbol under its lead: drawn upside down
+            "plus_top": state.get("plus_top") is True}  # an AOP drawn + input on top (layout_solver.place_opamp)
     if entity["type"] in {t.value for t in SVG_TYPES}:
         data["icon"] = icon_data_uri(entity["type"], ink)
     if entity["type"] in ICON_STANDINS:
@@ -1047,7 +1049,8 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
               style=None, scene_number=1):
     with_program(brief)
     split_rails(brief)
-    if not place_opamp(brief) and not place_divider(brief):
+    laid_out = place_opamp(brief) or place_divider(brief)    # laid out as on paper: spreadOut leaves them as they are
+    if not laid_out:
         place_schematic(brief)
     compact_oscillators(brief)
     by_id = {e["id"]: e for e in brief["entities"]}
@@ -1077,6 +1080,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
             "connections": [[c["source_id"], c.get("source_port"), c["target_id"], c.get("target_port"),
                              bool(c.get("dashed"))] for c in brief.get("connections", [])],
             "events": motion_tracks(brief, timeline(brief, voice_duration, planned_duration, spoken), voice_duration + TAIL_PAUSE),
+            "laid_out": sorted(laid_out or ()),
             "layout": layout, "panels": [str(t) for t in panel_titles or []][:2],
             "style": {k: style.get(k) for k in ("name", "mode", "background", "title", "subtitle", "tokens", "effects")},
             "fonts": list(style.get("fonts", [])), "scene_number": int(scene_number)}
@@ -1351,8 +1355,11 @@ PAGE_TEMPLATE = r"""<!doctype html>
              box-sizing:border-box; font-size:52px; font-weight:700; min-width:0; }
   .battery .neg { color:var(--neg); } .battery .pos { color:var(--pos); }
   .battery.upright { width:110px; height:170px; flex-direction:column-reverse; padding:18px 0; }   /* + at the top */
-  .pop.aside { flex-direction:row; align-items:center; } .pop.aside > .label { margin:0 0 0 14px; }   /* label beside an upright part */
-  .pop.aside.flip { flex-direction:row-reverse; } .pop.aside.flip > .label { margin:0 14px 0 0; }
+  /* an upright part's label beside it, out of the box's width: the part itself sits on its position (its
+     ground symbol right under its lead) */
+  .pop.aside { position:relative; } .pop.aside > .label { position:absolute; left:100%; top:50%; transform:translateY(-50%);
+                                                          margin:0 0 0 14px; white-space:nowrap; }
+  .pop.aside.flip > .label { left:auto; right:100%; margin:0 14px 0 0; }
   .switch { width:200px; height:90px; position:relative; }
   .switch .dot { position:absolute; bottom:8px; width:22px; height:22px; border-radius:50%; border:5px solid var(--ink);
                  background:var(--card); }
@@ -3177,9 +3184,9 @@ function floatOffset(e, t) {
 // rising; OPAMP {"high"} its output at the high level; MOSFET {"on"} conducting; THERMISTOR {"hot"}.
 const INK = {fill: "none", stroke: "var(--ink)", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round"};
 const PART_SYMBOLS = {
-  SUPPLY_RAIL: [70, 50, (g, p) => {         // the supply: a bar on a lead, its voltage over it
-    sv("path", {d: "M35 50 V18 M14 18 H56", ...INK}, g);
-    tideText(g, 35, 8, p.label, "middle", "part-mark"); }],
+  SUPPLY_RAIL: [70, 50, (g, p) => {         // the supply: a bar on a lead, its voltage over it (under it when below its lead)
+    sv("path", {d: p.below ? "M35 0 V32 M14 32 H56" : "M35 50 V18 M14 18 H56", ...INK}, g);
+    tideText(g, 35, p.below ? 50 : 8, p.label, "middle", "part-mark"); }],
   RESISTOR: [140, 44, (g, p) => {
     sv("path", {d: "M0 22 H30 M110 22 H140", ...INK}, g);
     p.body = sv("rect", {x: 30, y: 10, width: 80, height: 24, ...INK}, g); }],
@@ -3196,7 +3203,8 @@ const PART_SYMBOLS = {
     p.body = sv("path", {d: "M20 10 L160 80 L20 150 Z", ...INK, fill: "var(--card)"}, g);
     sv("path", {d: "M0 48 H20 M0 112 H20 M80 0 V40 M80 120 V160", ...INK}, g);
     p.out = sv("path", {d: "M160 80 H170", ...INK}, g);
-    tideText(g, 36, 57, "−", "middle", "part-mark"); tideText(g, 36, 121, "+", "middle", "part-mark");
+    // the + input on top when the signal comes in by it (non-inverting, follower: as in a course)
+    tideText(g, 36, 57, p.plusTop ? "+" : "−", "middle", "part-mark"); tideText(g, 36, 121, p.plusTop ? "−" : "+", "middle", "part-mark");
     tideText(g, 80, 88, "AOP", "middle", "part-mark"); }],
   MOSFET: [120, 140, (g, p) => {
     sv("path", {d: "M0 90 H40 M40 40 V110 M52 46 H90 V0 M52 104 H90 V140 M52 75 H90 V104", ...INK}, g);
@@ -3228,7 +3236,7 @@ function buildPart(ent) {
   Object.assign(shape.style, {width: `${W}px`, height: `${H}px`});
   const svg = sv("svg", {width: W, height: H, viewBox: `0 0 ${W} ${H}`, overflow: "visible"});
   const g = !ent.vertical ? svg : sv("g", {transform: ent.vertical === 1 ? `translate(${h} 0) rotate(90)` : `translate(0 ${w}) rotate(-90)`}, svg);
-  ent.partParts = {label: ent.rail || ""};      // a supply's voltage (LLM text: textContent only)
+  ent.partParts = {label: ent.rail || "", below: ent.below, plusTop: ent.plus_top};      // a supply's voltage (LLM text: textContent only)
   draw(g, ent.partParts);
   shape.append(svg);
   return shape;
@@ -3670,12 +3678,19 @@ function offsetIn(node, root) {    // position of node inside root (layout offse
   for (; node && node !== root; node = node.offsetParent) { x += node.offsetLeft; y += node.offsetTop; }
   return [x, y];
 }
-function boxOf(e) {                // whole component (shape + label), centred on its position
+function frameOf(e) {               // the component's box, centred on its position
   const w = e.box.offsetWidth, h = e.box.offsetHeight;
   return {l: e.data.xy[0] - w / 2, t: e.data.xy[1] - h / 2, r: e.data.xy[0] + w / 2, b: e.data.xy[1] + h / 2};
 }
+function boxOf(e) {                // whole component (shape + label): an upright part's label beside it too
+  const b = frameOf(e), label = e.box.querySelector(".pop.aside > .label");
+  if (!label) return b;
+  const w = label.offsetWidth + 14, h = label.offsetHeight, cy = e.data.xy[1];
+  if (label.parentElement.classList.contains("flip")) b.l -= w; else b.r += w;
+  return {...b, t: Math.min(b.t, cy - h / 2), b: Math.max(b.b, cy + h / 2)};
+}
 function rectIn(e, node) {         // a part of the component, in stage pixels
-  const b = boxOf(e), [x, y] = offsetIn(node, e.box);
+  const b = frameOf(e), [x, y] = offsetIn(node, e.box);
   return {l: b.l + x, t: b.t + y, r: b.l + x + node.offsetWidth, b: b.t + y + node.offsetHeight};
 }
 const shapeOf = e => rectIn(e, e.shape);                       // the drawing alone, where ports are
@@ -3757,6 +3772,8 @@ function turned(ports, way) {      // a part's ports turned a quarter: way 1 clo
   return Object.fromEntries(Object.entries(ports).map(([k, [fx, fy, d]]) => [k, way === 1 ? [1 - fy, fx, dir(d)] : [fy, 1 - fx, dir(d)]]));
 }
 const portsOf = e => e.data.type === "BATTERY" && e.data.upright ? UPRIGHT_BATTERY
+  : e.data.type === "SUPPLY_RAIL" && e.data.below ? {terminal: [0.5, 0, UP]}
+  : e.data.type === "OPAMP" && e.data.plus_top ? {...PORTS.OPAMP, in_plus: PORTS.OPAMP.in_minus, in_minus: PORTS.OPAMP.in_plus}
   : e.data.vertical && PORTS[e.data.type] ? turned(PORTS[e.data.type], e.data.vertical)
   : PORTS[e.data.type] || (e.data.icon ? SIDE_PORTS : {});
 function anchor(e, port) {
@@ -3917,6 +3934,7 @@ function groupBox(e) {
     .reduce((sum, ev) => [sum[0] + ev.shift[0], sum[1] + ev.shift[1]], [0, 0]);
   return {l: Math.min(b.l, b.l + way[0]), t: Math.min(b.t, b.t + way[1]), r: Math.max(b.r, b.r + way[0]), b: Math.max(b.b, b.b + way[1])};
 }
+const LAID_OUT = new Set(D.laid_out || []);   // ids laid out by layout_solver (an AOP circuit, a divider)
 function spreadOut() {
   // Badges are placed by placeAnnotations; a body or object anchored in a graph, or riding in another
   // one, by anchorVectors (where the brief guessed it must push nothing away).
@@ -3927,11 +3945,13 @@ function spreadOut() {
     let moved = false;
     for (let i = 0; i < boxed.length; i++) for (let j = i + 1; j < boxed.length; j++) {
       const a = boxed[i], b = boxed[j], A = groupBox(a), B = groupBox(b);
+      const la = LAID_OUT.has(a.data.id), lb = LAID_OUT.has(b.data.id);
+      if (la && lb) continue;                            // a schematic laid out as on paper: its parts touch by design
       const ox = Math.min(A.r, B.r) - Math.max(A.l, B.l) + GAP, oy = Math.min(A.b, B.b) - Math.max(A.t, B.t) + GAP;
       if (ox <= 0 || oy <= 0) continue;                  // already GAP px apart on one axis
       const axis = ox <= oy ? 0 : 1, need = (axis ? oy : ox) + 2;
       const sign = Math.sign(b.data.xy[axis] - a.data.xy[axis]) || 1;
-      const fa = a.data.axes && !b.data.axes ? 0 : b.data.axes && !a.data.axes ? 1 : 0.5;   // a's share of the move
+      const fa = la ? 0 : lb ? 1 : a.data.axes && !b.data.axes ? 0 : b.data.axes && !a.data.axes ? 1 : 0.5;   // a's share of the move
       const push = (e, amount) => {   // how far it really went: the frame's edges may stop it
         const before = e.data.xy[axis], to = [...e.data.xy]; to[axis] += amount;
         place(e, ...to);
@@ -3980,10 +4000,11 @@ function shrinkToFit() {
   for (let round = 0; round < SHRINK_ROUNDS; round++) {
     const smaller = new Set();
     for (let i = 0; i < boxed.length; i++) for (let j = i + 1; j < boxed.length; j++) {
+      if (LAID_OUT.has(boxed[i].data.id) && LAID_OUT.has(boxed[j].data.id)) continue;   // touching by design
       const A = groupBox(boxed[i]), B = groupBox(boxed[j]);
       if (Math.min(A.r, B.r) - Math.max(A.l, B.l) <= 1 || Math.min(A.b, B.b) - Math.max(A.t, B.t) <= 1) continue;
       const area = r => (r.r - r.l) * (r.b - r.t);
-      const pick = [boxed[i], boxed[j]].filter(e => !e.data.axes && !ownAxes(e.data) && e.shape)
+      const pick = [boxed[i], boxed[j]].filter(e => !e.data.axes && !ownAxes(e.data) && e.shape && !LAID_OUT.has(e.data.id))
                                        .sort((a, b) => area(groupBox(b)) - area(groupBox(a)))[0];
       if (pick) smaller.add(pick);
     }
@@ -4770,7 +4791,10 @@ function buildProbes() {
         const sign = E[id].data.type === "BATTERY" && (port === "positive" || port === "negative")
           ? E[id].shape.querySelector(port === "positive" ? ".pos" : ".neg") : null;
         pins[which] = sign ? (r => [(r.l + r.r) / 2, (r.t + r.b) / 2])(rectIn(E[id], sign)) : end.pt;
-        names[which] = (E[id].data.label || id) + (sign ? (port === "positive" ? " (+)" : " (−)") : "");
+        // an AOP's pin by its role ("sortie de l'AOP"): its label is its supply (place_opamp)
+        const aop = {out: "sortie de l'AOP", in_minus: "entrée − de l'AOP", in_plus: "entrée + de l'AOP"};
+        names[which] = E[id].data.type === "OPAMP" && aop[port] ? aop[port]
+          : (E[id].data.label || id) + (sign ? (port === "positive" ? " (+)" : " (−)") : "");
       }
       if (pins.a && pins.b) measures.push({at: m.at, pins, names, value: Number(m.value) || 0, unit: m.unit || "V",
                                            decimals: Number.isInteger(m.decimals) ? m.decimals : 2});
@@ -5218,6 +5242,8 @@ ROW_STYLE = "  #side { flex-direction:row; flex-wrap:wrap; justify-content:cente
 COMPARISON_STYLE = ROW_STYLE + """  .comparison-panel { position:absolute; top:200px; bottom:24px; width:calc(50% - 60px); box-sizing:border-box;
                       border:2px solid var(--border); border-radius:var(--radius); background:color-mix(in srgb, var(--card) 55%, transparent); }
   .comparison-panel[data-panel="A"] { left:40px; } .comparison-panel[data-panel="B"] { right:40px; }
+  /* over a film: nearly opaque, the drawings readable (the physics hook of 2026-11-07 showed them on a watch's gears) */
+  .on-footage .comparison-panel { background:color-mix(in srgb, var(--card) 92%, transparent); backdrop-filter:blur(6px); }
   .comparison-panel .panel-title { height:56px; line-height:56px; text-align:center; font-size:30px; font-weight:700;
                                    color:var(--muted); border-bottom:2px solid var(--border); }
 """

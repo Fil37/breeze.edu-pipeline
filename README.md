@@ -683,7 +683,12 @@ parts laid out so are moved neither by the overlap pass nor by the page (`laid_o
 upright part's label beside it, a supply symbol under its lead drawn upside down. A resistor wired with its left lead to
 what is on its right is turned round (`orient_parts`: Rf's wires crossed over the AOP); in an AOP circuit the
 feedback wires are drawn last, a source sits so its leads end at its input's height, the AOP's label goes over
-it when + is on top; an AOP with no positive supply is sent back (`aop_problems`). agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
+it when + is on top; an AOP with no positive supply is sent back (`aop_problems`). Every page measures its wires too (`wireProblems`, in
+`window.layoutConflicts`, render_manifest.json and agent004's measured problems): two wires of different
+nodes crossing, running side by side closer than 14 px, or a wire making a detour (more than 4 bends, or
+over 2.2 times its ends' distance); a schematic laid out as on paper moves as one block on the page, and a
+lead's stub clears only a label right under it. Known: the column layout of a big schematic (the
+temperature bench) still has crossings (`tests/test_schematic.py` lists them). agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
 V− with feedback, else a comparator, its output within its supplies) and sends back a wrong reading, two
 AOP circuits in one scene, a resistor with no value (`aop_problems`, `tests/test_opamp.py`); a supply
 on from its initial_state shows its voltage. Wires of one node (leads joined) share their way and part at a

@@ -3801,8 +3801,9 @@ function sideAnchor(e, other) {
 }
 function stubLength(e, end) {
   // Out far enough to clear the drawing's own label when the port faces down.
-  const label = labelOf(e);
-  return end.dir[1] > 0 && label ? Math.max(STUB, label.b - end.pt[1] + MARGIN + 6) : STUB;
+  // (only a label right under the port: a lab supply's sits between its two leads, not under them)
+  const label = labelOf(e), under = label && end.pt[0] > label.l - 8 && end.pt[0] < label.r + 8;
+  return end.dir[1] > 0 && under ? Math.max(STUB, label.b - end.pt[1] + MARGIN + 6) : STUB;
 }
 function route(a, b, ends, placed, net) {
   const A = shapeOf(a), B = shapeOf(b), [ea, eb] = ends;
@@ -3958,7 +3959,11 @@ function spreadOut() {
       const push = (e, amount) => {   // how far it really went: the frame's edges may stop it
         const before = e.data.xy[axis], to = [...e.data.xy]; to[axis] += amount;
         place(e, ...to);
-        return Math.abs(e.data.xy[axis] - before);
+        const moved = e.data.xy[axis] - before;
+        // a schematic laid out as on paper moves as one block (its 0 V symbols stay under their leads)
+        if (LAID_OUT.has(e.data.id) && moved) for (const o of boxed) if (o !== e && LAID_OUT.has(o.data.id)) {
+          const at = [...o.data.xy]; at[axis] += moved; place(o, ...at); }
+        return Math.abs(moved);
       };
       const start = [a.data.xy.slice(), b.data.xy.slice()];
       let left = need - push(a, -sign * need * fa) - push(b, sign * need * (1 - fa));
@@ -5229,9 +5234,44 @@ function layoutConflicts() {
   }
   return found;
 }
+// Wires that read badly (the AOP run of 2026-11-08: Rf's two wires crossed over the AOP, the + input's
+// wire ran beside the - input's): two wires of different nodes crossing, or running side by side closer
+// than WIRE_NEAR px, and a wire making a detour (much longer than its ends' distance, or many bends).
+const WIRE_NEAR = 14, WIRE_BENDS = 4, WIRE_DETOUR = 2.2;
+function wireName(w) { return `wire ${w.a}.${w.ap}-${w.b}.${w.bp}`; }
+function wireProblems() {
+  const found = [], segs = [];
+  W.forEach((w, k) => w.pts.forEach((p, i) => { if (i) segs.push({k, w, a: w.pts[i - 1], b: p}); }));
+  const flat = (p, q) => Math.abs(p[1] - q[1]) < 1, upright = (p, q) => Math.abs(p[0] - q[0]) < 1;
+  const seen = new Set(), say = (key, text) => { if (!seen.has(key)) { seen.add(key); found.push(text); } };
+  for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
+    const s = segs[i], t = segs[j];
+    if (s.k === t.k || (s.w.net !== undefined && s.w.net === t.w.net)) continue;     // one node: they may meet
+    const key = [s.k, t.k].sort().join("-");
+    let H = null, V = null;
+    if (flat(s.a, s.b) && upright(t.a, t.b)) [H, V] = [s, t]; else if (upright(s.a, s.b) && flat(t.a, t.b)) [H, V] = [t, s];
+    if (H) {
+      const x = V.a[0], y = H.a[1];
+      if (x > Math.min(H.a[0], H.b[0]) + 2 && x < Math.max(H.a[0], H.b[0]) - 2 && y > Math.min(V.a[1], V.b[1]) + 2 && y < Math.max(V.a[1], V.b[1]) - 2)
+        say(key, `${wireName(s.w)} crosses ${wireName(t.w)}`);
+      continue;
+    }
+    const along = flat(s.a, s.b) && flat(t.a, t.b) ? 0 : upright(s.a, s.b) && upright(t.a, t.b) ? 1 : -1;
+    if (along < 0) continue;
+    const gap = Math.abs(s.a[1 - along] - t.a[1 - along]);
+    const lo = Math.max(Math.min(s.a[along], s.b[along]), Math.min(t.a[along], t.b[along]));
+    const hi = Math.min(Math.max(s.a[along], s.b[along]), Math.max(t.a[along], t.b[along]));
+    if (gap < WIRE_NEAR && hi - lo > 20) say(key, `${wireName(s.w)} runs beside ${wireName(t.w)}`);
+  }
+  for (const w of W) {
+    const p = w.pts, direct = Math.abs(p[0][0] - p[p.length - 1][0]) + Math.abs(p[0][1] - p[p.length - 1][1]);
+    if (p.length - 2 > WIRE_BENDS || polylineLength(p) > WIRE_DETOUR * direct + 160) found.push(`${wireName(w)} makes a detour`);
+  }
+  return found;
+}
 document.fonts.ready.then(() => {
   locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); shrinkToFit(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
-  window.layoutConflicts = layoutConflicts();
+  window.layoutConflicts = [...layoutConflicts(), ...wireProblems()];
   buildCamera();
   window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });

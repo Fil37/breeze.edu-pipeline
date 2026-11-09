@@ -330,7 +330,7 @@ def place_rails(brief, parts):
             rail.setdefault("initial_state", {})["below"] = side == "down"
         if side in ("up", "down"):
             # under a supply's leads, past its label (between its leads): else pushed aside, its wire looped
-            reach = 1.25 if kinds[other] in ("POWER_SUPPLY", "BATTERY") and side == "down" else 0.75
+            reach = 1.25 if kinds[other] in ("POWER_SUPPLY", "BATTERY") and side == "down" else 0.75   # past its leads' long stubs
             rx, ry = ox + dx, oy + dy + (reach if side == "up" else -reach)
         else:
             # an AOP's input to 0 V: right under its pin's stub, inside the wires coming to its - input

@@ -23,6 +23,9 @@ def advice(conflict):
         return f"{conflict}: bring it inside the frame"
     if conflict.endswith("enters the title zone"):
         return f"{conflict}: place it lower, under the titles"
+    if " crosses " in conflict or " runs beside " in conflict or conflict.endswith("makes a detour"):
+        return (f"{conflict}: place the parts so each wire goes straight to what it joins (a part between two "
+                f"others sits between them, in the order of the circuit; one circuit per scene, fewer parts)")
     if conflict.endswith("points at nothing"):
         return f"{conflict}: give the badge a \"target\" that is drawn"
     return conflict

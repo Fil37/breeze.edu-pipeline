@@ -2413,6 +2413,47 @@ def si_prefixes(raw_scenes):
     return count
 
 
+def power_opamps(raw_scenes):
+    """Every AOP powered as its circuit needs, by the program (the AOP course of 2026-11-09: the LLM wired
+    no supply to 5 AOPs out of 6, and an inverter on 0 / +12 V announced -2,5 V, three retries in vain):
+    a "+12 V" symbol on a vcc pin wired to nothing; its gnd pin on a "-12 V" symbol when the output may go
+    negative (its + input to 0 V: an inverter, a summer; or a negative measure of it). In place; returns
+    what was added, for the log."""
+    added = []
+    for scene in raw_scenes:
+        if not isinstance(scene, dict):
+            continue
+        brief = scene.get("visual_brief") if isinstance(scene.get("visual_brief"), dict) else scene
+        entities, wires = brief.get("entities") or [], brief.setdefault("connections", [])
+        kinds = {e.get("id"): e.get("type") for e in entities if isinstance(e, dict)}
+        for amp in [e for e in entities if isinstance(e, dict) and e.get("type") == "OPAMP"]:
+            a = amp.get("id")
+            def ends(port):
+                return [(c["target_id"], c.get("target_port")) if c.get("source_id") == a and c.get("source_port") == port
+                        else (c["source_id"], c.get("source_port")) for c in wires if isinstance(c, dict)
+                        and ((c.get("source_id") == a and c.get("source_port") == port) or (c.get("target_id") == a and c.get("target_port") == port))]
+            grounds = ("CHASSIS_MASS", "EARTH_GROUND")
+            plus_grounded = any(kinds.get(i) in grounds for i, _ in ends("in_plus"))
+            negative = any(a_.get("action") == "measure" and str(a_.get("target_pin_a", "")).startswith(f"{a}.out")
+                           and isinstance(a_.get("value"), (int, float)) and a_["value"] < 0 for a_ in brief.get("actions") or [])
+            if not ends("vcc"):
+                rail = f"{a}_vcc"
+                entities.append({"id": rail, "type": "SUPPLY_RAIL", "position": amp.get("position", [0, 0, 0]),
+                                 "initial_state": {"label": "+12 V"}})
+                wires.append({"source_id": rail, "source_port": "terminal", "target_id": a, "target_port": "vcc"})
+                added.append(f"scene {scene.get('scene_id')}: +12 V on {a}")
+            gnd = ends("gnd")
+            if (plus_grounded or negative) and all(kinds.get(i) in grounds for i, _ in gnd):
+                wires[:] = [c for c in wires if not (isinstance(c, dict) and ((c.get("source_id") == a and c.get("source_port") == "gnd")
+                                                                             or (c.get("target_id") == a and c.get("target_port") == "gnd")))]
+                rail = f"{a}_vee"
+                entities.append({"id": rail, "type": "SUPPLY_RAIL", "position": amp.get("position", [0, 0, 0]),
+                                 "initial_state": {"label": "−12 V"}})
+                wires.append({"source_id": rail, "source_port": "terminal", "target_id": a, "target_port": "gnd"})
+                added.append(f"scene {scene.get('scene_id')}: -12 V on {a}")
+    return added
+
+
 def spread_shared_places(raw_scenes):
     """Two entities given the same named place ("RIGHT"): the second is put beside it, in numbers (below,
     above, left, right...), not sent back; a schematic of a dozen parts has more than the 9 places. The
@@ -2512,6 +2553,9 @@ def parse_storyboard(text, durations, narrations):
     kept = carry_circuit(raw_scenes)
     if kept:
         print(f"--- {AGENT}: put back what the circuit had: " + "; ".join(kept), file=sys.stderr, flush=True)
+    powered = power_opamps(raw_scenes)
+    if powered:
+        print(f"--- {AGENT}: AOPs powered: " + "; ".join(powered), file=sys.stderr, flush=True)
     if si_prefixes(raw_scenes):
         print(f"--- {AGENT}: units written with their prefix (1 kΩ, 10 mA)", file=sys.stderr, flush=True)
     moved = spread_shared_places(raw_scenes)

@@ -97,7 +97,19 @@ def case_worked_out():
     two["entities"].append(part("u2", "OPAMP", "AOP"))
     if not any("2 AOP circuits" in p for p in agent004.aop_problems(SceneVisualBrief.model_validate(two))):
         problems.append("two AOP circuits in one scene kept")
-    return report("1. agent004: the AOP's output worked out (gains, follower, comparator, saturation); wrong readings sent back", problems)
+    # the AOP course of 2026-11-09: no supply on 5 AOPs, an inverter on 0 / +12 V announcing -2,5 V
+    bare = circuit("inv", dual=False, measure=-4)
+    bare["connections"] = [c for c in bare["connections"] if "ps" not in (c["source_id"], c["target_id"])]
+    bare["entities"] = [e for e in bare["entities"] if e["id"] != "ps"]
+    added = agent004.power_opamps([bare])
+    if len(added) != 2 or agent004.aop_problems(SceneVisualBrief.model_validate(bare)):
+        problems.append(f"an unpowered inverter not given +12 V and -12 V by the program: {added}, "
+                        f"{agent004.aop_problems(SceneVisualBrief.model_validate(bare))}")
+    follower = circuit("follower", dual=False)
+    if agent004.power_opamps([follower]):
+        problems.append("a powered follower given another supply")
+    return report("1. agent004: the AOP's output worked out (gains, follower, comparator, saturation); wrong readings sent back; "
+                  "an AOP powered by the program", problems)
 
 
 def case_layout():

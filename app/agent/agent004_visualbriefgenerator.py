@@ -1321,6 +1321,14 @@ def aop_problems(brief):
         errors.append(f"{where}: {len(amps)} AOP circuits {[a.id for a in amps]} in one scene: they tangle into one "
                       f"unreadable drawing; keep ONE circuit here (the one the narration builds), the other in its "
                       f"own scene or as its gain formula")
+    volts = circuit_volts(brief, 1e9)        # its supply pins with everything on (an AOP with none cannot output anything)
+    if volts is not None:
+        for a in amps:
+            top, low = volts.get(f"{a.id}.vcc", 0), volts.get(f"{a.id}.gnd", 0)
+            if top <= 0:
+                errors.append(f"{where}: the AOP {a.id} has no positive supply on its vcc pin: wire it to a POWER_SUPPLY "
+                              f"\"+12 V\" (its + on vcc, its - to 0 V); for a negative output (an inverter, a summer) its "
+                              f"gnd pin goes to a \"-12 V\" supply (its - on gnd, its + to 0 V), else to 0 V")
     bare = [e.id for e in brief.entities if e.type in RESISTIVE and label_ohms(e.initial_state.get("label")) is None]
     if bare:
         errors.append(f"{where}: the resistors {bare} of an AOP circuit have no value: write it in each label "

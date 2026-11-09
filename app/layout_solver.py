@@ -333,7 +333,9 @@ def place_rails(brief, parts):
             reach = 1.25 if kinds[other] in ("POWER_SUPPLY", "BATTERY") and side == "down" else 0.75
             rx, ry = ox + dx, oy + dy + (reach if side == "up" else -reach)
         else:
-            rx, ry = ox + dx + (0.6 if side == "right" else -0.6), oy + dy + (0.75 if up else -0.75)
+            # an AOP's input to 0 V: right under its pin's stub, inside the wires coming to its - input
+            near = 0.0 if kinds[other] == "OPAMP" else 0.6
+            rx, ry = ox + dx + (near if side == "right" else -near), oy + dy + (0.75 if up else -0.75)
         rail["position"] = [round(rx, 2), round(ry, 2), 0]
 
 
@@ -693,6 +695,10 @@ def place_divider(brief):
 # - input to 0 V upright under it, the load upright on the right; the supply that only feeds the AOP
 # becomes a "+12 V" symbol on its pin, as on paper.
 OPAMP_AT = (0.0, -0.4)
+# A lab supply's leads come out underneath and run ~1.35 units down before they may turn: it sits that
+# much over the input it feeds, so its wire turns straight into it (lower, it came up under the + input
+# and touched the - input's loop).
+SOURCE_LIFT = 1.4
 
 
 def place_opamp(brief):
@@ -747,7 +753,7 @@ def place_opamp(brief):
                 not any(other in (d.get("source_id"), d.get("target_id")) for d in wires if d is not c):
             wires.remove(c)
             supplies.append(str((rail.get("initial_state") or {}).get("label") or "0 V") if rail["type"] == "SUPPLY_RAIL" else "0 V")
-    volts = sorted({v.replace("−", "-").replace(" ", "") for v in supplies} - {"0V"} or {"0V"})   # 0 V goes without saying
+    volts = sorted({v.replace("−", "-").replace(" ", "") for v in supplies} - {"0V"})   # 0 V goes without saying
     if volts:
         amp.setdefault("initial_state", {})["label"] = (
             f"±{volts[0].lstrip('+-').rstrip('V')} V" if len(volts) == 2 and volts[0].lstrip("+-") == volts[1].lstrip("+-")
@@ -785,7 +791,11 @@ def place_opamp(brief):
     placed = {amp["id"]: [x0, y0]}
     inputs = []
     for i, (a, b) in two_leads.items():
-        if {a, b} == {minus, out}:
+        if out in (a, b) and (b if a == out else a) in ground and minus == out:
+            placed[i] = [x0 + 2.6, y0 - 1.2]                   # a follower's load (its - input is its output): on the right
+            if by_id[i]["type"] in ("RESISTOR", "THERMISTOR", "HEATER"):
+                by_id[i].setdefault("initial_state", {})["vertical"] = 1 if a == out else -1
+        elif {a, b} == {minus, out}:
             placed[i] = [x0, y0 - 1.5 if plus_top else y0 + 1.5]          # the feedback, away from the + input's wire
         elif minus in (a, b) and (b if a == minus else a) in ground:
             placed[i] = [x0 - 1.5, y0 - 1.2] if not plus_top else [x0 - 2.0, y0 - 1.5]   # - input to 0 V, upright
@@ -797,7 +807,7 @@ def place_opamp(brief):
             if by_id[i]["type"] in ("RESISTOR", "THERMISTOR", "HEATER"):
                 by_id[i].setdefault("initial_state", {})["vertical"] = 1 if a == out else -1
     for k, (i, far) in enumerate(inputs):                    # input resistors on the left, then what feeds them
-        y = ym - 2.9 * k                                     # room for a lab supply (2,4 units tall) per input
+        y = ym - 3.4 * k                                     # room for a lab supply, its label and its 0 V per input
         placed[i] = [x0 - 2.4, y]
         for e in entities:
             if e["id"] in placed:
@@ -805,19 +815,68 @@ def place_opamp(brief):
             if e["type"] == "AMMETER" and net(f"{e['id']}.out") == far:
                 placed[e["id"]] = [x0 - 3.8, y]
             elif e["type"] in ("POWER_SUPPLY", "BATTERY") and net(f"{e['id']}.positive") == far:
-                placed[e["id"]] = [x0 - 5.4, y + 0.9]           # its leads (underneath) just over the input's height
+                placed[e["id"]] = [x0 - 5.4, y + SOURCE_LIFT]   # its leads' ends at the input's height
     # a source on the + input on the left, its leads just over that input (one bend down to it)
     for e in entities:
         if e["id"] not in placed and e["type"] in ("POWER_SUPPLY", "BATTERY") and net(f"{e['id']}.positive") == plus:
-            placed[e["id"]] = [x0 - 3.6, yp + 1.2]
+            placed[e["id"]] = [x0 - 3.6, yp + SOURCE_LIFT]
     for k, f in enumerate(e for e in entities if e["type"] == "TEX_FORMULA"):   # never over the circuit
         placed[f["id"]] = list(FORMULA_SPOTS[min(k, len(FORMULA_SPOTS) - 1)])
     for i, xy in placed.items():
         by_id[i]["position"] = [round(xy[0], 2), round(xy[1], 2), 0]
     place_rails(brief, [by_id[i] for i in placed if by_id[i]["type"] != "TEX_FORMULA"])
+    # the feedback wires drawn last: the input wires take the straight way first, the loop goes round them
+    # (drawn first, the follower's loop went over the AOP and its + input's wire had to cross it)
+    loop = {i for i, (a, b) in two_leads.items() if out in (a, b) and minus in (a, b)}
+    back = lambda c: ({c["source_id"], c["target_id"]} & loop) or (c["source_id"] == c["target_id"] == amp["id"]
+                                                                  and {c.get("source_port"), c.get("target_port")} == {"out", "in_minus"})
+    wires.sort(key=lambda c: bool(back(c)))
     rails = {e["id"] for e in entities if e["type"] in RAIL_TYPES and any(
         e["id"] in (c.get("source_id"), c.get("target_id")) and ({c.get("source_id"), c.get("target_id")} & set(placed)) for c in wires)}
     return {i for i in placed if by_id[i]["type"] != "TEX_FORMULA"} | rails   # a formula may still move or shrink
+
+
+# A resistor has no direction: wired left lead to what is on its right (the AOP run of 2026-11-08: Rf's
+# left lead on the output, its right lead on the - input), its two wires cross over it. Once the parts
+# are placed, such a part has its leads swapped (in the wires and the measures).
+TURNABLE = ("RESISTOR", "THERMISTOR", "HEATER", "LAMP")
+LEADS = {"LAMP": ("left_terminal", "right_terminal")}
+
+
+def orient_parts(brief):
+    """Swap the leads of a horizontal resistor whose left lead goes to the right (see above), in place.
+    Returns the ids turned."""
+    from models.visual_brief_schema import scene_point
+    entities = brief.get("entities") or []
+    at = {e["id"]: scene_point(e.get("position"))[0] for e in entities}
+    kinds = {e["id"]: e["type"] for e in entities}
+    wires, turned = brief.get("connections") or [], []
+    for e in entities:
+        if e["type"] not in TURNABLE or (e.get("initial_state") or {}).get("vertical"):
+            continue
+        left, right = LEADS.get(e["type"], ("left", "right"))
+        def partners(port):                    # where the leads it is wired to are (their part's x and the pin's offset)
+            xs = []
+            for c in wires:
+                for mine, other in (("source", "target"), ("target", "source")):
+                    if c[f"{mine}_id"] == e["id"] and c.get(f"{mine}_port") == port and c[f"{other}_id"] in at:
+                        xs.append(at[c[f"{other}_id"]] + port_offset(kinds.get(c[f"{other}_id"], ""), c.get(f"{other}_port"))[0])
+            return sum(xs) / len(xs) if xs else None
+        lx, rx = partners(left), partners(right)
+        if lx is None or rx is None or lx <= rx:
+            continue
+        swap = {left: right, right: left}
+        for c in wires:
+            for end in ("source", "target"):
+                if c[f"{end}_id"] == e["id"] and c.get(f"{end}_port") in swap:
+                    c[f"{end}_port"] = swap[c[f"{end}_port"]]
+        for a in brief.get("actions") or []:
+            for key in ("target_pin_a", "target_pin_b"):
+                pin = a.get(key)
+                if isinstance(pin, str) and pin.rsplit(".", 1)[0] == e["id"] and pin.rsplit(".", 1)[-1] in swap:
+                    a[key] = f"{e['id']}.{swap[pin.rsplit('.', 1)[-1]]}"
+        turned.append(e["id"])
+    return turned
 
 
 def solve_layout(brief, corrections, template="circuit"):
@@ -833,6 +892,8 @@ def solve_layout(brief, corrections, template="circuit"):
     designed = place_opamp(brief) or place_divider(brief)   # laid out as on paper: they stay as they are
     if not designed:
         place_schematic(brief)
+    for part in orient_parts(brief):
+        corrections.append(f"{where}: layout: {part} turned round (its left lead went to the right)")
     overlay = brief.get("text_overlay") or {}
     header = HEADER_WITH_SUBTITLE if overlay.get("subtitle") else HEADER
     column = uses_column(brief) and template == "circuit"

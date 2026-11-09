@@ -680,7 +680,10 @@ the middle, + on top when the signal comes in by it (non-inverting, follower) an
 it, else − on top and the feedback over it, input resistors on the left, the supply written under the
 AOP ("±12 V") rather than wired, a junction between two leads one wire, its formulas over the circuit;
 parts laid out so are moved neither by the overlap pass nor by the page (`laid_out`, `LAID_OUT`), an
-upright part's label beside it, a supply symbol under its lead drawn upside down. agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
+upright part's label beside it, a supply symbol under its lead drawn upside down. A resistor wired with its left lead to
+what is on its right is turned round (`orient_parts`: Rf's wires crossed over the AOP); in an AOP circuit the
+feedback wires are drawn last, a source sits so its leads end at its input's height, the AOP's label goes over
+it when + is on top; an AOP with no positive supply is sent back (`aop_problems`). agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
 V− with feedback, else a comparator, its output within its supplies) and sends back a wrong reading, two
 AOP circuits in one scene, a resistor with no value (`aop_problems`, `tests/test_opamp.py`); a supply
 on from its initial_state shows its voltage. Wires of one node (leads joined) share their way and part at a

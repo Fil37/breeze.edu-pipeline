@@ -133,7 +133,20 @@ def case_layout():
             {c["source_id"], c["target_id"]} == {"u"} and {c["source_port"], c["target_port"]} == {"out", "in_minus"} for c in f["connections"]):
         problems.append("the follower's junction not made one wire from the output to the - input")
     SceneVisualBrief.model_validate(b)
-    return report("2. layout_solver: an AOP circuit as in a course (+ on top when the signal comes in by it); its supply written under it", problems)
+    # Rf wired left lead to the output (the run of 2026-11-08): turned round, its two wires no longer cross
+    from app.layout_solver import orient_parts
+    t = circuit("inv", dual=False)
+    t["connections"] = [c if not ({c["source_id"], c["target_id"]} == {"u", "r2"}) else
+                        ({**c, "source_port": "left", "target_id": "u", "target_port": "out"} if c["source_id"] == "r2" and c["target_port"] == "out"
+                         else c) for c in t["connections"]]
+    t["connections"] = [c for c in t["connections"] if "r2" not in (c["source_id"], c["target_id"])] + [
+        wire("u.out", "r2.left"), wire("r2.right", "u.in_minus")]
+    split_rails(t)
+    place_opamp(t)
+    if orient_parts(t) != ["r2"] or not any(c["source_id"] == "u" and c["source_port"] == "out" and c["target_port"] == "right" for c in t["connections"]):
+        problems.append(f"a feedback resistor wired backwards not turned round: {t['connections']}")
+    return report("2. layout_solver: an AOP circuit as in a course (+ on top when the signal comes in by it); its supply written under it; "
+                  "a resistor wired backwards turned round", problems)
 
 
 def case_page():

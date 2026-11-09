@@ -69,7 +69,7 @@ from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.breadboard import breadboard_data
 from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
-                               logic_size, place_divider, place_opamp, place_schematic, split_rails, target_first_timing, with_program)
+                               logic_size, orient_parts, place_divider, place_opamp, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
 from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
@@ -1052,6 +1052,7 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
     laid_out = place_opamp(brief) or place_divider(brief)    # laid out as on paper: spreadOut leaves them as they are
     if not laid_out:
         place_schematic(brief)
+    orient_parts(brief)
     compact_oscillators(brief)
     by_id = {e["id"]: e for e in brief["entities"]}
     overlay = brief.get("text_overlay") or {}
@@ -1360,6 +1361,7 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .pop.aside { position:relative; } .pop.aside > .label { position:absolute; left:100%; top:50%; transform:translateY(-50%);
                                                           margin:0 0 0 14px; white-space:nowrap; }
   .pop.aside.flip > .label { left:auto; right:100%; margin:0 14px 0 0; }
+  .pop.above { flex-direction:column-reverse; } .pop.above > .label { margin:0 0 12px; }
   .switch { width:200px; height:90px; position:relative; }
   .switch .dot { position:absolute; bottom:8px; width:22px; height:22px; border-radius:50%; border:5px solid var(--ink);
                  background:var(--card); }
@@ -3496,6 +3498,7 @@ for (const ent of D.entities) {
   if (ent.tone) { shape.classList.add("toned"); shape.style.setProperty("--tone", `var(--tone-${ent.tone})`); }
   pop.append(shape);
   if (ent.vertical || ent.upright) pop.classList.add("aside");          // its label beside it, not on its lead
+  if (ent.plus_top) pop.classList.add("above");     // an AOP + on top: its feedback loops under it, its label over it
   if (ent.upright) pop.classList.add("flip");                            // the battery's on its left: its wires leave right
   // A curve's label is its legend, a meter's is in its header; a junction has none.
   // an AOP's "AOP" label: its symbol says it already, and under it the label sat on its 0 V lead

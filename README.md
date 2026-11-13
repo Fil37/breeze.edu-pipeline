@@ -1003,3 +1003,7 @@ The parentheses are part of the id.
 | file paths | literal: `instance/breeze_(math)/script.json` |
 | shell | always quote: `--channel "breeze_(math)"`, `ls "instance/breeze_(math)"`. Unquoted, bash reads `(` as syntax |
 | URLs | percent-encode: `/channel/breeze_%28math%29` (Python: `urllib.parse.quote("breeze_(math)", safe="")`, decoded with `unquote`) |
+
+## Agent count clarification
+
+The repository has ten agent modules: `agent000` is the orchestrator and nine processing modules are `agent001`-`agent005` and `agent007`-`agent010` (`agent006` is retired). `agent009` runs once per full cycle; the other eight processing agents run once per channel, including `agent010` for rendering. The introductory phrase “all nine per channel” counts the shared `agent009` role, not nine separate executions on every channel.

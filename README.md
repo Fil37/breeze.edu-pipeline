@@ -4,6 +4,10 @@ One Python process, nine agents (all nine per channel, agent009 shared), four ch
 in its domain and turns it into a 90–180 s animated video, narrated in French, that ends on an
 "aha moment": `breeze_(electronics)`, `breeze_(physics)`, `breeze_(math)`, `breeze_(economics)`.
 
+## Demo video
+
+[Watch the French electronics lesson (MP4)](https://github.com/Fil37/breeze.edu-pipeline/blob/main/assets/breeze-demo-electronics.mp4)
+
 Third-party components kept in the repository (KaTeX, Lucide icons, the Inter / Fira Code / Space
 Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 

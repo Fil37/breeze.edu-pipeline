@@ -21,13 +21,13 @@
   <div class="side-foot">
     <span class="lang-switch"><a href="{{ url_for('set_language', code='en', next=request.full_path) }}" {% if lang == 'en' %}aria-current="true"{% endif %}>EN</a><a href="{{ url_for('set_language', code='fr', next=request.full_path) }}" {% if lang == 'fr' %}aria-current="true"{% endif %}>FR</a></span>
     <span class="theme-switch" title="{{ _('Theme') }}"><a href="{{ url_for('set_theme', code='light', next=request.full_path) }}" {% if theme == 'light' %}aria-current="true"{% endif %} title="{{ _('Light') }}">☀</a><a href="{{ url_for('set_theme', code='auto', next=request.full_path) }}" {% if theme == 'auto' %}aria-current="true"{% endif %} title="{{ _('Follow the system') }}">A</a><a href="{{ url_for('set_theme', code='dark', next=request.full_path) }}" {% if theme == 'dark' %}aria-current="true"{% endif %} title="{{ _('Dark') }}">☾</a></span>
-    <span class="side-ver">studio · {{ _('read-only') }}</span>
+    <span class="side-ver">studio · kit 1.1</span>
   </div>
 </aside>
 <div class="content">
 <main class="wrap">
   {% block content %}{% endblock %}
-  <p class="small faint mt-20">breeze · {{ _('read-only') }}: {{ _('this interface starts nothing and changes no file.') }}</p>
+  <p class="small faint mt-20">breeze · {{ _('this interface starts nothing; it only closes incidents.') }}</p>
 </main>
 </div>
 <script src="{{ url_for('static', filename='js/breeze.js') }}" nonce="{{ csp_nonce }}" defer></script>

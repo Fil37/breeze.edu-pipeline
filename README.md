@@ -71,6 +71,17 @@ video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `w
 `static/js/breeze.js`, `static/images/favicon.svg`; the fonts sit beside the stylesheet (`static/css/*.ttf`, OFL).
 The previous version is in `archive/web_v1/`. Check: `python tests/test_web.py`.
 
+**Supervision** (the standup page, on the studio kit's socle `app/supervision.py`, copied as is from
+`~/ProjetPerso/studio-kit/socle/`): at the end of each channel's run, agent000 hands its reports to
+`app/run_supervision.py`. An agent in failure whose cause is a defect or a configuration (software_failure,
+timeout, misconfiguration, access_denied) opens an incident; a QA refusal, a topic repeated or a renderer
+limitation does not. Errors and warnings go to `events`; each agent's health goes `degraded` with an incident
+and back to `healthy` at its next good run; closing an incident ("Resolved" / "Ignore" on the standup, checked
+against the browser's CSRF cookie) never changes it. Tables `llm_calls`, `agent_health`, `incidents`, `events`
+in `instance/breeze.db`; the secrets of `.env` are removed from every stored text. The costs shown (last run, AI
+and voice, by day) stay `app/costs.py`'s (`instance/costs_history.json`): it counts the voice, the socle does
+not. Check: `python tests/test_run_supervision.py`, `python tests/test_supervision.py`.
+
 `--channel` runs that channel only, even if `routes.json` disables it. `--skip-agents` takes a
 comma-separated list of agents that are never called, e.g. to test the QA -> agent004 -> agent010
 loop without publishing (008) or reading analytics (009). Each one is logged

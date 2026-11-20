@@ -1,22 +1,92 @@
 {% extends "base.html" %}
 {% block title %}{{ _('Standup') }}{% endblock %}
 {% block content %}
+{#- The kit's supervision: costs (app/costs.py's history: AI and voice), each agent's health over time, the open
+    incidents (closed here, CSRF-checked), the recent errors; then each channel at the last run. -#}
+{% set health = supervision.agents %}
+{% set well = health | selectattr("state", "equalto", "healthy") | list | length %}
 <div class="page-head">
   <div>
     <h1>{{ _('Standup') }}</h1>
     {% if run_id %}<p class="muted">{{ _('Last run') }} <code>{{ run_id }}</code> · {{ _('What each agent did, channel by channel.') }}</p>{% endif %}
   </div>
 </div>
-{% if run_id %}
-{% set lines = groups | map(attribute="lines") | sum(start=[]) %}
-{% set clean = lines | selectattr("status", "equalto", "healthy") | list | length %}
-{% set failed = lines | selectattr("status", "equalto", "critical") | list | length %}
+
 <div class="tiles">
-  <div class="tile"><div class="label">{{ _('channels') }}</div><div class="value">{{ groups | length }}</div><div class="sub">{{ lines | length }} {{ _('agents in all') }}</div></div>
-  <div class="tile good"><div class="label">{{ _('healthy') }}</div><div class="value">{{ clean }}</div><div class="sub">{{ _('finished cleanly') }}</div></div>
-  <div class="tile warn"><div class="label">{{ _('warnings') }}</div><div class="value">{{ lines | length - clean - failed }}</div><div class="sub">{{ _('to look at') }}</div></div>
-  <div class="tile bad"><div class="label">{{ _('failed') }}</div><div class="value">{{ failed }}</div><div class="sub">{{ _('critical') }}</div></div>
+  <div class="tile"><div class="label">{{ _('Cost of the last run') }}</div>
+    <div class="value">{% if costs %}${{ '%.3f' | format(costs.last.cost) }}{% else %}—{% endif %}</div>
+    <div class="sub">{% if costs %}{{ _('AI') }} ${{ '%.3f' | format(costs.last.llm_cost) }} · {{ _('voice') }} ${{ '%.3f' | format(costs.last.tts_cost) }}{% else %}{{ _('No cost recorded yet.') }}{% endif %}</div></div>
+  <div class="tile {{ 'good' if well == health | length else ('bad' if health | selectattr('state', 'equalto', 'critical') | list else 'warn') }}">
+    <div class="label">{{ _('Agents') }}</div><div class="value">{{ well }}/{{ health | length }}</div><div class="sub">{{ _('healthy') }}</div></div>
+  <div class="tile {{ 'bad' if supervision.incidents else 'good' }}"><div class="label">{{ _('Incidents') }}</div>
+    <div class="value">{{ supervision.incidents | length }}</div><div class="sub">{{ _('open') }}</div></div>
+  <div class="tile"><div class="label">{{ _('Recent errors') }}</div><div class="value">{{ supervision.errors | length }}</div>
+    <div class="sub">{{ costs.days[0].day if costs and costs.days else '—' }}</div></div>
 </div>
+
+<div class="dash">
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Agent health') }}</h2><span class="count">{{ well }}/{{ health | length }}</span></div>
+    <ul class="list">
+      {% for a in health %}
+      <li><span class="badge {{ a.state if a.state in ('healthy', 'degraded', 'critical') else 'plain' }}">{{ _(a.state) }}</span>
+        <strong>{{ a.name }}</strong><span class="small faint">{{ a.detail or a.id }}</span></li>
+      {% endfor %}
+    </ul>
+    <p class="hint">{{ _("Closing an incident does not change the agent's health: it heals at its next good run.") }}</p>
+  </section>
+
+  <section class="panel" id="incidents">
+    <div class="panel-title"><h2>{{ _('Incidents') }}</h2><span class="count">{{ supervision.incidents | length }}</span></div>
+    {% if supervision.incidents %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>#</th><th>Agent</th><th>{{ _('Reason') }}</th><th></th></tr></thead>
+      <tbody>
+      {% for i in supervision.incidents %}
+      <tr><td>{{ i.id }}</td><td>{{ i.name }}<br><span class="badge failed">{{ i.error_category }}</span></td>
+        <td class="small prose">{{ i.message }}<br><span class="faint">{{ i.created_at }}</span></td>
+        <td><form method="post" action="{{ url_for('incident_close', incident_id=i.id) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button name="status" value="resolved" class="good small">{{ _('Resolved') }}</button>
+          <button name="status" value="ignored" class="ghost small">{{ _('Ignore') }}</button>
+        </form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="empty small"><span class="big">✅</span>{{ _('No open incident.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Costs by day') }}</h2></div>
+    {% if costs %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Day') }}</th><th>{{ _('Runs') }}</th><th>{{ _('Calls') }}</th><th>{{ _('Tokens') }}</th>
+        <th>{{ _('AI') }} $</th><th>{{ _('voice') }} $</th><th>{{ _('Total') }}</th></tr></thead>
+      <tbody>
+      {% for d in costs.days %}
+      <tr><td>{{ d.day }}</td><td>{{ d.runs }}</td><td>{{ d.llm_calls }}</td><td>{{ '{:,}'.format(d.tokens) }}</td>
+        <td>{{ '%.4f' | format(d.llm_cost) }}</td><td>{{ '%.4f' | format(d.tts_cost) }}</td><td><b>{{ '%.4f' | format(d.cost) }}</b></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="empty small">{{ _('No cost recorded yet.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Recent errors') }}</h2><span class="count">{{ supervision.errors | length }}</span></div>
+    {% if supervision.errors %}
+    <ul class="list">
+      {% for e in supervision.errors %}
+      <li><span class="badge failed">{{ e.code }}</span><span class="small prose"><b>{{ e.agent_id }}</b> · {{ e.message }}</span>
+        <span class="small faint">{{ e.created_at }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty small"><span class="big">✅</span>{{ _('No error.') }}</p>{% endif %}
+  </section>
+</div>
+
+{% if run_id %}
+<h2 class="mt-20">{{ _('Channels at the last run') }}</h2>
 <div class="dash">
   {% for g in groups %}
   <section class="panel">

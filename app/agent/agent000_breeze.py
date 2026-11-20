@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import app.agent as helpers
 from app import costs
+from app import run_supervision
 from app.agent import (INSTANCE_DIR, REPORTS_PATH, ROWS_PATH, SCHEMAS_DIR, db_connect,
                        load_json, log_status, save_json, utc_now)
 from app.agent import agent001_conceptresearcher, agent002_curriculumsimplifier, agent003_scriptwriter
@@ -261,6 +262,17 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
         conn.execute("INSERT OR REPLACE INTO channels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (channel_id, route["name"], route["domain"], route["schedule_cron"], 1,
                       run_id, finished_at, overall, topic, video_url))
+
+    # Supervision (app/run_supervision.py, the studio kit's socle): incidents for the failures that are defects,
+    # errors in events, each agent's health over time. Never stops the run: a failure here is only said.
+    try:
+        errors = {name: "; ".join(t["error"] for t in timings if t["agent"] == name and t["error"]) or None
+                  for name in statuses}
+        opened = run_supervision.supervise(run_supervision.store(), run_id, channel_id, statuses, errors)
+        if opened:
+            print(f"  {channel_id}: {len(opened)} incident(s) opened (see /standup)")
+    except Exception as exc:          # noqa: BLE001 (the video is made: supervision only reports)
+        print(f"WARNING supervision not recorded for {channel_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     # What this run cost (app/costs.py): one line here, one row in instance/costs_history.json.
     ledger = costs.run_summary(channel_id)

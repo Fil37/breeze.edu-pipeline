@@ -6,7 +6,11 @@ video.mp4). The look is the studio kit's (~/ProjetPerso/studio-kit, v1.0): stati
 and its fonts beside it; English, or French by the "lang" cookie (/lang/fr); the system's theme, or
 the "theme" cookie (/theme/light, /theme/dark); a Content-Security-Policy with a nonce per request, no
 inline style. A channel is told by its logo (/logo/<channel_id>: its "watermark_by_channel" file in
-settings.json), never by a colour: the kit keeps colours for states."""
+settings.json), never by a colour: the kit keeps colours for states.
+The standup is the kit's supervision (app/run_supervision.py on the socle app/supervision.py): what the runs
+cost (app/costs.py's history), each agent's health over time, the open incidents and the recent errors. The
+only thing this interface changes: an incident closed ("Resolved" / "Ignore", a POST checked against the
+"csrf" cookie); closing it does not change the agent's health."""
 
 import json
 import os
@@ -22,6 +26,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path = [BASE_DIR] + [p for p in sys.path if os.path.abspath(p or ".") != os.path.dirname(os.path.abspath(__file__))]
 
 from web import page
+from app import run_supervision
 
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 FONT_FILES = {"inter-latin-400-normal.woff2", "inter-latin-600-normal.woff2", "inter-latin-800-normal.woff2",
@@ -81,7 +86,16 @@ FRENCH = {
     "No run yet. Start one with": "Aucun passage pour l'instant. Lancez-en un avec", "warnings": "avertissements",
     "agents in all": "agents en tout", "finished cleanly": "terminés proprement", "to look at": "à regarder",
     "healthy": "sain", "warning": "avertissement", "critical": "échec", "revision": "révision", "not run": "pas lancé",
-    "skipped": "sauté", "this interface starts nothing and changes no file.": "cette interface ne lance rien et ne modifie aucun fichier.",
+    "skipped": "sauté", "this interface starts nothing; it only closes incidents.": "cette interface ne lance rien ; elle ne fait que fermer des incidents.",
+    "Cost of the last run": "Coût du dernier run", "AI": "IA", "voice": "voix", "Costs by day": "Coûts par jour",
+    "Day": "Jour", "Runs": "Passages", "Calls": "Appels", "Tokens": "Jetons", "Total": "Total",
+    "Agent health": "Santé des agents", "Incidents": "Incidents", "Resolved": "Résolu", "Ignore": "Ignorer",
+    "No open incident.": "Aucun incident ouvert.", "Recent errors": "Erreurs récentes", "No error.": "Aucune erreur.",
+    "unknown": "inconnu", "degraded": "dégradé", "disabled": "désactivé", "Agents": "Agents", "Cost today": "Coût du jour",
+    "open": "ouverts", "since the start": "depuis le début", "No cost recorded yet.": "Aucun coût enregistré pour l'instant.",
+    "Closing an incident does not change the agent's health: it heals at its next good run.":
+        "Fermer un incident ne change pas la santé de l'agent : il guérit à son prochain run réussi.",
+    "Channels at the last run": "Les chaînes au dernier passage",
 }
 
 
@@ -92,10 +106,23 @@ def translate(text):
 app.jinja_env.filters["status"] = lambda status: translate(page.STATUS_LABELS.get(status, status or "—"))
 
 
+CSRF_COOKIE = "csrf"
+
+
 @app.before_request
 def prepare():
     g.lang = request.cookies.get("lang") if request.cookies.get("lang") in ("en", "fr") else "en"
     g.csp_nonce = secrets.token_urlsafe(16)
+    token = request.cookies.get(CSRF_COOKIE, "")
+    g.csrf_new = len(token) < 32
+    g.csrf = secrets.token_urlsafe(32) if g.csrf_new else token
+
+
+def check_csrf():
+    """A form that changes something carries the browser's token (double submit): else 400."""
+    sent, kept = request.form.get("csrf", ""), request.cookies.get(CSRF_COOKIE, "")
+    if not kept or not secrets.compare_digest(sent, kept):
+        abort(400)
 
 
 def channel_logo(channel_id):
@@ -116,7 +143,7 @@ def channel_logo(channel_id):
 def inject():
     theme = request.cookies.get("theme")
     return {"lang": g.lang, "theme": theme if theme in ("light", "dark") else "auto", "_": translate,
-            "csp_nonce": g.csp_nonce, "has_logo": lambda channel_id: channel_logo(channel_id) is not None}
+            "csp_nonce": g.csp_nonce, "csrf": g.csrf, "has_logo": lambda channel_id: channel_logo(channel_id) is not None}
 
 
 @app.after_request
@@ -126,6 +153,8 @@ def security(response):
     response.headers["Content-Security-Policy"] = (f"default-src 'self'; img-src 'self' data:; media-src 'self'; "
                                                    f"style-src 'self' 'nonce-{nonce}'; script-src 'self' 'nonce-{nonce}'")
     response.headers["X-Content-Type-Options"] = "nosniff"
+    if g.get("csrf_new"):
+        response.set_cookie(CSRF_COOKIE, g.csrf, httponly=True, samesite="Strict", max_age=86400)
     return response
 
 
@@ -166,9 +195,30 @@ def channel(channel_id):
     return render_template("channel.html", active="channel", **data)
 
 
+def supervision():
+    return run_supervision.store(app.config.get("SUPERVISION_DB") or run_supervision.DB_PATH)
+
+
 @app.route("/standup")
 def standup():
-    return render_template("standup.html", active="standup", **page.standup())
+    agents = [a for a in page.AGENT_ORDER]
+    data = supervision().standup(agents)
+    for row in data["agents"]:
+        row["name"] = page.AGENT_NAMES.get(row["id"], row["id"])
+    for incident in data["incidents"]:
+        incident["name"] = page.AGENT_NAMES.get(incident["agent"], incident["agent"])
+    return render_template("standup.html", active="standup", supervision=data, costs=page.costs(), **page.standup())
+
+
+@app.route("/incidents/<int:incident_id>/close", methods=["POST"])
+def incident_close(incident_id):
+    """Resolved or ignored, from the standup. The agent's health is not touched: it heals at its next good run."""
+    check_csrf()
+    try:
+        supervision().close_incident(incident_id, request.form.get("status", ""), request.form.get("resolution", ""))
+    except (KeyError, ValueError):
+        abort(404)
+    return redirect(url_for("standup") + "#incidents")
 
 
 @app.route("/video/<path:channel_id>")

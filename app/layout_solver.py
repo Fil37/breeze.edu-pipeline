@@ -74,7 +74,8 @@ RACE_W, RACE_ROW, RACE_EXTRA = 1400, 120, 114   # SPEED_RACE: label + track + ti
 POPULATION_SIZE = (700, 520)               # POPULATION: the head, the grid of dots, its legend under it
 BREADBOARD_SIZE = (1080, 560)              # BREADBOARD: app/breadboard.py WIDTH, HEIGHT
 MCU_SIZE = (760, 480)                      # MICROCONTROLLER: the chip, its memory and its unit, the count under it
-TABLE_ROW, TABLE_CHAR, TABLE_COL = 64, 15, (130, 340)     # TABLE: a row's height, a character's width, a column's widths
+TABLE_ROW, TABLE_CHAR, TABLE_COL = 64, 15, (130, 560)     # TABLE: a row's height, a character's width, a column's widths
+TABLE_LINE, TABLE_LINES, TABLE_PAD = 32, 3, 28              # TABLE: a cell's extra line, its lines at most, its side padding
 CHAIN_BOX, CHAIN_GAP, CHAIN_ROW = (250, 120), 80, 3         # CHAIN: a box, the arrow between two, boxes in a row
 
 
@@ -84,8 +85,20 @@ def table_widths(state):
             for j, c in enumerate(columns)]
 
 
+def table_heights(state):
+    """TABLE: each row's height (the header, the rows, the total): a cell too long for its column goes on two or
+    three lines and its row grows (the German run of 2026-11-16: "Conjonctions de subordination" and "weil,
+    dass, wenn, obwohl, damit, ob" were cut, a column held 340 px at most and a cell one line)."""
+    widths = table_widths(state)
+    def lines(cells):
+        return max([1] + [min(TABLE_LINES, -(-TABLE_CHAR * len(str(c)) // max(1, w - TABLE_PAD)))
+                          for c, w in zip(cells, widths)])
+    rows = [state.get("columns") or []] + list(state.get("rows") or []) + [[]]
+    return [TABLE_ROW + (lines(r) - 1) * TABLE_LINE for r in rows]
+
+
 def table_size(state):
-    return sum(table_widths(state)), TABLE_ROW * (len(state.get("rows") or []) + 2)     # the header, the rows, a total
+    return sum(table_widths(state)), sum(table_heights(state))     # the header, the rows, a total
 
 
 def chain_size(state):
@@ -99,7 +112,8 @@ def chain_size(state):
 PHYS_SIZES = {"FREE_BODY": (1000, 600), "KINEMATICS": (1300, 560), "COLLISION": (1300, 470), "OSCILLATOR": (1300, 560),
               "ORBIT": (1000, 740)}
 SIMPLE_SIZES = {"TIMELINE": (1300, 300), "FRACTION_BAR": (1100, 300), "PIE_CHART": (1000, 560), "UNIT_CONVERTER": (1200, 360),
-                "SET_DIAGRAM": (960, 560), "GAME_MATRIX": (1000, 520), "BAR_CHART": (1100, 560), "POWER_SUPPLY": (300, 230)}
+                "SET_DIAGRAM": (960, 560), "GAME_MATRIX": (1000, 520), "BAR_CHART": (1100, 560), "POWER_SUPPLY": (300, 230),
+                "SENTENCE": (1600, 320)}
 TREE_LEVEL, TREE_LEAF = 330, 74             # TREE: a level's width, a leaf's height
 EQUATION_LINE = 112                         # EQUATION_STEPS: a line and the arrow under it
 

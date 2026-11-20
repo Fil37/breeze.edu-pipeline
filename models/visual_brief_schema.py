@@ -68,6 +68,7 @@ class ComponentType(str, Enum):
     GAME_MATRIX = "GAME_MATRIX"              # a two-player game: payoffs, best answers, the Nash equilibrium worked out
     BAR_CHART = "BAR_CHART"                  # values as bars to one scale, growing in turn, a reference line
     EQUATION_STEPS = "EQUATION_STEPS"        # an equation solved line after line, what is done to both sides on each arrow
+    SENTENCE = "SENTENCE"                    # a sentence as word tiles coloured by role: words slide to a new place (German word order)
     POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
     FREE_BODY = "FREE_BODY"                  # a body and the forces on it, to scale: axes, projections, the resultant, the motion
     KINEMATICS = "KINEMATICS"                # a moving body: its path, strobe images, velocity and acceleration, x(t) and v(t)
@@ -128,6 +129,7 @@ COMPONENT_PORTS = {
     ComponentType.TUNNEL: (),
     ComponentType.WAVE: (),
     ComponentType.TABLE: (),
+    ComponentType.SENTENCE: (),
     ComponentType.FREE_BODY: (),
     ComponentType.KINEMATICS: (),
     ComponentType.COLLISION: (),
@@ -417,8 +419,46 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+# SENTENCE: a sentence as word tiles, each coloured by its role, for word order (German: the conjugated
+# verb second in a main clause, sent to the end after weil / dass / wenn). initial_state {"words": [{"text":
+# "Ich", "role": "subject"}, {"text": "lerne", "role": "verb"}, ...], "order": [0, 1, 2], "translation":
+# "J'apprends l'allemand"} (2 to 14 words; role one of SENTENCE_ROLES; "order": the words shown at first,
+# by index, default all in order). set_state {"order": [...]} the words slide to that order (a word left
+# out fades away, a new one fades in); {"focus": i} picks word i out; {"step": n} the first n words of the
+# first order in; {"translation": true} shows the French meaning under it.
+SENTENCE_ROLES = ("subject", "verb", "conjunction", "object", "other", "punct")
+
+
+def sentence_order_problem(order, count):
+    """Why a SENTENCE "order" is wrong, or None: distinct word indexes from 0 to count - 1."""
+    if not (isinstance(order, list) and order and all(isinstance(i, int) and not isinstance(i, bool) and 0 <= i < count
+                                                       for i in order) and len(set(order)) == len(order)):
+        return f'SENTENCE "order": distinct word indexes from 0 to {count - 1}, at least one, got {order!r}'[:300]
+    return None
+
+
 def simple_piece_problem(kind, state):
     """Why a simple catalogue piece's initial_state is wrong (see above), or None."""
+    if kind == "SENTENCE":
+        words = state.get("words")
+        problem = _short_texts(words, 2, 14, 'SENTENCE "words"')
+        if problem:
+            return problem
+        for w in words:
+            if not (isinstance(w, dict) and isinstance(w.get("text"), str) and w["text"].strip() and len(w["text"]) <= 24
+                    and w.get("role", "other") in SENTENCE_ROLES):
+                return f'SENTENCE word {w!r}: {{"text": "lerne", "role": one of {list(SENTENCE_ROLES)}}}'[:300]
+        if "order" in state:
+            problem = sentence_order_problem(state["order"], len(words))
+            if problem:
+                return problem
+        if state.get("translation") is not None and not (isinstance(state["translation"], str) and len(state["translation"]) <= 120):
+            return 'SENTENCE "translation": the French meaning, 120 characters at most'
+        if state.get("label") is not None and not (isinstance(state["label"], str) and len(state["label"]) <= 40):
+            return 'SENTENCE "label": a short French caption, 40 characters at most'
+        if state.get("verdict") not in (None, "wrong", "right"):
+            return f'SENTENCE "verdict": "wrong" or "right", got {state.get("verdict")!r}'
+        return None
     if kind == "TIMELINE":
         events = state.get("events")
         return _short_texts(events, 2, 8, 'TIMELINE "events"') or next(
@@ -568,7 +608,7 @@ def phys_piece_problem(kind, state):
 
 
 SIMPLE_PIECES = ("TIMELINE", "FRACTION_BAR", "PIE_CHART", "UNIT_CONVERTER", "TREE", "SET_DIAGRAM", "GAME_MATRIX", "BAR_CHART",
-                 "EQUATION_STEPS", "POWER_SUPPLY")
+                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE")
 
 
 # CHAIN: steps or causes in boxes, each with an arrow to the next. initial_state {"steps": ["Taux en

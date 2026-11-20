@@ -32,6 +32,7 @@ import time
 import requests
 
 from app import costs
+from app.language_examples import WORD, foreign_quotes, is_foreign_word
 
 try:
     from dotenv import load_dotenv
@@ -82,6 +83,8 @@ LETTER_NAMES = {"A": "a", "B": "bé", "C": "cé", "D": "dé", "E": "eu", "F": "e
                 "x": "ixe", "n": "enne"}
 # Words the voice says wrong, written as they sound (the screen keeps the real spelling).
 PRONUNCIATIONS = {"quantum": "kwantome", "quanta": "kwanta",
+                  # an English word in a French sentence (the German run 7 of 2026-11-20: "become" read "beukôme")
+                  "become": "bi-keum",
                   # "dix kiloohms" in one word came out garbled (electronics, 2026-11-06): two words
                   "kiloohms": "kilo ohms", "kiloohm": "kilo ohm", "kilo-ohms": "kilo ohms", "kilo-ohm": "kilo ohm",
                   "mégohms": "méga ohms", "mégohm": "méga ohm", "mégaohms": "méga ohms"}
@@ -229,15 +232,17 @@ class ElevenLabsError(RuntimeError):
         self.retry = retry
 
 
-def elevenlabs_voice(text, mp3_path, key, voice_id=None, speed=None):
+def elevenlabs_voice(text, mp3_path, key, voice_id=None, speed=None, language=None):
     """Write ElevenLabs' MP3 of `text` to mp3_path, in `voice_id` (else ELEVENLABS_VOICE_ID, else the
-    default), at `speed` (else ELEVENLABS_SETTINGS'); returns its word timings [(seconds, word)]."""
+    default), at `speed` (else ELEVENLABS_SETTINGS'), in `language` when given (ISO 639-1, "de": the
+    model is told the language instead of guessing it); returns its word timings [(seconds, word)]."""
     voice = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or ELEVENLABS_DEFAULT_VOICE
     model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or ELEVENLABS_DEFAULT_MODEL
     try:
         response = requests.post(ELEVENLABS_URL.format(voice=voice), params={"output_format": ELEVENLABS_FORMAT},
                                  headers={"xi-api-key": key, "Content-Type": "application/json"},
-                                 json={"text": text, "model_id": model, "voice_settings": {**ELEVENLABS_SETTINGS, **({"speed": speed} if speed else {})}},
+                                 json={"text": text, "model_id": model, "voice_settings": {**ELEVENLABS_SETTINGS, **({"speed": speed} if speed else {})},
+                                       **({"language_code": language} if language else {})},
                                  timeout=ELEVENLABS_TIMEOUT_SEC)
     except requests.RequestException as exc:          # network error, timeout
         raise ElevenLabsError(f"{type(exc).__name__}: {exc}", retry=True) from exc
@@ -257,6 +262,86 @@ def elevenlabs_voice(text, mp3_path, key, voice_id=None, speed=None):
     return words_from_alignment(body.get("alignment") or {})
 
 
+# A foreign language taught in French (the German channel): inside a French sentence the multilingual
+# voice says German words the French way (the German run of 2026-11-16, heard back with Whisper:
+# "bleibe" -> "blèbe", "weil" -> "while", "weil ich bin krank" -> "bélibincranque"). Said alone, with
+# language_code "de", the same voice says them in German ("Bleibe", "Weil", "weil ich bin krank").
+# A French context (previous_text / next_text) brings the French accent back ("bleb", "cranque"):
+# each foreign part is sent alone, the French parts around it too, and the parts are joined.
+FOREIGN_PAUSE_SEC = 0.18      # around a foreign part: heard apart, as a teacher sets an example off
+JOIN_PAUSE_SEC = 0.08         # between two French parts cut by a foreign word left out (punctuation only)
+EDGE_SILENCE_SEC = 0.04       # silence kept at each end of a part when its own silence is trimmed
+SILENCE_LEVEL = 0.02          # of full scale: quieter is silence
+
+
+def foreign_parts(text, language, words=()):
+    """`text` (French with foreign examples) -> [(part, language or None)], in order, joined they give
+    the words of `text`. Foreign: a « quote » with more words of the language (its function words and
+    `words`, the video's own examples) than French ones; outside quotes, a run of such words ("weil",
+    "dass", "bleibe"), but for the ones French has too (FRENCH_TOO). Parts with no letter are dropped,
+    the « » around a part too (not said)."""
+    quotes = [(start, end) for start, end, _ in foreign_quotes(text, language, words)]
+    loose = []                      # foreign words outside them; neighbours with only spaces or commas between: one run
+    for m in WORD.finditer(text):
+        if any(q.start() <= m.start() < q.end() for q in re.finditer(r"«[^«»]*»", text)) \
+                or not is_foreign_word(m.group(0), language, words):     # in a quote: a whole example, or a French meaning
+            continue
+        if loose and re.fullmatch(r"[\s,]*", text[loose[-1][1]:m.start()]):
+            loose[-1] = (loose[-1][0], m.end())
+        else:
+            loose.append((m.start(), m.end()))
+    marks = quotes + loose
+    marks.sort()
+    parts, at = [], 0
+    for start, end in marks:
+        parts += [(text[at:start], None), (text[start:end], language)]
+        at = end
+    parts.append((text[at:], None))
+    cleaned = [(part.strip().strip("«»").strip().lstrip(",;").strip(), lang) for part, lang in parts]
+    return [(part, lang) for part, lang in cleaned if re.search(r"[^\W_]", part)]
+
+
+def pcm(mp3_path):
+    """The samples of an MP3 (mono, 44.1 kHz, float32)."""
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", mp3_path, "-f", "f32le", "-ac", "1", "-ar", "44100", "-"],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.float32)
+
+
+def joined_voice(parts, mp3_path, key, voice_id, speed, edge=None):
+    """ElevenLabs' voice of each (part, language) alone (edge-tts' when `edge` is given: {"voice", "rate",
+    "foreign_voice"}), its silence trimmed, joined with a pause around the foreign ones, in mp3_path;
+    returns the word timings [(seconds, word)] of the whole."""
+    import numpy as np
+    rate, keep = 44100, int(EDGE_SILENCE_SEC * 44100)
+    pieces, words, at = [], [], 0.0
+    for i, (part, language) in enumerate(parts):
+        if i:
+            pause = FOREIGN_PAUSE_SEC if language or parts[i - 1][1] else JOIN_PAUSE_SEC
+            pieces.append(np.zeros(int(pause * rate), dtype=np.float32))
+            at += pause
+        part_path = f"{mp3_path}.part{i}.mp3"
+        said = part if language else normalize_text_for_tts(part)
+        if edge is not None:
+            timed = []
+            edge_voice(said, part_path, timed, (edge.get("foreign_voice") if language else None) or edge.get("voice"),
+                       (edge.get("foreign_rate") if language else None) or edge.get("rate"))
+        else:
+            timed = elevenlabs_voice(said, part_path, key, voice_id, speed, language)
+        samples = pcm(part_path)
+        os.remove(part_path)
+        loud = np.flatnonzero(np.abs(samples) > SILENCE_LEVEL)
+        first, last = (max(0, loud[0] - keep), min(len(samples), loud[-1] + keep)) if len(loud) else (0, len(samples))
+        pieces.append(samples[first:last])
+        words += [(round(float(at + max(0.0, start - first / rate)), 3), word) for start, word in timed]
+        at += (last - first) / rate
+        costs.record_tts("edge-tts" if edge is not None else "elevenlabs", len(part))
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "-",
+                    "-b:a", "128k", mp3_path], input=np.concatenate(pieces).tobytes(), check=True)
+    return words
+
+
 async def speak(communicate, mp3_path, words):
     """Write the voice to mp3_path; with WordBoundary events on, add (start in s, word) to `words`."""
     with open(mp3_path, "wb") as audio:
@@ -267,7 +352,7 @@ async def speak(communicate, mp3_path, words):
                 words.append((chunk["offset"] / 1e7, chunk["text"]))   # offsets in 100 ns ticks
 
 
-def edge_voice(text, mp3_path, words=None):
+def edge_voice(text, mp3_path, words=None, voice=None, rate=None):
     """edge-tts is async-only: run its one coroutine to completion, with a timeout. The service now
     and then returns no audio (NoAudioReceived) or drops the connection, mostly after many requests
     in a row: try again, up to TTS_ATTEMPTS times with growing pauses, before failing."""
@@ -275,7 +360,7 @@ def edge_voice(text, mp3_path, words=None):
     for attempt in range(1, TTS_ATTEMPTS + 1):
         try:
             spoken = []
-            communicate = edge_tts.Communicate(text, VOICE_PRIMARY, rate=VOICE_RATE, pitch=VOICE_PITCH,
+            communicate = edge_tts.Communicate(text, voice or VOICE_PRIMARY, rate=rate or VOICE_RATE, pitch=VOICE_PITCH,
                                                boundary="WordBoundary" if words is not None else "SentenceBoundary")
             asyncio.run(asyncio.wait_for(speak(communicate, mp3_path, spoken), TTS_TIMEOUT_SEC))
             if words is not None:
@@ -290,23 +375,42 @@ def edge_voice(text, mp3_path, words=None):
             time.sleep(wait)
 
 
-def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None, speed=None):
+def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None, speed=None, foreign=None, edge=None):
     """French voice-over of `text` in mp3_path: ElevenLabs, else edge-tts (see the module's notes).
     Returns the measured duration in seconds. Given a list `spoken`, fills it with when each word is
     said: [(seconds, word)] (agent010 times the actions' cues on them). Given a dict `engine`, sets
     engine["used"] to "elevenlabs" or "edge-tts", and engine["fallback"] to why ElevenLabs failed
     when edge-tts stood in for it (None otherwise: ElevenLabs worked, or there is no key).
     `voice_id`: the channel's ElevenLabs voice (else ELEVENLABS_VOICE_ID, else the default); `speed` its pace
-    (ElevenLabs only; else ELEVENLABS_SETTINGS').
+    (ElevenLabs only; else ELEVENLABS_SETTINGS'). `foreign`: {"language": "de", "words": [...]} on a
+    channel teaching that language: its examples are said apart, in that language (foreign_parts).
+    `edge`: {"voice", "rate", "foreign_voice", "foreign_rate"} on a channel that chose edge-tts (free): ElevenLabs is not called.
     Raises only if edge-tts fails too."""
     global _said_no_key
+    if edge is not None:
+        parts = foreign_parts(text, foreign["language"], foreign.get("words") or ()) if foreign else []
+        words = [] if spoken is not None else None
+        if any(language for _, language in parts):
+            words = joined_voice(parts, mp3_path, None, None, None, edge)
+        else:
+            edge_voice(normalize_text_for_tts(text), mp3_path, words if words is not None else [], edge.get("voice"), edge.get("rate"))
+            costs.record_tts("edge-tts", len(text))
+        if spoken is not None:
+            spoken[:] = words or []
+        if engine is not None:
+            engine.update(used="edge-tts", fallback=None)
+        return media_duration(mp3_path)
+    parts = foreign_parts(text, foreign["language"], foreign.get("words") or ()) if foreign else []
+    if not any(language for _, language in parts):
+        parts = []                             # no foreign part: one call, as usual
     text = normalize_text_for_tts(text)        # for both engines; the caller's text is left as it is
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     used, fallback = "edge-tts", None
     if key:
         for attempt in range(1, ELEVENLABS_ATTEMPTS + 1):
             try:
-                words = elevenlabs_voice(text, mp3_path, key, voice_id, speed)
+                words = (joined_voice(parts, mp3_path, key, voice_id, speed) if parts
+                         else elevenlabs_voice(text, mp3_path, key, voice_id, speed))
                 used = "elevenlabs"
                 break
             except ElevenLabsError as exc:
@@ -326,7 +430,8 @@ def generate_voice(text, mp3_path, spoken=None, engine=None, voice_id=None, spee
         spoken[:] = words or []
     if engine is not None:
         engine.update(used=used, fallback=fallback)
-    costs.record_tts(used, len(text))          # ElevenLabs bills the characters sent (app/costs.py)
+    if not (parts and used == "elevenlabs"):   # joined_voice recorded each part
+        costs.record_tts(used, len(text))      # ElevenLabs bills the characters sent (app/costs.py)
     return media_duration(mp3_path)
 
 

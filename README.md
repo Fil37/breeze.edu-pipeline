@@ -61,11 +61,14 @@ each agent at the last run. A channel's page has the video player with its plan:
 to it, and the scene being played is lit. It also shows the QA's verdict and issues, the last 10 runs,
 the published videos, the QA rejections and the topics. The standup lists each agent's result for the
 last run, channel by channel. Each channel keeps its video theme's accent colour (from agent010's
-`THEMES`); the pages are dark, or light when the system asks for it. Files: `web/app.py` (routes; the
+`THEMES`). The look is the studio kit's (`~/ProjetPerso/studio-kit`, v1.0: warm paper or graphite, one lime
+signature, one colour per state, Inter and Space Grotesk): the theme follows the system, or ☀ / ☾ in the side
+bar (cookie `theme`); English, or French with EN / FR (cookie `lang`); a Content-Security-Policy with a nonce per
+request, no inline style (each channel's accent is a class `.ch-<id>`). Files: `web/app.py` (routes; the
 video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `web/page.py` (reads
 `breeze.db` and `instance/<channel_id>/*.json`, writes nothing), `web/templates/` (`base.html`,
 `dashboard.html`, `channel.html`, `standup.html`, `partials/`), `static/css/breeze_master.css`,
-`static/js/breeze.js`, `static/images/favicon.svg`; the fonts come from `assets/fonts/` (`/fonts/...`).
+`static/js/breeze.js`, `static/images/favicon.svg`; the fonts sit beside the stylesheet (`static/css/*.ttf`, OFL).
 The previous version is in `archive/web_v1/`. Check: `python tests/test_web.py`.
 
 `--channel` runs that channel only, even if `routes.json` disables it. `--skip-agents` takes a

@@ -1,24 +1,35 @@
+{#- breeze studio: the studio kit's shell (side bar, language and theme switches). Each page sets `active`. -#}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}"{% if theme != 'auto' %} data-theme="{{ theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}breeze{% endblock %} · breeze</title>
   <link rel="icon" href="{{ url_for('static', filename='images/favicon.svg') }}" type="image/svg+xml">
+  <link rel="preload" href="{{ url_for('static', filename='css/Inter.ttf') }}" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/breeze_master.css') }}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><span class="logo" aria-hidden="true"></span>breeze <span class="brand-sub">studio</span></a>
-    <nav>
-      <a href="/" {% if active == "dashboard" %}aria-current="page"{% endif %}>Dashboard</a>
-      <a href="/standup" {% if active == "standup" %}aria-current="page"{% endif %}>Standup</a>
-    </nav>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
-  <footer class="foot">breeze · read-only: this interface starts nothing and changes no file.</footer>
-  <script src="{{ url_for('static', filename='js/breeze.js') }}" defer></script>
+<aside class="side">
+  <a class="brand" href="{{ url_for('dashboard') }}"><span class="logo" aria-hidden="true">
+    <svg width="18" height="20" viewBox="0 0 18 20"><path class="b" d="M3.5 2v15M3.5 12.5a5 5 0 1 0 5-5c-2 0-3.6 1-4.6 2.6"/><circle cx="14.5" cy="3.5" r="1.9" class="rec"/></svg>
+  </span><span>breeze</span></a>
+  <nav class="side-nav">
+    <a href="{{ url_for('dashboard') }}" {% if active in ('dashboard', 'channel') %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span>{{ _('Dashboard') }}</span></a>
+    <a href="{{ url_for('standup') }}" {% if active == 'standup' %}aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><span>{{ _('Standup') }}</span></a>
+  </nav>
+  <div class="side-foot">
+    <span class="lang-switch"><a href="{{ url_for('set_language', code='en', next=request.full_path) }}" {% if lang == 'en' %}aria-current="true"{% endif %}>EN</a><a href="{{ url_for('set_language', code='fr', next=request.full_path) }}" {% if lang == 'fr' %}aria-current="true"{% endif %}>FR</a></span>
+    <span class="theme-switch" title="{{ _('Theme') }}"><a href="{{ url_for('set_theme', code='light', next=request.full_path) }}" {% if theme == 'light' %}aria-current="true"{% endif %} title="{{ _('Light') }}">☀</a><a href="{{ url_for('set_theme', code='auto', next=request.full_path) }}" {% if theme == 'auto' %}aria-current="true"{% endif %} title="{{ _('Follow the system') }}">A</a><a href="{{ url_for('set_theme', code='dark', next=request.full_path) }}" {% if theme == 'dark' %}aria-current="true"{% endif %} title="{{ _('Dark') }}">☾</a></span>
+    <span class="side-ver">studio · {{ _('read-only') }}</span>
+  </div>
+</aside>
+<div class="content">
+<main class="wrap">
+  {% block content %}{% endblock %}
+  <p class="small faint mt-20">breeze · {{ _('read-only') }}: {{ _('this interface starts nothing and changes no file.') }}</p>
+</main>
+</div>
+<script src="{{ url_for('static', filename='js/breeze.js') }}" nonce="{{ csp_nonce }}" defer></script>
 </body>
 </html>

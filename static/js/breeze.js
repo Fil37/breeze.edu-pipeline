@@ -1,7 +1,7 @@
 // breeze studio: the only script. Dashboard: a card's video plays (muted) while the mouse is on it.
 // Channel page: a scene of the plan jumps the player to it; the scene being played is lit.
-document.querySelectorAll(".thumb video").forEach(video => {
-  const card = video.closest(".card");
+document.querySelectorAll(".vthumb video").forEach(video => {
+  const card = video.closest(".vcard");
   card.addEventListener("mouseenter", () => { video.play().catch(() => {}); });
   card.addEventListener("mouseleave", () => { video.pause(); });
 });

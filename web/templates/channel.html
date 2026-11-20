@@ -1,119 +1,150 @@
 {% extends "base.html" %}
 {% block title %}{{ route.name }}{% endblock %}
 {% block content %}
-<div class="channel" style="--ch: {{ theme.accent }}">
-  <p class="crumbs"><a href="/">Dashboard</a> / {{ route.channel_id }}</p>
-  <section class="hero">
+<div>
+  <div class="page-head">
     <div>
-      <p class="eyebrow">theme {{ theme.name }} · audience {{ route.target_age_band }} · <span lang="fr">{{ route.persona }}</span></p>
-      <h1 lang="fr">{{ route.name }}</h1>
-      <p class="muted">Platforms: {{ route.publish_platforms | join(", ") }}{% if not route.enabled %} · channel disabled{% endif %}</p>
+      <p class="crumbs"><a href="{{ url_for('dashboard') }}">← {{ _('Dashboard') }}</a> · {{ route.channel_id }}</p>
+      <p class="eyebrow">{{ _('theme') }} {{ theme.name }} · {{ _('audience') }} {{ route.target_age_band }} · <span lang="fr">{{ route.persona }}</span></p>
+      <h1 lang="fr" class="who">{% if has_logo(route.channel_id) %}<img class="ch-logo lg" src="/logo/{{ route.channel_id | quote }}" alt="" width="52" height="52">{% endif %}{{ route.name }}</h1>
+      <p class="chips"><span class="chip">{{ _('Platforms') }} <b>{{ route.publish_platforms | join(", ") }}</b></span>
+        {% if not route.enabled %}<span class="chip">{{ _('channel disabled') }}</span>{% endif %}</p>
     </div>
-    {% if agents %}{% include "partials/pipeline.html" %}{% endif %}
+  </div>
+
+  {% if agents %}
+  <section class="panel">
+    <div class="stepper agents">
+      {% for a in agents %}
+      <div class="step {{ a.status | step }}" title="{{ a.agent }} · {{ a.status | status }}"><div class="dot">{{ loop.index }}</div><div class="name">{{ a.name }}</div><div class="state">{{ a.status | status }}</div></div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <nav class="tabbar" aria-label="sections">
+    <a href="#video" aria-current="page">{{ _('Video') }}</a>
+    {% if latest.qa %}<a href="#quality">{{ _('Quality') }}</a>{% endif %}
+    <a href="#runs">{{ _('Runs') }} <span class="count">{{ runs | length }}</span></a>
+    <a href="#published">{{ _('Published videos') }}</a>
+    <a href="#rejections">{{ _('QA rejections') }} <span class="count">{{ rejections | length }}</span></a>
+    {% if topics %}<a href="#topics">{{ _('Topics') }}</a>{% endif %}
+  </nav>
+
+  <section class="panel" id="video">
+    <div class="panel-title"><h2>{{ _('Latest video') }}</h2>
+      {% if latest.video %}<span class="badge {{ latest.render_status | badge }}">{{ _('render') }} · {{ latest.render_status | status }}</span>{% endif %}</div>
+    {% if latest.video %}
+    <div class="player-row">
+      <div class="player">
+        <video id="player" src="/video/{{ route.channel_id | quote }}" controls preload="metadata" playsinline></video>
+        <p class="video-title" lang="fr">{{ latest.title or latest.concept or _("Untitled") }}</p>
+        <p class="muted small">{{ _('Rendered') }} {{ latest.rendered_at or "—" }} · {{ latest.duration | clock }} · {{ _('voice') }} {{ latest.voice_engine or "—" }}</p>
+      </div>
+      <div>
+        <h3>{{ _('Video outline') }}</h3>
+        {% if latest.scenes %}
+        <ol class="scene-list">
+          {% for s in latest.scenes %}
+          <li{% if s.plan %} class="is-plan"{% endif %}>
+            <button type="button" class="seek" data-t="{{ s.start or 0 }}">
+              <span class="t">{{ s.start | clock }}</span>
+              <span class="name" lang="fr">{% if s.plan %}Au programme{% else %}{{ s.title }}{% endif %}</span>
+              {% if s.conflicts %}<span class="warn" title="{{ s.conflicts }} {{ _('layout conflict(s) measured at render time') }}">⚠ {{ s.conflicts }}</span>{% endif %}
+            </button>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}<p class="muted">{{ _('No render manifest.') }}</p>{% endif %}
+        {% if latest.chapters %}
+        <details><summary>{{ _('YouTube chapters') }} ({{ latest.chapters | length }})</summary>
+          <ul class="plain" lang="fr">{% for c in latest.chapters %}<li><code>{{ c.time }}</code> {{ c.title }}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <p class="empty"><span class="big">🎬</span>{{ _('No video yet for this channel. Start a run with') }} <code>./run</code>.</p>
+    {% endif %}
   </section>
 
-  <h2>Latest video</h2>
-  {% if latest.video %}
-  <div class="player-row">
-    <div class="player">
-      <video id="player" src="/video/{{ route.channel_id | quote }}" controls preload="metadata" playsinline></video>
-      <p class="video-title" lang="fr">{{ latest.title or latest.concept or "Untitled" }}</p>
-      <p class="muted small">Rendered {{ latest.rendered_at or "—" }} · {{ latest.duration | clock }} · voice {{ latest.voice_engine or "—" }}
-        · render <span class="badge b-{{ latest.render_status }}">{{ latest.render_status | status }}</span></p>
-    </div>
-    <aside class="panel chapters">
-      <h3>Video outline</h3>
-      {% if latest.scenes %}
-      <ol class="scene-list">
-        {% for s in latest.scenes %}
-        <li{% if s.plan %} class="is-plan"{% endif %}>
-          <button type="button" class="seek" data-t="{{ s.start or 0 }}">
-            <span class="t">{{ s.start | clock }}</span>
-            <span class="name" lang="fr">{% if s.plan %}Au programme{% else %}{{ s.title }}{% endif %}</span>
-            {% if s.conflicts %}<span class="warn" title="{{ s.conflicts }} layout conflict(s) measured at render time">⚠ {{ s.conflicts }}</span>{% endif %}
-          </button>
-        </li>
-        {% endfor %}
-      </ol>
-      {% else %}<p class="muted">No render manifest.</p>{% endif %}
-      {% if latest.chapters %}
-      <details><summary>YouTube chapters ({{ latest.chapters | length }})</summary>
-        <ul class="plain" lang="fr">{% for c in latest.chapters %}<li><code>{{ c.time }}</code> {{ c.title }}</li>{% endfor %}</ul>
-      </details>
-      {% endif %}
-    </aside>
-  </div>
-  {% else %}
-  <p class="panel muted">No video yet for this channel. Start a run with <code>./run</code>.</p>
-  {% endif %}
-
   {% if latest.qa %}
-  <h2>Quality check (agent005)</h2>
-  <div class="qa">
-    <div class="panel">
-      <p>Verdict <span class="badge b-{{ 'healthy' if latest.qa.verdict == 'pass' else 'critical' }}">{{ "passed" if latest.qa.verdict == "pass" else (latest.qa.verdict or "—") }}</span></p>
-      <ul class="scores">
-        {% for key, label in [("accuracy", "Accuracy"), ("simplicity", "Simplicity"), ("clarity", "Clarity")] %}
-        {% set v = latest.qa.scores.get(key) %}
-        <li><span>{{ label }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
-        {% endfor %}
-      </ul>
-      <p class="muted small">{{ latest.qa.corrected }} corrected · {{ latest.qa.blocking }} blocking</p>
+  <section class="panel" id="quality">
+    <div class="panel-title"><h2>{{ _('Quality check') }} (agent005)</h2>
+      <span class="badge {{ 'pass' if latest.qa.verdict == 'pass' else 'failed' }}">{{ _('Verdict') }} · {{ _("passed") if latest.qa.verdict == "pass" else (latest.qa.verdict or "—") }}</span></div>
+    <div class="dash">
+      <div>
+        <ul class="scores">
+          {% for key, label in [("accuracy", "Accuracy"), ("simplicity", "Simplicity"), ("clarity", "Clarity")] %}
+          {% set v = latest.qa.scores.get(key) %}
+          <li><span>{{ _(label) }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
+          {% endfor %}
+        </ul>
+        <p class="muted small">{{ latest.qa.corrected }} {{ _('corrected') }} · {{ latest.qa.blocking }} {{ _('blocking') }}</p>
+      </div>
+      <div>
+        {% if latest.qa.issues %}
+        <ul class="issues" lang="fr">
+          {% for i in latest.qa.issues %}
+          <li><span class="badge plain" lang="{{ lang }}">{{ _('scene') }} {{ i.scene_id }}</span><span class="badge {{ 'corrected' if i.severity == 'corrected' else ('failed' if i.severity == 'blocking' else 'plain') }}" lang="en">{{ i.severity }}</span> {{ i.text }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}<p class="empty small"><span class="big">✅</span>{{ _('No issue found.') }}</p>{% endif %}
+      </div>
     </div>
-    <div class="panel">
-      {% if latest.qa.issues %}
-      <ul class="issues" lang="fr">
-        {% for i in latest.qa.issues %}
-        <li><span class="tag" lang="en">scene {{ i.scene_id }}</span><span class="tag sev-{{ i.severity }}" lang="en">{{ i.severity }}</span> {{ i.text }}</li>
-        {% endfor %}
-      </ul>
-      {% else %}<p class="muted">No issue found.</p>{% endif %}
-    </div>
-  </div>
+  </section>
   {% endif %}
 
-  <h2>Last 10 runs</h2>
-  {% if runs %}
-  <div class="table-wrap"><table>
-    <thead><tr><th>Run</th><th>Status</th><th>Topic</th><th>QA revisions</th><th>Duration</th></tr></thead>
-    <tbody>
-    {% for r in runs %}
-    <tr><td><code>{{ r.run_id }}</code></td><td><span class="badge b-{{ r.overall_status }}">{{ r.overall_status | status }}</span></td>
-        <td class="prose" lang="fr">{{ r.topic or "—" }}</td><td>{{ r.revisions }}</td><td>{{ r.duration_sec | clock }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}<p class="muted">No run yet.</p>{% endif %}
+  <section class="panel" id="runs">
+    <div class="panel-title"><h2>{{ _('Last 10 runs') }}</h2></div>
+    {% if runs %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Run') }}</th><th>{{ _('Status') }}</th><th>{{ _('Topic') }}</th><th>{{ _('QA revisions') }}</th><th>{{ _('Duration') }}</th></tr></thead>
+      <tbody>
+      {% for r in runs %}
+      <tr><td><code>{{ r.run_id }}</code></td><td><span class="badge {{ r.overall_status | badge }}">{{ r.overall_status | status }}</span></td>
+          <td class="prose" lang="fr">{{ r.topic or "—" }}</td><td>{{ r.revisions }}</td><td>{{ r.duration_sec | clock }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted">{{ _('No run yet.') }}</p>{% endif %}
+  </section>
 
-  <h2>Published videos</h2>
-  {% if videos %}
-  <div class="table-wrap"><table>
-    <thead><tr><th>Published</th><th>Platform</th><th>Link</th></tr></thead>
-    <tbody>
-    {% for v in videos %}
-    <tr><td>{{ v.data.publish_timestamp }}</td><td>{{ v.data.platform }}</td><td><a href="{{ v.data.url }}" rel="noopener">{{ v.data.url }}</a></td></tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}<p class="muted">Nothing published yet (uploads are private).</p>{% endif %}
+  <section class="panel" id="published">
+    <div class="panel-title"><h2>{{ _('Published videos') }}</h2></div>
+    {% if videos %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Published') }}</th><th>{{ _('Platform') }}</th><th>{{ _('Link') }}</th></tr></thead>
+      <tbody>
+      {% for v in videos %}
+      <tr><td>{{ v.data.publish_timestamp }}</td><td>{{ v.data.platform }}</td><td><a href="{{ v.data.url }}" rel="noopener">{{ v.data.url }}</a></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted">{{ _('Nothing published yet (uploads are private).') }}</p>{% endif %}
+  </section>
 
-  <h2>QA rejections</h2>
-  {% if rejections %}
-  <div class="table-wrap"><table>
-    <thead><tr><th>Run</th><th>Scores (acc./simp./clarity)</th><th>Sent back to</th><th>Reason</th></tr></thead>
-    <tbody>
-    {% for r in rejections %}
-    <tr><td><code>{{ r.run_id }}</code></td>
-        <td>{{ r.data.scores.accuracy }} / {{ r.data.scores.simplicity }} / {{ r.data.scores.clarity }}</td>
-        <td>{{ r.data.reject_to }}</td><td class="prose" lang="fr">{{ r.data.rejection_notes }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}<p class="muted">No rejection.</p>{% endif %}
+  <section class="panel" id="rejections">
+    <div class="panel-title"><h2>{{ _('QA rejections') }}</h2></div>
+    {% if rejections %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Run') }}</th><th>{{ _('Scores (acc./simp./clarity)') }}</th><th>{{ _('Sent back to') }}</th><th>{{ _('Reason') }}</th></tr></thead>
+      <tbody>
+      {% for r in rejections %}
+      <tr><td><code>{{ r.run_id }}</code></td>
+          <td>{{ r.data.scores.accuracy }} / {{ r.data.scores.simplicity }} / {{ r.data.scores.clarity }}</td>
+          <td>{{ r.data.reject_to }}</td><td class="prose" lang="fr">{{ r.data.rejection_notes }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="muted">{{ _('No rejection.') }}</p>{% endif %}
+  </section>
 
   {% if topics %}
-  <h2>Topics</h2>
-  <ul class="chips" lang="fr">{% for t in topics %}<li>{{ t }}</li>{% endfor %}</ul>
+  <section class="panel" id="topics">
+    <div class="panel-title"><h2>{{ _('Topics') }}</h2><span class="count">{{ topics | length }}</span></div>
+    <p class="chips" lang="fr">{% for t in topics %}<span class="chip">{{ t }}</span>{% endfor %}</p>
+  </section>
   {% endif %}
 </div>
 {% endblock %}

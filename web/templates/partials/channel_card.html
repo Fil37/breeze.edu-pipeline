@@ -1,36 +1,37 @@
 {# A channel on the dashboard. Expects `c` (page.dashboard()). #}
-<article class="card" style="--ch: {{ c.theme.accent }}">
-  <a class="thumb" href="/channel/{{ c.channel_id | quote }}" aria-label="Open {{ c.name }}">
+<article class="vcard">
+  <a class="vthumb" href="/channel/{{ c.channel_id | quote }}" aria-label="{{ _('Open') }} {{ c.name }}">
     {% if c.latest.video %}
     <video src="/video/{{ c.channel_id | quote }}#t=4" preload="metadata" muted playsinline></video>
     <span class="duration">{{ c.latest.duration | clock }}</span>
     {% else %}
-    <span class="no-video">No video yet</span>
+    <span class="small">{{ _('No video yet') }}</span>
     {% endif %}
   </a>
-  <div class="card-body">
-    <header class="card-head">
-      <div>
-        <p class="eyebrow">{{ c.channel_id }} · theme {{ c.theme.name }}</p>
-        <h2 lang="fr">{{ c.name }}</h2>
+  <div class="vbody">
+    <header class="vhead">
+      <div class="who">
+        {% if has_logo(c.channel_id) %}<img class="ch-logo" src="/logo/{{ c.channel_id | quote }}" alt="" width="40" height="40">{% endif %}
+        <div><p class="eyebrow">{{ c.channel_id }} · {{ _('theme') }} {{ c.theme.name }}</p>
+          <h2 lang="fr">{{ c.name }}</h2></div>
       </div>
-      <span class="badge b-{{ c.overall }}">{{ c.overall | status }}</span>
+      <span class="badge {{ c.overall | badge }}">{{ c.overall | status }}</span>
     </header>
-    <p class="topic" lang="fr">{{ c.latest.title or c.latest.concept or c.last_topic or "No topic yet" }}</p>
+    <p class="topic" lang="fr">{{ c.latest.title or c.latest.concept or c.last_topic or _("No topic yet") }}</p>
     {% if c.latest.qa and c.latest.qa.scores %}
     <ul class="scores">
       {% for key, label in [("accuracy", "Accuracy"), ("simplicity", "Simplicity"), ("clarity", "Clarity")] %}
       {% set v = c.latest.qa.scores.get(key) %}
-      <li><span>{{ label }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
+      <li><span>{{ _(label) }}</span><meter min="0" max="10" low="5" high="7.5" optimum="10" value="{{ v or 0 }}"></meter><b>{{ v if v is not none else "—" }}</b></li>
       {% endfor %}
     </ul>
     {% endif %}
     {% if c.agents %}{% with agents = c.agents %}{% include "partials/pipeline.html" %}{% endwith %}{% endif %}
-    <dl class="facts">
-      <div><dt>Last run</dt><dd>{{ c.last_run_at or "never" }}</dd></div>
-      <div><dt>Next run</dt><dd>{{ c.next_run if c.enabled else "disabled" }}</dd></div>
-      <div><dt>Scenes</dt><dd>{{ c.latest.scenes | length or "—" }}</dd></div>
+    <dl class="facts three">
+      <div><dt>{{ _('Last run') }}</dt><dd>{{ c.last_run_at or _("never") }}</dd></div>
+      <div><dt>{{ _('Next run') }}</dt><dd>{{ c.next_run if c.enabled else _("disabled") }}</dd></div>
+      <div><dt>{{ _('Scenes') }}</dt><dd>{{ c.latest.scenes | length or "—" }}</dd></div>
     </dl>
-    <a class="more" href="/channel/{{ c.channel_id | quote }}">Open channel →</a>
+    <a class="more" href="/channel/{{ c.channel_id | quote }}">{{ _('Open channel') }} →</a>
   </div>
 </article>

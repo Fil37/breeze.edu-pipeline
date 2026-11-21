@@ -22,6 +22,8 @@ Check the supervision of breeze's runs (app/run_supervision.py on the studio kit
      supervision before any agent and closes the run after the last channel
  12. the standup's 2.0 panels (runs in progress, approvals, skills, quality checks, backups and disk), each button
      CSRF-checked
+ 13. the orchestrator's tests leave the real breeze.db as it was (2026-11-21: they wrote fake runs and a "critical"
+     startup check into it): its supervision in the orchestrator's own instance folder
 Prints PASS or FAIL per case.
 
   .venv/bin/python tests/test_run_supervision.py
@@ -325,8 +327,35 @@ def case_dashboard_page():
     return report("12. the standup's 2.0 panels, each button CSRF-checked", problems)
 
 
+SUPERVISION_TABLES = ("agent_health", "events", "incidents", "sup_runs", "skills", "quality_checks", "check_outcomes", "approvals")
+
+
+def real_counts():
+    import sqlite3
+    path = os.path.join(ROOT, "instance", "breeze.db")
+    if not os.path.isfile(path):
+        return {}
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+        known = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        return {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in SUPERVISION_TABLES if t in known}
+
+
+def case_tests_leave_the_real_base():
+    import subprocess
+    problems, before = [], real_counts()
+    for name in ("test_orchestrator_skip_agents.py", "test_orchestrator_topic.py"):
+        subprocess.run([sys.executable, os.path.join(ROOT, "tests", name)], cwd=ROOT, capture_output=True, timeout=600)
+    after = real_counts()
+    if after != before:
+        problems.append(f"the real breeze.db changed: {before} -> {after}")
+    with open(os.path.join(ROOT, "app", "agent", "agent000_breeze.py"), encoding="utf-8") as f:
+        if "run_supervision.store()" in f.read():
+            problems.append("agent000 opens the supervision without its own instance folder")
+    return report("13. the orchestrator's tests leave the real breeze.db as it was", problems)
+
+
 if __name__ == "__main__":
     results = [case_categories(), case_health(), case_secrets(), case_orchestrator(), case_page(), case_skills(),
                case_publication(), case_checks(), case_startup(), case_backup(), case_guard_and_orchestrator(),
-               case_dashboard_page()]
+               case_dashboard_page(), case_tests_leave_the_real_base()]
     sys.exit(0 if all(results) else 1)

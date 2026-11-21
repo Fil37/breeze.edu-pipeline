@@ -268,7 +268,7 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
     try:
         errors = {name: "; ".join(t["error"] for t in timings if t["agent"] == name and t["error"]) or None
                   for name in statuses}
-        opened = run_supervision.supervise(run_supervision.store(), run_id, channel_id, statuses, errors,
+        opened = run_supervision.supervise(run_supervision.store(supervision_db()), run_id, channel_id, statuses, errors,
                                            run_rows, revisions)
         if opened:
             print(f"  {channel_id}: {len(opened)} incident(s) opened (see /standup)")
@@ -330,6 +330,13 @@ MODULES = (agent001_conceptresearcher, agent002_curriculumsimplifier, agent003_s
            agent009_analyticsreader)
 
 
+def supervision_db():
+    """The supervision's base: breeze.db in THIS module's instance folder (which the orchestrator's tests point at a
+    temporary folder; app.agent.DB_PATH is only swapped inside their db_connect, so following it let the tests of
+    2026-11-21 write their fake runs and a 'critical' startup check into the real breeze.db)."""
+    return os.path.join(INSTANCE_DIR, "breeze.db")
+
+
 def start_supervision(settings, run_id, args):
     """At the start of a run (the studio kit's socle, app/run_supervision.py): runs left 'running' by a dead process
     closed 'failed'; the startup checks (keys, tools: the only place that sets an agent 'critical'); the day's backup
@@ -337,7 +344,7 @@ def start_supervision(settings, run_id, args):
     'running' (the test launcher refuses to start while it is). Returns (store, its run id), or (None, None): the
     supervision never stops a run."""
     try:
-        supervision = run_supervision.store()
+        supervision = run_supervision.store(supervision_db())
         interrupted = supervision.mark_interrupted_runs()
         states = run_supervision.startup_checks(supervision, settings)
         critical = [agent for agent, state in states.items() if state == "critical"]

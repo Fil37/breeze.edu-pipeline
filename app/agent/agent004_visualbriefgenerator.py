@@ -200,6 +200,10 @@ STATES = {
                                   'line the solution "z = 3, y = 2, x = 1" (every line is checked to keep the solution; each reduction is worked '
                                   'out term by term beside the steps by the program: no TEX_FORMULA repeating the operations; '
                                   'an augmented TABLE goes with its whole system, never its first equation alone)',
+    ComponentType.REAL_PART: '{"show": true} the reading of the colour bands of a resistor appears, {"on": true} an LED '
+                             'lights up; initial_state {"part": "resistor", "value": 4700, "label": "Résistance"}, "part" one '
+                             'of resistor, led, capacitor, electrolytic, transistor, diode, battery-9v, battery-aa, '
+                             'potentiometer, switch, pushbutton, motor, ldr, arduino-uno, breadboard',
     ComponentType.POWER_SUPPLY: '{"output": true} its output on, {"voltage": v} turned to v, {"cc": true} limiting the '
                                 'current (the CC light); ports negative, positive; initial_state {"voltage": 12, '
                                 '"current_limit": 2, "label": "Alimentation"}',
@@ -519,7 +523,11 @@ STRICT RULES:
     SET_DIAGRAM; a game between two players (dilemme, stratégie, "chacun a intérêt") ONE
     GAME_MATRIX; values compared or over time ("l'inflation en 2022, 2023...") ONE BAR_CHART; an
     equation solved step by step ONE EQUATION_STEPS (not one TEX_FORMULA per line); a lab supply
-    ("je règle l'alimentation") a POWER_SUPPLY wired like a battery. Every figure they show (shares,
+    ("je règle l'alimentation") a POWER_SUPPLY wired like a battery; a part shown as the object in the hand
+    ("voici une résistance", "ses anneaux de couleur", "la patte la plus longue de la LED", "reconnaître un
+    condensateur chimique") ONE REAL_PART, its real drawing, beside the circuit, never inside one (a circuit
+    is drawn with its symbols): a resistor's "value" in ohms, its bands and their reading are drawn by the
+    program, {{"show": true}} on the words that read them. Every figure they show (shares,
     sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
     results. A RESULT IS NEVER SHOWN WITHOUT ITS FORMULA: a TEX_FORMULA, a label or an annotation giving a
     computed value writes the formula and the values that give it ("V_s = -\\frac{{R_2}}{{R_1}} V_e = -2 \\times
@@ -2870,6 +2878,8 @@ def components_text(banned=frozenset()):
 
 def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None, pair=None,
                        banned=frozenset()):
+    # the real parts (Fritzing, CC BY-SA) only on the electronics channel: hidden elsewhere, sent back if used
+    hidden = banned | ({"REAL_PART"} if channel_domain != "electronics" else frozenset())
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
@@ -2885,7 +2895,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
     narrations = {s["scene_id"]: s["narration_text"] for s in scenes_for_prompt}
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
-    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(n for n in names if n not in banned)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=components_text(banned), positions=", ".join(SEMANTIC_POSITIONS),
+    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(n for n in names if n not in banned)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=components_text(hidden), positions=", ".join(SEMANTIC_POSITIONS),
                            max_entities=MAX_ENTITIES, max_schematic=MAX_SCHEMATIC, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
@@ -2911,7 +2921,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         coherence += formulas_said(order, briefs, narrations, channel_domain)
         coherence += sentences_moved(order, briefs, narrations, channel_domain)
         coherence += sentence_problems(order, briefs, narrations, channel_domain, pair)
-        coherence += banned_problems(order, briefs, banned)
+        coherence += banned_problems(order, briefs, hidden)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}

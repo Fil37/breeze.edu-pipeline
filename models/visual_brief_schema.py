@@ -69,6 +69,7 @@ class ComponentType(str, Enum):
     BAR_CHART = "BAR_CHART"                  # values as bars to one scale, growing in turn, a reference line
     EQUATION_STEPS = "EQUATION_STEPS"        # an equation solved line after line, what is done to both sides on each arrow
     SENTENCE = "SENTENCE"                    # a sentence as word tiles coloured by role: words slide to a new place (German word order)
+    REAL_PART = "REAL_PART"                  # an electronic part as it looks in the hand (Fritzing): a resistor and its colour bands...
     POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
     FREE_BODY = "FREE_BODY"                  # a body and the forces on it, to scale: axes, projections, the resultant, the motion
     KINEMATICS = "KINEMATICS"                # a moving body: its path, strobe images, velocity and acceleration, x(t) and v(t)
@@ -130,6 +131,7 @@ COMPONENT_PORTS = {
     ComponentType.WAVE: (),
     ComponentType.TABLE: (),
     ComponentType.SENTENCE: (),
+    ComponentType.REAL_PART: (),
     ComponentType.FREE_BODY: (),
     ComponentType.KINEMATICS: (),
     ComponentType.COLLISION: (),
@@ -483,6 +485,11 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+# REAL_PART: one electronic part as it looks in real life (Fritzing drawings, CC BY-SA, electronics channel only).
+# initial_state {"part": "resistor", "value": 4700, "label": "Résistance de 4,7 kΩ"} ("part" one of
+# app/render/fritzing.REAL_PARTS; a resistor's "value" in ohms, two significant digits: its colour bands and the
+# line that reads them are worked out by the program). set_state {"show": true}: the bands' reading appears;
+# {"on": true}: an LED lights up.
 # SENTENCE: a sentence as word tiles, each coloured by its role, for word order (German: the conjugated
 # verb second in a main clause, sent to the end after weil / dass / wenn). initial_state {"words": [{"text":
 # "Ich", "role": "subject"}, {"text": "lerne", "role": "verb"}, ...], "order": [0, 1, 2], "translation":
@@ -600,6 +607,19 @@ def simple_piece_problem(kind, state):
             None if all(isinstance(s, str) and s.strip() and len(s) <= 160 for s in steps) and isinstance(notes, list)
             and len(notes) <= len(steps) - 1 and all(isinstance(n, str) for n in notes)
             else f'EQUATION_STEPS: "steps" short LaTeX lines, "notes" one text per arrow between two, got {steps!r}, {notes!r}'[:300])
+    if kind == "REAL_PART":
+        from app.render.fritzing import REAL_PARTS, nearest_two_digits, resistor_bands
+        part = state.get("part")
+        if part not in REAL_PARTS:
+            return f'REAL_PART "part" one of {list(REAL_PARTS)}, got {part!r}'[:300]
+        if part == "resistor":
+            value = state.get("value")
+            if resistor_bands(value) is None:
+                return (f'REAL_PART resistor "value": its resistance in ohms with two significant digits, the colour code '
+                        f'shows only those (220, 4700, 10000), got {value!r}: use {nearest_two_digits(value)!r}')[:300]
+        if state.get("label") is not None and not (isinstance(state["label"], str) and len(state["label"]) <= 40):
+            return 'REAL_PART "label": a short French caption, 40 characters at most'
+        return None
     if kind == "POWER_SUPPLY":
         v, limit = state.get("voltage", 12), state.get("current_limit", 1)
         if not (_number(v) and 0 <= v <= 60 and _number(limit) and 0 < limit <= 20):
@@ -672,7 +692,7 @@ def phys_piece_problem(kind, state):
 
 
 SIMPLE_PIECES = ("TIMELINE", "FRACTION_BAR", "PIE_CHART", "UNIT_CONVERTER", "TREE", "SET_DIAGRAM", "GAME_MATRIX", "BAR_CHART",
-                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE")
+                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE", "REAL_PART")
 
 
 # CHAIN: steps or causes in boxes, each with an arrow to the next. initial_state {"steps": ["Taux en

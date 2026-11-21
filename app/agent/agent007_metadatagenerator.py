@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from app.agent import (SCHEMAS_DIR, channel_dir, find_route, finish, llm_call, load_json,
                        parse_llm_json, run_standalone, save_json)
 from app import provenance
+from app.render import fritzing
 
 AGENT = "agent007"
 # What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
@@ -55,6 +56,15 @@ def film_credits(rendered):
             if line not in lines:
                 lines.append(line)
     return lines
+
+
+def parts_credits(storyboard):
+    """The Fritzing credit and the video's CC BY-SA 3.0 licence, when a scene shows a REAL_PART (its drawings are
+    CC BY-SA 3.0: a work using them is shared under the same licence, accepted by the user on 2026-11-21)."""
+    for scene in (storyboard or {}).get("scenes") or []:
+        if any(e.get("type") == "REAL_PART" for e in (scene.get("visual_brief") or {}).get("entities") or []):
+            return [fritzing.CREDIT]
+    return []
 
 
 def build_chapters(scenes, titles, rendered=None):
@@ -102,7 +112,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
 
     rendered = load_json(os.path.join(folder, "render_manifest.json")).get("scenes")
     chapters = build_chapters(script["scenes"], answer.get("chapter_titles", []), rendered)
-    credits = film_credits(rendered)
+    credits = film_credits(rendered) + parts_credits(load_json(os.path.join(folder, "storyboard.json")))
     description = str(answer.get("description", "")) + "\n\n" + "\n".join(chapters) + ("\n\n" + "\n".join(credits) if credits else "")
     metadata = {
         "title": str(answer.get("title", ""))[:MAX_TITLE].strip(),

@@ -8,7 +8,7 @@ in its domain and turns it into a 90–180 s animated video, narrated in French,
 
 [Watch the French electronics lesson (MP4)](https://github.com/Fil37/breeze.edu-pipeline/blob/main/assets/breeze-demo-electronics.mp4)
 
-Third-party components kept in the repository (KaTeX, Lucide icons, Fluent Emoji 3D images, the Inter / Fira Code / Space
+Third-party components kept in the repository (KaTeX, Lucide icons, Fluent Emoji 3D images, Fritzing parts, the Inter / Fira Code / Space
 Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 
 | Order | Agent | Writes |
@@ -460,6 +460,12 @@ ends are on screen; `start_flow` closes any open switch on its path first.
   0.8 units inside the frame. Wires are routed with right angles around components and labels.
 - **Timing:** an action with a `cue` starts when the voice says those words; the others have their
   time stretched to the real voice length.
+- **Real parts (electronics channel only):** `REAL_PART` shows one part as it looks in the hand (resistor,
+  LED, capacitors, transistor, diode, batteries, potentiometer, switch, push button, motor, LDR, Arduino Uno,
+  breadboard), from the Fritzing parts library (`assets/fritzing/`, CC BY-SA 3.0, `app/render/fritzing.py`).
+  A resistor's colour bands and their reading are worked out by the program from its value (two significant
+  digits); an LED lights on `{"on": true}`. Hidden from the other channels. A video showing one gets the
+  Fritzing credit and the CC BY-SA 3.0 licence in its description (agent007).
 - **Objects in relief:** an OBJECT (or an icon component such as `COINS`, `CART`) with an image in
   `assets/fluent_3d/` (Microsoft Fluent Emoji 3D, MIT, licence beside the images) is shown as that 3D
   image; the others (people, `cpu`, `spring`...) keep their Lucide outline. The table is

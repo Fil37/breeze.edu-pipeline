@@ -197,3 +197,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - Source: https://github.com/microsoft/fluentui-emoji (the `3D/*.png` images only, a selection)
 - Where: `assets/fluent_3d/`, about 500 images (the list in `app/render/fluent3d.py`)
 - License: MIT, Copyright (c) Microsoft Corporation, full text in `assets/fluent_3d/LICENSE`
+
+## Fritzing parts (breadboard drawings)
+
+- Source: https://github.com/fritzing/fritzing-parts (`svg/core/breadboard`, 15 parts, renamed by part)
+- Where: `assets/fritzing/` (the list in `app/render/fritzing.py`); a resistor's band colours are changed by the program
+- License: Creative Commons Attribution-ShareAlike 3.0 Unported, text in `assets/fritzing/LICENSE.txt`.
+  A video that shows one credits Fritzing and is offered under CC BY-SA 3.0 in its description (agent007).

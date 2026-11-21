@@ -64,7 +64,7 @@ from app.agent import channel_dir, finish, load_json, run_standalone, save_json,
 from app import provenance
 from app.curve_math import anchor_geometry, curve_at, curve_centre
 from app.tts_manager import generate_voice, normalize_text_for_tts, voice_report   # the voice: ElevenLabs, else edge-tts
-from app.render import fluent3d
+from app.render import fluent3d, fritzing
 from app.render.asset_resolver import BASE_DIR, AssetResolver
 from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
@@ -533,6 +533,28 @@ def simple_data(kind, state):
         out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1), output=state.get("output") is True)
     elif kind == "SENTENCE":
         out.update(sentence_data(state, width))
+    elif kind == "REAL_PART":
+        out.update(real_part_data(state, width, height))
+    return out
+
+
+REAL_PART_CAPTION_H = 90      # room under the drawing for the reading of a resistor's bands
+
+
+def real_part_data(state, width, height):
+    """REAL_PART: the Fritzing drawing as a data: URI (shown with <image>: an SVG shown that way runs nothing),
+    fitted in the piece, a resistor's bands coloured from its value and their reading worked out here."""
+    part, value = state["part"], state.get("value")
+    svg = fritzing.part_svg(part, value)
+    ratio = fritzing.view_box(svg)
+    room_w, room_h = width - 40, height - REAL_PART_CAPTION_H - 20
+    w, h = (room_w, room_w / ratio) if room_w / ratio <= room_h else (room_h * ratio, room_h)
+    out = {"part": part, "image": "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii"),
+           "box": [round((width - w) / 2, 1), round(10 + (room_h - h) / 2, 1), round(w, 1), round(h, 1)],
+           "reading": None, "on": state.get("on") is True}
+    bands = fritzing.resistor_bands(value) if part == "resistor" else None
+    if bands:
+        out["reading"] = f"{' · '.join(bands['names'])}  →  {fritzing.ohms_text(value)} ± {fritzing.TOLERANCE[1]} %"
     return out
 
 
@@ -2405,6 +2427,18 @@ function buildSimple(ent) {
     p.translation = txt(s, z.width / 2, z.height - 20, z.translation, "middle", "note");
     Object.assign(p.translation.style, {fontSize: "30px", fontStyle: "italic"});
     p.translation.setAttribute("opacity", 0);
+  } else if (z.kind === "REAL_PART") {
+    const [x, y, w, h] = z.box;
+    if (z.part === "led") {                    // its light: a soft red glow over the lens, lit by {"on": true}
+      p.glow = sv("circle", {cx: x + w / 2, cy: y + h * 0.27, r: w * 0.75, fill: "#FF2D2D", opacity: 0}, s);
+      p.glow.style.filter = "blur(28px)";
+    }
+    sv("image", {href: z.image, x, y, width: w, height: h, preserveAspectRatio: "xMidYMid meet"}, s);
+    if (z.reading) {
+      p.reading = txt(s, z.width / 2, z.height - 34, z.reading, "middle", "note");
+      Object.assign(p.reading.style, {fontSize: "28px", fontWeight: 600});
+      p.reading.setAttribute("opacity", 0);
+    }
   } else if (z.kind === "POWER_SUPPLY") {
     sv("rect", {x: 10, y: 10, width: z.width - 20, height: z.height - 60, rx: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
     sv("rect", {x: 30, y: 30, width: z.width - 60, height: 70, rx: 8, fill: "#0F2A1F"}, s);
@@ -2581,6 +2615,16 @@ function seekSimple(e, t) {
     // an action may bring it sooner, never later (run 8 of 2026-11-20: set at 16 to 19 s, the scenes' ends)
     const asked = timed ? stateTime(e, "translation") : null;
     p.translation.setAttribute("opacity", ease(asked !== null ? Math.min(asked, allIn) : allIn, 0.5));
+  } else if (z.kind === "REAL_PART") {
+    // the reading comes in on {"show": true}, else 1 s after the part; an LED shines while {"on": true}
+    if (p.reading) {
+      const asked = e.states.find(s => s.at >= 0 && s.state && s.state.show === true);
+      p.reading.setAttribute("opacity", ease(asked ? asked.at : (e.spawn || 0) + 1.0));
+    }
+    if (p.glow) {
+      const on = lastState(e, t, "on"), lit = on === undefined ? z.on : on === true;
+      p.glow.setAttribute("opacity", lit ? 0.55 + 0.1 * Math.sin(t * 6) : 0);
+    }
   } else if (z.kind === "POWER_SUPPLY") {
     // on from the start when its initial_state says so (every supply of the AOP run of 2026-11-07 read 0,00 V)
     const set = lastState(e, t, "output"), on = set === undefined ? z.output : set === true;

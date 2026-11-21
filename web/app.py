@@ -11,10 +11,18 @@ The standup is the kit's supervision (app/run_supervision.py on the socle app/su
 cost (app/costs.py's history), each agent's health over time, the open incidents and the recent errors. The
 only thing this interface changes, by POSTs checked against the "csrf" cookie: an incident closed ("Resolved" / "Ignore",
 which does not change the agent's health), an approval decided (a publication goes up only then, by agent008's
-handler), skill activations proposed."""
+handler), skill activations proposed, and a run started.
+Runs from the site (2026-11-21): a channel's page starts the orchestrator for that channel (an optional topic, or an
+episode id; publication and analytics skipped unless unticked), in the background, one run at a time (none while a
+real run is going: the socle's busy_runs, or a run this site started still alive); its output goes to
+instance/web_runs/<name>.log, read at /runs/<name>/log as plain text, the secrets of .env removed."""
 
+import glob
 import json
 import os
+import re
+import subprocess
+import time
 import secrets
 import sys
 from urllib.parse import quote, unquote
@@ -87,7 +95,7 @@ FRENCH = {
     "No run yet. Start one with": "Aucun passage pour l'instant. Lancez-en un avec", "warnings": "avertissements",
     "agents in all": "agents en tout", "finished cleanly": "terminés proprement", "to look at": "à regarder",
     "healthy": "sain", "warning": "avertissement", "critical": "échec", "revision": "révision", "not run": "pas lancé",
-    "skipped": "sauté", "this interface starts nothing; it closes incidents and decides approvals.": "cette interface ne lance rien ; elle ferme des incidents et décide des validations.",
+    "skipped": "sauté", "this interface starts runs, closes incidents and decides approvals; it publishes nothing without your approval.": "cette interface lance des runs, ferme des incidents et décide des validations ; elle ne publie rien sans votre accord.",
     "Runs in progress": "Runs en cours", "Nothing running.": "Rien en cours.", "Pending approvals": "Validations en attente",
     "Propose skill activations": "Proposer les activations", "Action": "Action", "Target": "Cible", "Parameters": "Paramètres",
     "Decision": "Décision", "Approve": "Approuver", "Reject": "Refuser", "No pending approval.": "Aucune validation en attente.",
@@ -96,7 +104,14 @@ FRENCH = {
     "kept_despite": "gardé malgré", "No check recorded yet.": "Aucun contrôle enregistré pour l'instant.",
     "Backups and disk": "Sauvegardes et disque", "No backup yet.": "Aucune sauvegarde pour l'instant.", "instance": "instance",
     "backups": "sauvegardes", "free": "libre", "Approvals": "Validations", "waiting for you": "en attente de vous",
-    "running": "en cours",
+    "running": "en cours", "Start a run": "Lancer un run", "Topic (optional)": "Sujet (facultatif)",
+    "Skip publication and analytics": "Sans publication ni analytique", "Start": "Lancer", "Log": "Journal",
+    "Runs started from the site": "Runs lancés depuis le site", "The run started: it takes 10 to 15 minutes.":
+        "Le run est lancé : il prend 10 à 15 minutes.", "No run can start now:": "Impossible de lancer un run maintenant :",
+    "empty: the channel chooses (its programme for German)": "vide : la chaîne choisit (son programme pour l'allemand)",
+    "about $0.06 with the free voice, $0.60 with ElevenLabs": "environ 0,06 $ avec la voix gratuite, 0,60 $ avec ElevenLabs",
+    "succeeded": "terminé", "failed": "échoué", "a run is in progress": "un run est en cours",
+    "a run started from the site is in progress": "un run lancé depuis le site est en cours",
     "Cost of the last run": "Coût du dernier run", "AI": "IA", "voice": "voix", "Costs by day": "Coûts par jour",
     "Day": "Jour", "Runs": "Passages", "Calls": "Appels", "Tokens": "Jetons", "Total": "Total",
     "Agent health": "Santé des agents", "Incidents": "Incidents", "Resolved": "Résolu", "Ignore": "Ignorer",
@@ -202,7 +217,104 @@ def channel(channel_id):
     data = page.channel_page(unquote(channel_id))
     if data is None:
         abort(404)
-    return render_template("channel.html", active="channel", **data)
+    runs = [r for r in web_runs() if r["channel"] == data["route"]["channel_id"]][:5]
+    return render_template("channel.html", active="channel", web_runs=runs, busy=busy_reason(),
+                           run_message=request.args.get("run"), **data)
+
+
+# ---- runs started from the site
+RUNS_DIR = os.path.join(BASE_DIR, "instance", "web_runs")
+ORCHESTRATOR = os.path.join(BASE_DIR, "app", "agent", "agent000_breeze.py")
+TOPIC_MAX = 200
+RUN_NAME = re.compile(r"^\d{8}T\d{6}_[a-z0-9_-]{1,40}$")
+RUNNING = {}            # name -> Popen, for the runs this process started (their exit code)
+
+
+def start_process(argv, log_path):
+    """The orchestrator in the background, its output in log_path; returns the Popen. No shell: argv as is."""
+    log = open(log_path, "w", encoding="utf-8")
+    return subprocess.Popen(argv, cwd=BASE_DIR, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                            start_new_session=True)
+
+
+def pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (ProcessLookupError, ValueError, TypeError):
+        return False
+    except PermissionError:
+        return True
+
+
+def web_runs():
+    """The runs started from the site, newest first: {name, channel, topic, skip, started_at, state, code}."""
+    runs_dir = app.config.get("RUNS_DIR") or RUNS_DIR
+    out = []
+    for meta in sorted(glob.glob(os.path.join(runs_dir, "*.json")), reverse=True)[:50]:
+        try:
+            with open(meta, encoding="utf-8") as f:
+                run = json.load(f)
+        except (OSError, ValueError):
+            continue
+        proc = RUNNING.get(run.get("name"))
+        code = proc.poll() if proc else None
+        alive = code is None if proc else pid_alive(run.get("pid"))
+        run.update(state="running" if alive else ("succeeded" if code in (0, None) else "failed"), code=code)
+        out.append(run)
+    return out
+
+
+def busy_reason():
+    """Why no run can start now, or None: a real run going (the socle's busy_runs on breeze.db), or one this site
+    started still alive."""
+    from app.supervision import busy_runs
+    going = busy_runs(app.config.get("SUPERVISION_DB") or run_supervision.DB_PATH)
+    if going:
+        return f"{translate('a run is in progress')} ({going[0]})"
+    alive = [r for r in web_runs() if r["state"] == "running"]
+    return f"{translate('a run started from the site is in progress')} ({alive[0]['channel']})" if alive else None
+
+
+@app.route("/runs/start", methods=["POST"])
+def run_start():
+    check_csrf()
+    channel_id = request.form.get("channel", "")
+    if channel_id not in {r["channel_id"] for r in page.routes()}:
+        abort(404)
+    topic = " ".join(request.form.get("topic", "").split())[:TOPIC_MAX]
+    target = url_for("channel", channel_id=channel_id)
+    if busy_reason():
+        return redirect(target + "?run=busy#run")
+    argv = [sys.executable, ORCHESTRATOR, "--channel", channel_id]
+    if topic:
+        argv.append(f"--topic={topic}")                  # "=": a topic starting with "-" stays a topic
+    skip = request.form.get("skip") == "1"
+    if skip:
+        argv.append("--skip-agents=agent008,agent009")
+    runs_dir = app.config.get("RUNS_DIR") or RUNS_DIR
+    os.makedirs(runs_dir, exist_ok=True)
+    name = time.strftime("%Y%m%dT%H%M%S") + "_" + re.sub(r"[^a-z0-9]+", "-", channel_id.lower()).strip("-")[:40]
+    proc = (app.config.get("LAUNCHER") or start_process)(argv, os.path.join(runs_dir, name + ".log"))
+    RUNNING[name] = proc
+    with open(os.path.join(runs_dir, name + ".json"), "w", encoding="utf-8") as f:
+        json.dump({"name": name, "channel": channel_id, "topic": topic, "skip": skip, "pid": getattr(proc, "pid", None),
+                   "started_at": time.strftime("%Y-%m-%d %H:%M:%S")}, f, ensure_ascii=False)
+    return redirect(target + "?run=started#run")
+
+
+@app.route("/runs/<name>/log")
+def run_log(name):
+    """A run's output, its last 400 lines, as plain text (never HTML), the secrets of .env removed."""
+    runs_dir = app.config.get("RUNS_DIR") or RUNS_DIR
+    path = os.path.join(runs_dir, name + ".log")
+    if not RUN_NAME.match(name) or not os.path.isfile(path):
+        abort(404)
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = "".join(f.readlines()[-400:])
+    for secret in run_supervision.env_secrets():
+        text = text.replace(secret, "***")
+    return text, 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}
 
 
 def supervision():

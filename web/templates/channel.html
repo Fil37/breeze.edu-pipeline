@@ -12,6 +12,35 @@
     </div>
   </div>
 
+  <section class="panel" id="run">
+    <div class="panel-title"><h2>{{ _('Start a run') }}</h2></div>
+    {% if run_message == 'started' %}<p class="note">{{ _('The run started: it takes 10 to 15 minutes.') }}</p>{% endif %}
+    {% if busy and run_message != 'started' %}<p class="alert">{{ _('No run can start now:') }} {{ busy }}</p>{% endif %}
+    <form method="post" action="{{ url_for('run_start') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="channel" value="{{ route.channel_id }}">
+      <div class="form-grid">
+        <label class="span-3">{{ _('Topic (optional)') }}
+          <input type="text" name="topic" maxlength="200" placeholder="{{ _('empty: the channel chooses (its programme for German)') }}"></label>
+      </div>
+      <div class="toggles"><label class="toggle"><input type="checkbox" name="skip" value="1" checked> {{ _('Skip publication and analytics') }}</label></div>
+      <div class="form-foot">
+        <p class="hint">{{ _('about $0.06 with the free voice, $0.60 with ElevenLabs') }}</p>
+        <button type="submit" class="lg" {% if busy %}disabled{% endif %}>▶ {{ _('Start') }}</button>
+      </div>
+    </form>
+    {% if web_runs %}
+    <h3 class="mt-20">{{ _('Runs started from the site') }}</h3>
+    <ul class="list">
+      {% for r in web_runs %}
+      <li><span class="badge {{ 'running' if r.state == 'running' else ('succeeded' if r.state == 'succeeded' else 'failed') }}">{{ _(r.state) }}</span>
+        <span class="prose">{{ r.started_at }} · <span lang="fr">{{ r.topic or '—' }}</span></span>
+        <a class="small" href="{{ url_for('run_log', name=r.name) }}">{{ _('Log') }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
   {% if agents %}
   <section class="panel">
     <div class="stepper agents">

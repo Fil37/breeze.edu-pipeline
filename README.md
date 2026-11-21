@@ -73,6 +73,10 @@ video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `w
 `breeze.db` and `instance/<channel_id>/*.json`, writes nothing), `web/templates/` (`base.html`,
 `dashboard.html`, `channel.html`, `standup.html`, `partials/`), `static/css/breeze_master.css`,
 `static/js/breeze.js`, `static/images/favicon.svg`; the fonts sit beside the stylesheet (`static/css/*.ttf`, OFL).
+**Runs from the site**: a channel's page starts the orchestrator for that channel ("Start a run": an optional
+topic or episode id; publication and analytics skipped unless unticked), in the background, one run at a time (none
+while a real run is going); its output is in `instance/web_runs/` and readable from the page (plain text, secrets
+removed). A publication still waits for your approval on the standup.
 The previous version is in `archive/web_v1/`. Check: `python tests/test_web.py`.
 
 **Supervision** (the standup page, on the studio kit's socle `app/supervision.py`, copied as is from

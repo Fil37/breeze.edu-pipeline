@@ -74,6 +74,9 @@ class AssetResolver:
             path = os.path.join(self.icons_dir, icon + ".svg")
             if os.path.exists(path):
                 return path, "cache"
+            full_set = os.path.join(self.icons_dir, "lucide", icon + ".svg")    # the whole Lucide set, kept locally
+            if os.path.exists(full_set):
+                return full_set, "cache"
             if not self.offline and self.download(icon, path):
                 return path, "cdn"
         return self.fallback(), "fallback"

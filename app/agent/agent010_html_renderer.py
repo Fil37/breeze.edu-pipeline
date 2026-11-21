@@ -537,10 +537,105 @@ def simple_data(kind, state):
         out.update(card_scene_data(state, width, height))
     elif kind == "REAL_PART":
         out.update(real_part_data(state, width, height))
+    elif kind == "LANDSCAPE":
+        out.update(landscape_data(state, width, height))
     return out
 
 
-REAL_PART_CAPTION_H = 90      # room under the drawing for the reading of a resistor's bands
+# LANDSCAPE: each view's places (x, y as shares of the piece) and its 3D markers (Fluent PNG file, x, y, size as shares
+# of the width), drawn where they belong: the sun in the sky, the trees on the land (the user, 2026-11-21: objects
+# scattered in a scene "did not speak")
+LANDSCAPE_AT = {
+    "water": {"sun": (0.09, 0.15), "sky": (0.33, 0.24), "cloud": (0.68, 0.15), "sea": (0.17, 0.80), "land": (0.56, 0.69),
+              "plants": (0.50, 0.55), "mountain": (0.80, 0.36), "snow": (0.80, 0.22), "river": (0.66, 0.56),
+              "ground": (0.74, 0.79), "groundwater": (0.62, 0.92)},
+    "volcano": {"sky": (0.17, 0.20), "plume": (0.50, 0.06), "crater": (0.50, 0.21), "lava": (0.68, 0.40),
+                "cone": (0.33, 0.45), "conduit": (0.50, 0.55), "chamber": (0.50, 0.87), "crust": (0.13, 0.80),
+                "surface": (0.88, 0.58)},
+}
+LANDSCAPE_MARKERS = {
+    "water": [("sun_3d.png", 0.09, 0.15, 0.085), ("cloud_3d.png", 0.68, 0.15, 0.12),
+              ("deciduous_tree_3d.png", 0.49, 0.535, 0.06), ("evergreen_tree_3d.png", 0.545, 0.515, 0.05)],
+    "volcano": [],
+}
+LANDSCAPE_COLOURS = {"vapour": "#7DD3FC", "rain": "#2563EB", "water": "#1D4ED8", "ice": "#A5F3FC", "magma": "#EA580C",
+                     "gas": "#6B7280", "heat": "#F59E0B"}
+
+
+@functools.lru_cache(maxsize=16)
+def fluent_file_uri(name):
+    with open(os.path.join(fluent3d.FLUENT_DIR, name), "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
+
+
+def landscape_data(state, width, height):
+    """LANDSCAPE: the view's places in pixels, its 3D markers, and each flow as a curve from place to place (bowed
+    to one side, stopped short of both ends), its colour from its kind and its label at its middle; the French
+    names of the places to write. The scenery itself is drawn in the page from these sizes."""
+    from models.visual_brief_schema import LANDSCAPE_PLACES
+    view = state["view"]
+    at = {k: (round(x * width, 1), round(y * height, 1)) for k, (x, y) in LANDSCAPE_AT[view].items()}
+    flows = []
+    for f in state.get("flows") or []:
+        kind = f.get("kind", "water")
+        (x1, y1), (x2, y2) = at[f["from"]], at[f["to"]]
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy) or 1
+        ux, uy = dx / length, dy / length
+        x1, y1, x2, y2 = x1 + ux * 46, y1 + uy * 46, x2 - ux * 46, y2 - uy * 46
+        if view == "water" and kind == "water" and f["from"] in ("mountain", "snow", "river", "land") and f["to"] == "sea":
+            # down the river to its mouth (the first preview: a curve over the land read as a flight)
+            X, Y = (lambda v: v * width), (lambda v: v * height)
+            d = f"M{X(0.80):.1f} {Y(0.32):.1f} Q{X(0.74):.1f} {Y(0.50):.1f} {X(0.62):.1f} {Y(0.585):.1f} T{X(0.33):.1f} {Y(0.67):.1f}"
+            lx, ly = X(0.70), Y(0.47)
+        elif kind in ("vapour", "gas", "heat"):          # rising things bow upwards
+            bow = 0.18 * length
+            nx, ny = (uy, -ux) if -ux < 0 or (ux == 0 and uy > 0) else (-uy, ux)
+            if ny > 0:
+                nx, ny = -nx, -ny
+            cx, cy = (x1 + x2) / 2 + nx * bow, (y1 + y2) / 2 + ny * bow
+            d = f"M{x1:.1f} {y1:.1f} Q{cx:.1f} {cy:.1f} {x2:.1f} {y2:.1f}"
+            lx, ly = 0.25 * x1 + 0.5 * cx + 0.25 * x2, 0.25 * y1 + 0.5 * cy + 0.25 * y2
+        else:                                            # rain, a magma up its conduit, water through the ground: straight
+            d = f"M{x1:.1f} {y1:.1f} L{x2:.1f} {y2:.1f}"
+            lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
+        label = f.get("label") or ""
+        if abs(dx) < 0.6 * abs(dy) and label:            # a flow going up or down: its label beside it, not on it
+            lx += len(label) * 7.5 + 50
+        flows.append({"d": d, "kind": kind, "colour": LANDSCAPE_COLOURS[kind], "label": label,
+                      "lx": round(lx, 1), "ly": round(ly, 1)})
+    used = [p for f in state.get("flows") or [] for p in (f["from"], f["to"])]
+    named = list(dict.fromkeys(list(state.get("labels") or []) + used + ([state["focus"]] if state.get("focus") else [])))
+    rain = any(f.get("from") == "cloud" and f.get("kind") in ("rain", "ice") for f in state.get("flows") or [])
+    markers = [{"uri": fluent_file_uri("cloud_with_rain_3d.png" if rain and name == "cloud_3d.png" else name),
+                "x": round(x * width - size * width / 2, 1), "y": round(y * height - size * width / 2, 1),
+                "size": round(size * width, 1)} for name, x, y, size in LANDSCAPE_MARKERS[view]]
+    below = {"sun": 78, "cloud": 92}                      # a marker's name under it
+    names = [{"place": p, "text": LANDSCAPE_PLACES[view][p], "x": at[p][0], "y": at[p][1] + below.get(p, 10)} for p in named]
+    # the flows' labels never on a name, a marker or another label (the first preview: "Précipitations" over "Nuage",
+    # "Le magma monte" over "Cheminée"): the first free place around their spot
+    taken = [(n["x"] - len(n["text"]) * 8 - 6, n["y"] - 26, n["x"] + len(n["text"]) * 8 + 6, n["y"] + 10) for n in names]
+    taken += [(m["x"], m["y"], m["x"] + m["size"], m["y"] + m["size"]) for m in markers]
+    for f in flows:
+        if not f["label"]:
+            continue
+        w = len(f["label"]) * 15 + 36
+        for ox, oy in ((0, 0), (0, 56), (0, -56), (w / 2 + 50, 0), (-w / 2 - 50, 0), (0, 112), (0, -112),
+                       (w / 2 + 50, 56), (-w / 2 - 50, 56), (w / 2 + 50, -56), (-w / 2 - 50, -56)):
+            x, y = f["lx"] + ox, f["ly"] + oy
+            box = (x - w / 2, y - 26, x + w / 2, y + 24)
+            inside = box[0] >= 8 and box[2] <= width - 8 and box[1] >= 8 and box[3] <= height - 8
+            if inside and not any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in taken):
+                break
+        else:
+            x, y, box = f["lx"], f["ly"], (f["lx"] - w / 2, f["ly"] - 26, f["lx"] + w / 2, f["ly"] + 24)
+        f["lx"], f["ly"] = round(x, 1), round(y, 1)
+        taken.append(box)
+    return {"view": view, "at": at, "flows": flows, "markers": markers, "focus": state.get("focus"),
+            "erupt": state.get("erupt") is True, "names": names}
+
+
+REAL_PART_CAPTION_H = 120     # room under the drawing for the reading of a resistor's bands (two lines)
 
 
 def real_part_data(state, width, height):
@@ -556,7 +651,7 @@ def real_part_data(state, width, height):
            "reading": None, "on": state.get("on") is True}
     bands = fritzing.resistor_bands(value) if part == "resistor" else None
     if bands:
-        out["reading"] = f"{' · '.join(bands['names'])}  →  {fritzing.ohms_text(value)} ± {fritzing.TOLERANCE[1]} %"
+        out["reading"] = [" · ".join(bands["names"]), f"{fritzing.ohms_text(value)} ± {fritzing.TOLERANCE[1]} %"]
     return out
 
 
@@ -811,6 +906,9 @@ LATEX_SIGNS = {"\\leftarrow": "←", "\\rightarrow": "→", "\\to": "→", "\\ti
 
 def entity_data(entity, entities_by_id, ink="#0F172A"):
     state = entity.get("initial_state") or {}
+    if entity["type"] == "REAL_PART" and fritzing.band_colours_named(state.get("label")) and fritzing.resistor_bands(state.get("value")):
+        # its bands already read under it (the resistor run of 2026-11-21: the label said them again): its name only
+        state = {**state, "label": fritzing.REAL_PARTS["resistor"]}
     data = {"id": entity["id"], "type": entity["type"], "label": plain_math(state.get("label")), "latex": state.get("latex"),
             "tone": state.get("tone") if state.get("tone") in TONES else None,
             "initial": state, "xy": to_pixels(entity["position"]),
@@ -2531,10 +2629,86 @@ function buildSimple(ent) {
     }
     sv("image", {href: z.image, x, y, width: w, height: h, preserveAspectRatio: "xMidYMid meet"}, s);
     if (z.reading) {
-      p.reading = txt(s, z.width / 2, z.height - 34, z.reading, "middle", "note");
-      Object.assign(p.reading.style, {fontSize: "28px", fontWeight: 600});
-      p.reading.setAttribute("opacity", 0);
+      // big and in ink (the resistor run of 2026-11-21: small and grey, the LLM wrote it again in its own label)
+      // two lines: the colours, then the value, large
+      p.reading = sv("g", {opacity: 0}, s);
+      const colours = txt(p.reading, z.width / 2, z.height - 78, z.reading[0], "middle", "note");
+      Object.assign(colours.style, {fontSize: "28px", fontWeight: 600, fill: "var(--ink)"});
+      const value = txt(p.reading, z.width / 2, z.height - 22, z.reading[1], "middle", "big");
+      Object.assign(value.style, {fontSize: "46px", fontWeight: 800, fill: "var(--ink)"});
     }
+  } else if (z.kind === "LANDSCAPE") {
+    // a place drawn here from fixed shapes (landscape_data gives the places, the markers, the flows): the scenery in
+    // a rounded frame, the 3D markers where they belong, then each flow as a curve its things move along
+    const W = z.width, H = z.height, X = f => (f * W).toFixed(1), Y = f => (f * H).toFixed(1);
+    const pts = list => list.map(([x, y], i) => `${i ? "L" : "M"}${X(x)} ${Y(y)}`).join(" ");
+    const clipId = `landscape-${String(ent.id).replace(/[^A-Za-z0-9_-]/g, "")}`;
+    const defs = sv("defs", {}, s), clip = sv("clipPath", {id: clipId}, defs);
+    sv("rect", {x: 0, y: 0, width: W, height: H, rx: 28}, clip);
+    const sky = sv("linearGradient", {id: `${clipId}-sky`, x1: 0, y1: 0, x2: 0, y2: 1}, defs);
+    sv("stop", {offset: 0, "stop-color": "#93C5FD"}, sky); sv("stop", {offset: 0.6, "stop-color": "#E0F2FE"}, sky);
+    const g = sv("g", {"clip-path": `url(#${clipId})`}, s);
+    sv("rect", {x: 0, y: 0, width: W, height: H, fill: `url(#${clipId}-sky)`}, g);        // the sky
+    if (z.view === "water") {
+      sv("path", {d: pts([[0.30, 1], [0.36, 0.66], [0.42, 0.61], [0.60, 0.60], [0.68, 0.52], [0.80, 0.22], [0.90, 0.40], [1, 0.47], [1, 1]]) + "Z",
+                  fill: "#B45309"}, g);                                                  // the land, cut open
+      sv("rect", {x: X(0.30), y: Y(0.87), width: X(0.70), height: Y(0.09), fill: "#60A5FA", opacity: 0.9}, g);   // groundwater
+      sv("path", {d: pts([[0.38, 0.75], [1, 0.75]]), stroke: "#92400E", "stroke-width": 3, "stroke-dasharray": "14 12", opacity: 0.6}, g);
+      sv("path", {d: pts([[0.62, 0.61], [0.68, 0.52], [0.80, 0.22], [0.90, 0.40], [1, 0.47], [1, 0.62]]) + "Z", fill: "#78716C"}, g);   // rock
+      sv("path", {d: pts([[0.765, 0.30], [0.80, 0.22], [0.84, 0.31], [0.815, 0.285], [0.80, 0.32], [0.785, 0.29]]) + "Z", fill: "#FFFFFF"}, g);
+      sv("path", {d: pts([[0.36, 0.66], [0.42, 0.61], [0.60, 0.60], [0.635, 0.57]]), fill: "none", stroke: "#65A30D", "stroke-width": 14,
+                  "stroke-linecap": "round", "stroke-linejoin": "round"}, g);             // grass
+      sv("path", {d: `M${X(0.84)} ${Y(0.33)} Q${X(0.74)} ${Y(0.50)} ${X(0.62)} ${Y(0.585)} T${X(0.40)} ${Y(0.63)}`, fill: "none",
+                  stroke: "#3B82F6", "stroke-width": 9, "stroke-linecap": "round"}, g);   // the river
+      let sea = `M0 ${Y(0.63)}`;                                                          // the sea, its waves
+      for (let i = 0; i < 8; i++) sea += ` q${(W * 0.025).toFixed(1)} -10 ${(W * 0.05).toFixed(1)} 0`;
+      sv("path", {d: sea + ` L${X(0.31)} ${H} L0 ${H} Z`, fill: "#3B82F6"}, g);          // its floor sloping down
+      sv("path", {d: pts([[0, 0.84], [0.355, 0.84], [0.31, 1], [0, 1]]) + "Z", fill: "#1E40AF", opacity: 0.35}, g);
+    } else {
+      sv("rect", {x: 0, y: Y(0.57), width: W, height: Y(0.43), fill: "#A16207"}, g);      // the crust, its layers
+      [[0.68, "#92400E"], [0.78, "#78350F"]].forEach(([y, fill]) => { let d = `M0 ${Y(y)}`;
+        for (let i = 0; i < 6; i++) d += ` q${(W / 12).toFixed(1)} ${i % 2 ? 12 : -12} ${(W / 6).toFixed(1)} 0`;
+        sv("path", {d: d + ` L${W} ${H} L0 ${H} Z`, fill}, g); });
+      [0, 1, 2, 3].forEach(k => sv("path", {d: pts([[0.16 + 0.06 * k, 0.575], [0.45 + 0.012 * k, 0.21 + 0.035 * k], [0.55 - 0.012 * k, 0.21 + 0.035 * k],
+                                                    [0.84 - 0.06 * k, 0.575]]) + "Z", fill: k % 2 ? "#6B635E" : "#57534E"}, g));   // the cone, layer on layer
+      sv("path", {d: `M${X(0.45)} ${Y(0.21)} Q${X(0.5)} ${Y(0.27)} ${X(0.55)} ${Y(0.21)} Z`, fill: "#E0F2FE"}, g);   // the crater
+      sv("rect", {x: W / 2 - 17, y: Y(0.235), width: 34, height: Y(0.62), fill: "#292524"}, g);   // the conduit
+      sv("ellipse", {cx: W / 2, cy: Y(0.87), rx: X(0.19), ry: Y(0.085), fill: "#C2410C"}, g);    // the magma chamber
+      sv("ellipse", {cx: W / 2, cy: Y(0.875), rx: X(0.15), ry: Y(0.055), fill: "#F97316"}, g);
+      sv("ellipse", {cx: W / 2, cy: Y(0.88), rx: X(0.07), ry: Y(0.025), fill: "#FDBA74", opacity: 0.8}, g);
+      p.rise = sv("rect", {x: W / 2 - 11, y: Y(0.84), width: 22, height: 0, fill: "#F97316"}, g);   // magma up the conduit
+      p.lava = sv("path", {d: `M${X(0.545)} ${Y(0.215)} Q${X(0.62)} ${Y(0.30)} ${X(0.66)} ${Y(0.40)} T${X(0.77)} ${Y(0.57)}`, fill: "none",
+                           stroke: "#F97316", "stroke-width": 16, "stroke-linecap": "round"}, g);
+      p.lavaLength = p.lava.getTotalLength();
+      p.lava.setAttribute("stroke-dasharray", `0 ${p.lavaLength}`);
+      p.plume = [[0, 0, 26], [-34, -22, 30], [30, -32, 32], [-8, -58, 36], [-52, -66, 30], [40, -70, 32], [0, -88, 38]].map(([dx, dy, r], i) =>
+        ({c: sv("circle", {cx: W / 2 + dx, cy: H * 0.2 + dy, r, fill: i % 2 ? "#6B7280" : "#9CA3AF", opacity: 0}, g), dx, dy, r}));
+    }
+    z.markers.forEach(m => sv("image", {href: m.uri, x: m.x, y: m.y, width: m.size, height: m.size}, g));
+    sv("rect", {x: 1, y: 1, width: W - 2, height: H - 2, rx: 28, fill: "none", stroke: "var(--border)", "stroke-width": 2}, s);
+    // the focus: a ring that beats round the place picked out
+    p.ring = sv("circle", {cx: 0, cy: 0, r: 64, fill: "none", stroke: "var(--accent)", "stroke-width": 6, opacity: 0}, s);
+    p.flows = z.flows.map(f => { const fg = sv("g", {opacity: 0}, s);
+      const path = sv("path", {d: f.d, fill: "none", stroke: f.colour, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.9}, fg);
+      if (f.kind === "vapour" || f.kind === "gas" || f.kind === "heat") path.setAttribute("stroke-dasharray", "4 14");
+      const len = path.getTotalLength(), a = path.getPointAtLength(Math.max(0, len - 18)), b = path.getPointAtLength(len);
+      const ang = Math.atan2(b.y - a.y, b.x - a.x), h = 22;
+      sv("path", {d: `M${b.x + Math.cos(ang) * 6} ${b.y + Math.sin(ang) * 6} L${b.x - h * Math.cos(ang - 0.45)} ${b.y - h * Math.sin(ang - 0.45)} `
+                     + `L${b.x - h * Math.cos(ang + 0.45)} ${b.y - h * Math.sin(ang + 0.45)} Z`, fill: f.colour}, fg);
+      const dots = Array.from({length: 6}, () => f.kind === "rain"
+        ? sv("ellipse", {rx: 5, ry: 11, fill: f.colour, opacity: 0}, fg)
+        : sv("circle", {r: f.kind === "magma" ? 11 : f.kind === "gas" ? 13 : 8, fill: f.kind === "vapour" ? "#FFFFFF" : f.colour,
+                        stroke: f.kind === "vapour" ? f.colour : "none", "stroke-width": 3, opacity: 0}, fg));
+      let label = null;
+      if (f.label) { label = sv("g", {}, fg); const w = f.label.length * 15 + 36;
+        sv("rect", {x: f.lx - w / 2, y: f.ly - 24, width: w, height: 46, rx: 23, fill: "var(--card)", stroke: f.colour, "stroke-width": 3}, label);
+        const t = txt(label, f.lx, f.ly + 9, f.label, "middle", "note"); Object.assign(t.style, {fontSize: "26px", fontWeight: 700, fill: "#0F172A"}); }
+      return {g: fg, path, len, dots}; });
+    // the places' French names (program's words), white-haloed over the scenery; under a marker, below it
+    p.names = z.names.map(n => { const t = txt(s, n.x, n.y, n.text, "middle", "note");
+      Object.assign(t.style, {fontSize: "26px", fontWeight: 700, fill: "#0F172A", stroke: "#FFFFFF", strokeWidth: "7px",
+                              paintOrder: "stroke", strokeLinejoin: "round"});
+      t.setAttribute("opacity", 0); return t; });
   } else if (z.kind === "POWER_SUPPLY") {
     sv("rect", {x: 10, y: 10, width: z.width - 20, height: z.height - 60, rx: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
     sv("rect", {x: 30, y: 30, width: z.width - 60, height: 70, rx: 8, fill: "#0F2A1F"}, s);
@@ -2735,6 +2909,42 @@ function seekSimple(e, t) {
     if (p.glow) {
       const on = lastState(e, t, "on"), lit = on === undefined ? z.on : on === true;
       p.glow.setAttribute("opacity", lit ? 0.55 + 0.1 * Math.sin(t * 6) : 0);
+    }
+  } else if (z.kind === "LANDSCAPE") {
+    // each flow in turn ({"step": n}, else one after the other): its curve draws itself, then its things move along
+    // it for good (a function of t only); the names in with the scenery; the focus beats; an eruption fills the
+    // conduit, lets the lava down the side and the plume up
+    p.names.forEach(n => n.setAttribute("opacity", ease((e.spawn || 0) + 0.3)));
+    p.flows.forEach((f, i) => {
+      const start = inTurn(e, "step", i, 0.8), k = ease(start, 0.9);
+      f.g.setAttribute("opacity", k > 0 ? 1 : 0);
+      if (!f.path.getAttribute("stroke-dasharray") || f.path.dataset.reveal) {
+        f.path.dataset.reveal = "1"; f.path.setAttribute("stroke-dasharray", `${(f.len * k).toFixed(1)} ${f.len.toFixed(1)}`); }
+      else f.path.setAttribute("opacity", 0.9 * k);
+      const run = t - start - 0.6, speed = z.flows[i].kind === "rain" ? 260 : z.flows[i].kind === "magma" ? 120 : 170;
+      f.dots.forEach((d, j) => {
+        if (run <= 0) { d.setAttribute("opacity", 0); return; }
+        const u = ((run * speed / f.len) + j / f.dots.length) % 1, pt = f.path.getPointAtLength(u * f.len);
+        const wob = z.flows[i].kind === "vapour" ? 10 * Math.sin(u * 18) : 0;
+        if (d.tagName === "ellipse") { d.setAttribute("cx", pt.x.toFixed(1)); d.setAttribute("cy", pt.y.toFixed(1)); }
+        else { d.setAttribute("cx", (pt.x + wob).toFixed(1)); d.setAttribute("cy", pt.y.toFixed(1)); }
+        d.setAttribute("opacity", (Math.sin(Math.PI * u) * clamp(run * 2, 0, 1)).toFixed(3)); });
+    });
+    const focus = lastState(e, t, "focus") ?? z.focus, at = focus && z.at[focus];
+    if (at) { p.ring.setAttribute("cx", at[0]); p.ring.setAttribute("cy", at[1]);
+      p.ring.setAttribute("r", (64 + 8 * Math.sin(t * 5)).toFixed(1)); p.ring.setAttribute("opacity", ease((e.spawn || 0) + 0.5)); }
+    else p.ring.setAttribute("opacity", 0);
+    if (p.rise) {
+      const asked = e.states.find(st => st.at >= 0 && st.state && st.state.erupt === true);
+      const t0 = asked ? asked.at : z.erupt ? (e.spawn || 0) + 0.8 : null, up = t0 === null ? 0 : easeInOut(clamp((t - t0) / 1.6, 0, 1));
+      const bottom = z.height * 0.84, top = z.height * 0.235;
+      p.rise.setAttribute("y", (bottom - (bottom - top) * up).toFixed(1)); p.rise.setAttribute("height", ((bottom - top) * up).toFixed(1));
+      const out = t0 === null ? 0 : clamp((t - t0 - 1.4) / 2.5, 0, 1);
+      p.lava.setAttribute("stroke-dasharray", `${(p.lavaLength * easeInOut(out)).toFixed(1)} ${p.lavaLength.toFixed(1)}`);
+      p.plume.forEach((c, j) => { const k = t0 === null ? 0 : clamp((t - t0 - 1.3 - j * 0.15) / 1.2, 0, 1);
+        const drift = t0 === null ? 0 : Math.sin((t - t0) * 0.8 + j) * 6;
+        c.c.setAttribute("opacity", (0.9 * k).toFixed(3)); c.c.setAttribute("r", (c.r * (0.4 + 0.6 * k)).toFixed(1));
+        c.c.setAttribute("cx", (z.width / 2 + c.dx * k + drift).toFixed(1)); c.c.setAttribute("cy", (z.height * 0.2 + c.dy * k).toFixed(1)); });
     }
   } else if (z.kind === "POWER_SUPPLY") {
     // on from the start when its initial_state says so (every supply of the AOP run of 2026-11-07 read 0,00 V)
@@ -5444,7 +5654,8 @@ window.seek = function (t) {
     if (e.data.type === "TEX_FORMULA" && e.shape.firstElementChild) {   // written from left to right as it appears
       // cut on the right only: a formula on several rows (cases, a matrix) reaches far above and below
       // its line box, and is left uncut once written
-      const hidden = 100 * (1 - easeInOut(progress(t, e.spawn + 0.15, 0.9)));
+      // from the spawn, eased out (the water cycle of 2026-11-21: the box in, its formula a second later, read as empty)
+      const hidden = 100 * (1 - (k => 1 - (1 - k) * (1 - k))(progress(t, e.spawn, 0.7)));
       e.shape.firstElementChild.style.clipPath = hidden > 0 ? `inset(-100vh ${hidden}% -100vh -100vw)` : "none";
     }
     if (e.ann) {                     // the badge's arrow grows towards its component after the pop

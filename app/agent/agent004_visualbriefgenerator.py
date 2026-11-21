@@ -177,6 +177,13 @@ STATES = {
                               '"attire"}], "highlight": "tombe"} (1 to 4 cards; icon: a Lucide icon name from the list '
                               'below; title 28 characters, text 90, in French; tone blue, red, green, amber, violet or '
                               'neutral; 0 to 3 links; highlight: a word written on a card, underlined)',
+    ComponentType.LANDSCAPE: '{"step": n} the first n flows drawn and moving (on the words that name each); {"focus": '
+                             '"cloud"} a place picked out; {"erupt": true} the volcano erupts; initial_state {"view": '
+                             '"water", "flows": [{"from": "sea", "to": "cloud", "kind": "vapour", "label": "Évaporation"}], '
+                             '"labels": ["sun"]} (view "water": places sun, sky, cloud, sea, land, plants, mountain, snow, '
+                             'river, ground, groundwater; view "volcano": places sky, plume, crater, lava, cone, conduit, '
+                             'chamber, crust, surface; 0 to 5 flows, kind vapour, rain, water, ice, magma, gas or heat, '
+                             'label 24 characters in French; "labels": places to name, the program writes their names)',
     ComponentType.CHAIN: '{"step": n} the first n boxes and their arrows (never given: one after the other); {"focus": i} '
                          'picks one out; initial_state {"steps": ["Taux en hausse", "Crédit plus cher", "Moins '
                          'd\'investissement"], "loop": false} (2 to 6 short steps; "loop": true, a cycle back to the first)',
@@ -284,7 +291,15 @@ SEMANTIC_POSITIONS = ("TOP_LEFT", "TOP", "TOP_RIGHT", "LEFT", "CENTER", "RIGHT",
                       "BOTTOM_LEFT", "BOTTOM", "BOTTOM_RIGHT")
 # For a thing no piece shows: CARD_SCENE, cards the program draws. Chosen over the LLM drawing its own SVG by the
 # A/B trial of 2026-11-21 on the same scripts (orbit, water cycle, volcano): more readable, cheaper, better QA.
-CARD_RULE = """  * a thing NO other piece shows (an object, a place, a living thing, a process with no piece of its own: a
+# The user, 2026-11-21: in the water cycle and the volcano drawn with 3D objects and cards, the objects "did not speak":
+# nothing showed where things are and what goes from one to the other. A place and its flows: LANDSCAPE.
+CARD_RULE = """  * the Earth's water or a volcano (the water cycle, evaporation, rain, runoff, infiltration, a groundwater; the
+    magma chamber, the conduit, an eruption, lava, ash): ONE LANDSCAPE, the place drawn by the program in
+    cross-section, and each thing that goes from one place to another as a flow ("from": "sea", "to": "cloud",
+    "kind": "vapour", "label": "Évaporation"), {"step": n} on the words that name each, {"erupt": true} on the
+    eruption. Never OBJECT icons (drops, clouds, rocks) or cards put side by side for it: they show things, never
+    where they are nor what goes where. A formula or a value goes beside it.
+  * a thing NO other piece shows (an object, a place, a living thing, a process with no piece of its own: a
     volcano, an orbit, the stomach, the water cycle): ONE CARD_SCENE, 1 to 4 cards, never another piece bent into
     it. Each card: an icon (a name of the OBJECT icons above, drawn in relief; else a Lucide icon name), a short
     French title and text; links for a process ("donc", "attire"); {"step": n} on the words that name each card.
@@ -307,6 +322,90 @@ def card_problems(order, briefs):
                     close = near(icon) or ["circle", "box", "sparkles"]
                     errors.append(f'scene {scene_id}: {e.id}: no icon "{icon}": pick an OBJECT icon or a Lucide name, '
                                   f'e.g. {", ".join(close)}')
+    return errors
+
+
+SCATTERED_OBJECTS = 3      # this many OBJECTs in a scene, none linked, moved or pointed at: decoration
+
+
+def scattered_objects(order, briefs):
+    """OBJECT icons side by side with nothing linking them (the water cycle of 2026-11-21, scenes 3 to 5: a cloud, a
+    droplet, an ice crystal, a condensation nucleus scattered in the frame; the user: "ça ne parlait pas")."""
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        if not brief:
+            continue
+        linked = {c.source_id for c in brief.connections} | {c.target_id for c in brief.connections}
+        linked |= {a.get("target") for a in brief.actions if a.get("action") in ("move", "move_along")}
+        linked |= {(e.initial_state or {}).get("target") for e in brief.entities if e.type == ComponentType.ARROW_ANNOTATION}
+        loose = [e.id for e in brief.entities if e.type == ComponentType.OBJECT and e.id not in linked]
+        if len(loose) >= SCATTERED_OBJECTS:
+            errors.append(f"scene {scene_id}: {', '.join(loose)} are OBJECT icons side by side that nothing links: they "
+                          f"show things, never what goes where. Show the process: ONE LANDSCAPE (a place and its flows) "
+                          f"for the water or a volcano, a CHAIN for steps, or keep at most 2 objects that the narration uses")
+    return errors
+
+
+CARD_ALONE_WITH = {ComponentType.BAR_CHART, ComponentType.PIE_CHART, ComponentType.TABLE, ComponentType.AXES_GRAPH,
+                   ComponentType.CURVE_PLOT, ComponentType.CHAIN, ComponentType.LANDSCAPE, ComponentType.TIMELINE}
+
+
+def cards_beside_charts(order, briefs):
+    """A CARD_SCENE sharing its scene with a chart (the volcano of 2026-11-21, scene 6: the cards shrank beside a bar
+    chart, their text unreadable, the two overlapping)."""
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        types = {e.type for e in brief.entities} if brief else set()
+        if ComponentType.CARD_SCENE in types and types & CARD_ALONE_WITH:
+            other = ", ".join(sorted(t.value for t in types & CARD_ALONE_WITH))
+            errors.append(f"scene {scene_id}: a CARD_SCENE needs the whole width; with {other} its cards shrink "
+                          f"unreadable: put the cards or the {other} in a scene of its own, or the numbers in the cards' text")
+    return errors
+
+
+# units no dial reads (the water cycle of 2026-11-21: "Hauteur de pluie 1 mm" on a dial, after the GAUGE rule)
+NOT_ON_A_DIAL = re.compile(r"^(?:[mck]?m|[mck]?m[²³23]|[mc]?L|l|%|[kM]?J|kWh|hPa·?%)$")
+
+
+def gauges_off_dial(order, briefs):
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        if not brief:
+            continue
+        units = {}
+        for e in brief.entities:
+            if e.type == ComponentType.GAUGE and (e.initial_state or {}).get("unit"):
+                units[e.id] = str(e.initial_state["unit"]).strip()
+        for a in brief.actions:
+            if a.get("action") == "set_value" and a.get("unit"):
+                units[a.get("target")] = str(a["unit"]).strip()
+        for e in brief.entities:
+            if e.type == ComponentType.GAUGE and NOT_ON_A_DIAL.match(units.get(e.id, "")):
+                errors.append(f"scene {scene_id}: the GAUGE {e.id} ({(e.initial_state or {}).get('label')!r}) shows "
+                              f"{units[e.id]}, a value no dial reads: write it in a TEX_FORMULA or a label instead")
+    return errors
+
+
+from app.render.fritzing import band_colours_named    # noqa: E402
+
+
+def reading_repeated(order, briefs):
+    """A text repeating the bands of a REAL_PART resistor, which the program already reads under it (the resistor run
+    of 2026-11-21: "Rouge, violet, orange, doré : 27 kΩ ±5 %" written again over the reading)."""
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        if not brief or not any(e.type == ComponentType.REAL_PART and (e.initial_state or {}).get("part") == "resistor"
+                                for e in brief.entities):
+            continue
+        for e in brief.entities:                     # its own label too (the run's case)
+            state = e.initial_state or {}
+            if band_colours_named(f"{state.get('text') or ''} {state.get('label') or ''} {state.get('latex') or ''}"):
+                errors.append(f"scene {scene_id}: {e.id} repeats the colours of the resistor's bands, which the "
+                              f"REAL_PART already reads under it: remove it, or say what the reading means instead")
     return errors
 
 
@@ -563,7 +662,7 @@ STRICT RULES:
     ("voici une résistance", "ses anneaux de couleur", "la patte la plus longue de la LED", "reconnaître un
     condensateur chimique") ONE REAL_PART, its real drawing, beside the circuit, never inside one (a circuit
     is drawn with its symbols): a resistor's "value" in ohms, its bands and their reading are drawn by the
-    program, {{"show": true}} on the words that read them. Every figure they show (shares,
+    program, {{"show": true}} on the words that read them, never a label repeating the colours. Every figure they show (shares,
     sums, results, probabilities, equilibria) is worked out by the program: give the data, never the
     results. A RESULT IS NEVER SHOWN WITHOUT ITS FORMULA: a TEX_FORMULA, a label or an annotation giving a
     computed value writes the formula and the values that give it ("V_s = -\\frac{{R_2}}{{R_1}} V_e = -2 \\times
@@ -2959,6 +3058,8 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         coherence += sentence_problems(order, briefs, narrations, channel_domain, pair)
         coherence += banned_problems(order, briefs, hidden)
         coherence += card_problems(order, briefs)
+        coherence += scattered_objects(order, briefs) + cards_beside_charts(order, briefs)
+        coherence += gauges_off_dial(order, briefs) + reading_repeated(order, briefs)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}

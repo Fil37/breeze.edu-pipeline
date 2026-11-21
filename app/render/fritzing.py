@@ -36,6 +36,14 @@ TOLERANCE = ("or", 5)        # the drawing's fourth band, kept: ± 5 %
 UNSAFE = re.compile(r"<script|javascript:|\son[a-z]+\s*=|<foreignObject|<!ENTITY|href\s*=\s*[\"']https?:", re.I)
 
 
+BAND_WORDS = re.compile(r"\b(?:noir|marron|brun|rouge|orange|jaune|vert|bleu|violet|gris|blanc|argent|or|doré)\b", re.I)
+
+
+def band_colours_named(text):
+    """True when a text names two colours of the resistor code or more (it reads the bands)."""
+    return len(BAND_WORDS.findall(str(text or ""))) >= 2
+
+
 def resistor_bands(value):
     """The 4-band code of a resistance in ohms, or None when it has more than two significant digits or is out of
     the code's range (0,1 Ω to 99 GΩ)."""

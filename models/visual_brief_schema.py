@@ -71,6 +71,7 @@ class ComponentType(str, Enum):
     SENTENCE = "SENTENCE"                    # a sentence as word tiles coloured by role: words slide to a new place (German word order)
     CARD_SCENE = "CARD_SCENE"                # a thing no piece shows, as 1-4 cards (icon, title, text), drawn by the program
     REAL_PART = "REAL_PART"                  # an electronic part as it looks in the hand (Fritzing): a resistor and its colour bands...
+    LANDSCAPE = "LANDSCAPE"                  # a landscape or a volcano in cross-section, drawn by the program, and what flows where
     POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
     FREE_BODY = "FREE_BODY"                  # a body and the forces on it, to scale: axes, projections, the resultant, the motion
     KINEMATICS = "KINEMATICS"                # a moving body: its path, strobe images, velocity and acceleration, x(t) and v(t)
@@ -134,6 +135,7 @@ COMPONENT_PORTS = {
     ComponentType.SENTENCE: (),
     ComponentType.CARD_SCENE: (),
     ComponentType.REAL_PART: (),
+    ComponentType.LANDSCAPE: (),
     ComponentType.FREE_BODY: (),
     ComponentType.KINEMATICS: (),
     ComponentType.COLLISION: (),
@@ -546,8 +548,52 @@ def card_scene_problem(state):
     return None
 
 
+# LANDSCAPE: a place drawn by the program (the user, 2026-11-21: the 3D drops of the water cycle "did not speak", nor
+# the volcano's cards: they showed things, never how one goes to the other). initial_state {"view": "water", "flows":
+# [{"from": "sea", "to": "cloud", "kind": "vapour", "label": "Évaporation"}], "labels": ["sea"], "focus": "cloud",
+# "erupt": false} ("view" one of LANDSCAPE_PLACES; "from" / "to" places of that view; 0 to 5 flows, "kind" one of
+# LANDSCAPE_FLOWS, label 24 characters; "labels": places named on the drawing, the program writes their French
+# names; "erupt": a volcano erupting). set_state {"step": n} the first n flows drawn and moving; {"focus": place}
+# that place picked out; {"erupt": true} the volcano erupts (magma up the conduit, ash plume, lava down the side).
+LANDSCAPE_PLACES = {
+    "water": {"sun": "Soleil", "sky": "Atmosphère", "cloud": "Nuage", "sea": "Océan", "land": "Continent",
+              "plants": "Végétation", "mountain": "Montagne", "snow": "Neige", "river": "Rivière", "ground": "Sol",
+              "groundwater": "Nappe phréatique"},
+    "volcano": {"sky": "Atmosphère", "plume": "Panache de cendres", "crater": "Cratère", "lava": "Coulée de lave",
+                "cone": "Cône volcanique", "conduit": "Cheminée", "chamber": "Chambre magmatique", "crust": "Croûte",
+                "surface": "Surface"},
+}
+LANDSCAPE_FLOWS = ("vapour", "rain", "water", "ice", "magma", "gas", "heat")
+
+
+def landscape_problem(state):
+    view = state.get("view")
+    if view not in LANDSCAPE_PLACES:
+        return f'LANDSCAPE "view" one of {list(LANDSCAPE_PLACES)}, got {view!r}'
+    places = LANDSCAPE_PLACES[view]
+    flows = state.get("flows") or []
+    if not (isinstance(flows, list) and len(flows) <= 5):
+        return 'LANDSCAPE "flows": 0 to 5 of {"from": place, "to": place, "kind": ..., "label": ...}'
+    for f in flows:
+        if not (isinstance(f, dict) and f.get("from") in places and f.get("to") in places and f["from"] != f["to"]
+                and f.get("kind", "water") in LANDSCAPE_FLOWS
+                and (f.get("label") is None or isinstance(f["label"], str) and len(f["label"]) <= 24)):
+            return (f'LANDSCAPE flow {str(f)[:120]}: "from" and "to" two places of the {view} view ({", ".join(places)}), '
+                    f'"kind" one of {list(LANDSCAPE_FLOWS)}, "label" 24 characters')[:400]
+    labels = state.get("labels") or []
+    if not (isinstance(labels, list) and len(labels) <= 8 and all(l in places for l in labels)):
+        return f'LANDSCAPE "labels": up to 8 places of the {view} view ({", ".join(places)}), got {labels!r}'[:400]
+    if state.get("focus") is not None and state["focus"] not in places:
+        return f'LANDSCAPE "focus": a place of the {view} view ({", ".join(places)}), got {state["focus"]!r}'[:400]
+    if state.get("erupt") is not None and not (isinstance(state["erupt"], bool) and (view == "volcano" or not state["erupt"])):
+        return 'LANDSCAPE "erupt": true or false, only for the volcano view'
+    return None
+
+
 def simple_piece_problem(kind, state):
     """Why a simple catalogue piece's initial_state is wrong (see above), or None."""
+    if kind == "LANDSCAPE":
+        return landscape_problem(state)
     if kind == "CARD_SCENE":
         return card_scene_problem(state)
     if kind == "SENTENCE":
@@ -732,7 +778,7 @@ def phys_piece_problem(kind, state):
 
 
 SIMPLE_PIECES = ("TIMELINE", "FRACTION_BAR", "PIE_CHART", "UNIT_CONVERTER", "TREE", "SET_DIAGRAM", "GAME_MATRIX", "BAR_CHART",
-                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE", "REAL_PART", "CARD_SCENE")
+                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE", "REAL_PART", "CARD_SCENE", "LANDSCAPE")
 
 
 # CHAIN: steps or causes in boxes, each with an arrow to the next. initial_state {"steps": ["Taux en

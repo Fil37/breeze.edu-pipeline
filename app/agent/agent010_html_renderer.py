@@ -568,17 +568,21 @@ def card_scene_data(state, width, height):
     n = len(cards)
     gap = 120 if any(abs(k["to"] - k["from"]) == 1 for k in links_in) else 44     # room for an arrow and its word
     arc = any(abs(k["to"] - k["from"]) > 1 for k in links_in)
-    card_w = min(380, (width - 80 - gap * (n - 1)) / n)
+    # fewer cards, bigger ones (the volcano trial of 2026-11-21: two small cards in an empty frame): up to 1.4x
+    card_w = min({1: 540, 2: 480}.get(n, 380), (width - 80 - gap * (n - 1)) / n)
+    k = round(min(1.4, max(1.0, card_w / 380)), 3)
     x0 = (width - (card_w * n + gap * (n - 1))) / 2
     highlight = str(state.get("highlight") or "").lower()
     keys = [w for w in re.split(r"\W+", highlight) if len(w) > 2]
     laid = []
     for c in cards:
-        title = wrap_text(c["title"], max(10, int(card_w / 19)))[:2]
-        text = wrap_text(c.get("text") or "", max(12, int(card_w / 13.5)))[:4]
+        title = wrap_text(c["title"], max(10, int(card_w / (19 * k))))[:2]
+        text = wrap_text(c.get("text") or "", max(12, int(card_w / (13.5 * k))))[:4]
         laid.append((title, text))
     # one height for the row: the tallest card's content (icon, title lines, text lines), centred in the piece
-    card_h = max(236 + len(t) * 40 + len(x) * 34 + 30 for t, x in laid)
+    base_h = max(236 + len(t) * 40 + len(x) * 34 + 30 for t, x in laid)
+    k = min(k, max(1.0, (height - 40) / base_h))         # never taller than the piece
+    card_h = round(k * base_h, 1)
     top = max(100 if arc else 30, (height - card_h) / 2)
     out_cards = []
     for i, c in enumerate(cards):
@@ -589,7 +593,7 @@ def card_scene_data(state, width, height):
         # the highlighted words underlined on every line they reach (a phrase may run over two lines)
         marked = [j for j, line in enumerate(text) if highlight and highlight in whole
                   and any(k in line.lower() for k in keys)]
-        out_cards.append({"x": round(x0 + i * (card_w + gap), 1), "y": round(top, 1), "w": round(card_w, 1), "h": card_h,
+        out_cards.append({"x": round(x0 + i * (card_w + gap), 1), "y": round(top, 1), "w": round(card_w, 1), "h": card_h, "k": k,
                           "colour": colour, "icon": icon, "icon_uri": icon_data_uri(icon, colour),
                           "title": title, "text": text, "marked": marked})
     links = []
@@ -2451,17 +2455,18 @@ function buildSimple(ent) {
       const box = sv("rect", {x: c.x, y: c.y, width: c.w, height: c.h, rx: 18, fill: "var(--card)", stroke: c.colour,
                               "stroke-width": 2.5}, g);
       sv("rect", {x: c.x, y: c.y, width: c.w, height: 10, rx: 5, fill: c.colour}, g);
-      sv("circle", {cx: c.x + c.w / 2, cy: c.y + 105, r: 66, fill: c.colour, opacity: 0.12}, g);
-      sv("image", {href: c.icon_uri, x: c.x + c.w / 2 - 48, y: c.y + 57, width: 96, height: 96}, g);
-      c.title.forEach((line, j) => { const t = txt(g, c.x + c.w / 2, c.y + 222 + j * 40, line, "middle", "big");
-        Object.assign(t.style, {fontSize: "34px", fontWeight: 700}); });
-      const y0 = c.y + 222 + c.title.length * 40 + 14;
+      const k = c.k || 1;       // the card's scale (bigger when there are only one or two)
+      sv("circle", {cx: c.x + c.w / 2, cy: c.y + 105 * k, r: 66 * k, fill: c.colour, opacity: 0.12}, g);
+      sv("image", {href: c.icon_uri, x: c.x + c.w / 2 - 48 * k, y: c.y + 57 * k, width: 96 * k, height: 96 * k}, g);
+      c.title.forEach((line, j) => { const t = txt(g, c.x + c.w / 2, c.y + (222 + j * 40) * k, line, "middle", "big");
+        Object.assign(t.style, {fontSize: `${34 * k}px`, fontWeight: 700}); });
+      const y0 = c.y + (222 + c.title.length * 40 + 14) * k;
       const marks = [];
       c.text.forEach((line, j) => {
-        if (c.marked.includes(j)) marks.push(sv("rect", {x: c.x + 24, y: y0 + j * 34 - 24, width: 0, height: 32, rx: 6,
+        if (c.marked.includes(j)) marks.push(sv("rect", {x: c.x + 24, y: y0 + (j * 34 - 24) * k, width: 0, height: 32 * k, rx: 6,
                                                     fill: c.colour, opacity: 0.22, "data-w": c.w - 48}, g));
-        const t = txt(g, c.x + c.w / 2, y0 + j * 34, line, "middle", "note");
-        Object.assign(t.style, {fontSize: "25px"}); });
+        const t = txt(g, c.x + c.w / 2, y0 + j * 34 * k, line, "middle", "note");
+        Object.assign(t.style, {fontSize: `${25 * k}px`}); });
       return {g, box, marks}; });
     p.links = z.links.map(k => { const g = sv("g", {opacity: 0}, s);
       sv("path", {d: k.d, fill: "none", stroke: "var(--ink)", "stroke-width": 3.5, "stroke-linecap": "round"}, g);

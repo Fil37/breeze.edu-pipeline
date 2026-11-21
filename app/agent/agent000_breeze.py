@@ -1,14 +1,14 @@
 """
-INPUT:  schemas/settings.json, routes.json, words.json, reports.json
-OUTPUT: schemas/reports.json (one entry per channel per run), instance/breeze.db, instance/breeze.json
+INPUT:  app/schemas/settings.json, routes.json, words.json, reports.json
+OUTPUT: app/schemas/reports.json (one entry per channel per run), app/instance/breeze.db, app/instance/breeze.json
 NOTES:  The orchestrator. Calls agent009 once (global), then for each enabled channel agents 001 -> 005,
         agent010 (the HTML renderer: the render step), 007 and 008: nine agents per channel. Never retries
         anything except the agent005 QA revision loop. (agent006, the Manim renderer, is retired: see
-        archive/manim/README.md; settings.render_engine_by_channel is no longer read.)
+        app/archive/manim/README.md; settings.render_engine_by_channel is no longer read.)
         Never calls an agent outside 001-010. The only writer of reports.json, breeze.db and breeze.json.
         Provenance (app/provenance.py): each channel's run gets its own run id
         ("2026-10-30T16-19-05-electronics"), passed to the agents in the LBREEZE_RUN_ID environment
-        variable, and a fresh instance/<channel>/manifest.json (run_id, channel, topic, started_at)
+        variable, and a fresh app/instance/<channel>/manifest.json (run_id, channel, topic, started_at)
         that each agent fills in as it writes its files. Observation only: nothing is moved.
         QA revisions: after a reject, the agents redone (agent004, or agent003 + agent004) get the
         QA's feedback ({rejection_notes, blocking_issues, revision}) as JSON in the
@@ -18,7 +18,7 @@ NOTES:  The orchestrator. Calls agent009 once (global), then for each enabled ch
         critical "Renderer limitation: <reason>": redoing agent004 cannot fix it.
         So does a reject to agent004 whose "unsupported" list (what the components cannot show) is
         not empty for the UNSUPPORTED_ROUNDS-th time in the run; every such list is appended to
-        instance/missing_components.json (the components to build next).
+        app/instance/missing_components.json (the components to build next).
         Command line (all optional; without them, every enabled channel and every agent run as before):
           --channel "breeze_(electronics)"   only this channel (run even if routes.json disables it)
           --skip-agents agent008,agent009    never call these agents; they are logged
@@ -40,7 +40,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # `./run` support
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # `app/agent/run` support
 
 import app.agent as helpers
 from app import costs
@@ -109,7 +109,7 @@ UNSUPPORTED_ROUNDS = 2      # a reject to agent004 listing what cannot be drawn 
 
 
 def remember_missing(run_id, channel_id, revision, items):
-    """Append what the QA found the components cannot show to instance/missing_components.json: the
+    """Append what the QA found the components cannot show to app/instance/missing_components.json: the
     list of components to build next (read by the user, and by agent011 once it exists)."""
     path = os.path.join(INSTANCE_DIR, "missing_components.json")
     log = load_json(path) or []
@@ -275,7 +275,7 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
     except Exception as exc:          # noqa: BLE001 (the video is made: supervision only reports)
         print(f"WARNING supervision not recorded for {channel_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
-    # What this run cost (app/costs.py): one line here, one row in instance/costs_history.json.
+    # What this run cost (app/costs.py): one line here, one row in app/instance/costs_history.json.
     ledger = costs.run_summary(channel_id)
     cost = None
     if ledger:
@@ -368,7 +368,7 @@ def main(argv=None):
     words = load_json(os.path.join(SCHEMAS_DIR, "words.json"))
     load_json(REPORTS_PATH)  # fails loudly here if reports.json is corrupted, before any work
     if not settings or not routes or not words:
-        sys.exit("settings.json, routes.json and words.json must exist in schemas/")
+        sys.exit("settings.json, routes.json and words.json must exist in app/schemas/")
     if args.channel and not any(route["channel_id"] == args.channel for route in routes):
         sys.exit(f"--channel: {args.channel!r} is not in routes.json (known: {', '.join(r['channel_id'] for r in routes)})")
 

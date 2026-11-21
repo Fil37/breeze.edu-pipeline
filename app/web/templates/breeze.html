@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Dashboard') }}{% endblock %}
+{% block content %}
+{% set ready = channels | selectattr("latest.video") | list %}
+<section class="hero">
+  <div>
+    <h1 class="rec">{{ _('Dashboard') }}</h1>
+    <p>{{ _('The channels, their latest video and the state of each agent at the last run.') }}</p>
+  </div>
+  <div class="hero-stats">
+    <div><b>{{ channels | length }}</b><span>{{ _('channels') }}</span></div>
+    <div><b>{{ ready | length }}</b><span>{{ _('videos ready') }}</span></div>
+    <div><b>{{ channels | selectattr("enabled") | list | length }}</b><span>{{ _('active') }}</span></div>
+    <div><b>{{ channels | selectattr("overall", "equalto", "critical") | list | length }}</b><span>{{ _('failed') }}</span></div>
+  </div>
+</section>
+<div class="vcards">
+  {% for c in channels %}{% include "card/breeze_card.html" %}{% endfor %}
+</div>
+<p class="legend">
+  {% for s in ["healthy", "not_healthy", "revision_needed", "critical", "not_run", "skipped"] %}
+  <span class="badge {{ s | badge }}">{{ s | status }}</span>
+  {% endfor %}
+</p>
+{% endblock %}

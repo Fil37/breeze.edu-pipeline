@@ -1,5 +1,5 @@
 """
-The Lucide icon set kept in assets/icons/lucide/ (1,539 icons of lucide-static 0.460.0, ISC, with their tags.json),
+The Lucide icon set kept in app/assets/icons/lucide/ (1,539 icons of lucide-static 0.460.0, ISC, with their tags.json),
 for CARD_SCENE (the trial of 2026-11-21): the LLM names a thing in plain English ("orbit", "volcano", "stomach") or
 a Lucide name, the program picks the icon.
 
@@ -13,7 +13,7 @@ import re
 import unicodedata
 
 LUCIDE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                          "assets", "icons", "lucide")
+                          "app", "assets", "icons", "lucide")
 FALLBACK = "circle-help"
 
 

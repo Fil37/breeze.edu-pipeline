@@ -4,14 +4,14 @@ shown in place of a flat Lucide icon when one fits (the user found the line icon
 
   png_path("droplet") -> ".../assets/fluent_3d/droplet.png"     png_path("cpu") -> None (the Lucide icon stays)
 
-Only the images named in FLUENT_3D are kept in assets/fluent_3d/ (with the licence), so the repository stays small.
+Only the images named in FLUENT_3D are kept in app/assets/fluent_3d/ (with the licence), so the repository stays small.
 People keep their Lucide icon: an emoji person has a face and a skin colour, which a lesson does not need.
 """
 
 import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FLUENT_DIR = os.path.join(BASE_DIR, "assets", "fluent_3d")
+FLUENT_DIR = os.path.join(BASE_DIR, "app", "assets", "fluent_3d")
 
 # Our icon name (Lucide's, or a component type in lower case) -> the Fluent emoji folder it comes from.
 FLUENT_3D = {
@@ -53,7 +53,7 @@ FLUENT_3D = {
     "coin": "Coin", "money-bag": "Money bag", "world-map": "World map", "bar-chart": "Bar chart",
 }
 # Everyday vocabulary (the German channel's words), animals, places, weather...: Fluent-only objects too, by theme
-# in models/visual_brief_schema.py OBJECT_ICONS. Ear and nose are not in 3D in Fluent: left out.
+# in app/models/visual_brief_schema.py OBJECT_ICONS. Ear and nose are not in 3D in Fluent: left out.
 FLUENT_3D_MORE = {
     "bread": "Bread", "baguette-bread": "Baguette bread", "pretzel": "Pretzel", "bagel": "Bagel",
     "cheese-wedge": "Cheese wedge", "butter": "Butter", "green-apple": "Green apple", "banana": "Banana",

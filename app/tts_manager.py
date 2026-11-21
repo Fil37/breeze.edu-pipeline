@@ -16,7 +16,7 @@ the environment at each call, never written anywhere; nothing else is sent but t
 Settings (environment / .env, all optional):
   ELEVENLABS_API_KEY    no key: edge-tts only (said once on stderr)
   ELEVENLABS_VOICE_ID   the voice of a channel with none of its own; default ELEVENLABS_DEFAULT_VOICE below
-Each channel may have its own voice: "voice_by_channel" in schemas/settings.json ({channel: {"voice_id",
+Each channel may have its own voice: "voice_by_channel" in app/schemas/settings.json ({channel: {"voice_id",
 "name"}}), passed by agent010 as generate_voice(..., voice_id=...).
   ELEVENLABS_MODEL_ID   default "eleven_multilingual_v2" (speaks French with any voice)
 """
@@ -40,7 +40,7 @@ try:
 except ImportError:
     pass  # python-dotenv not installed: rely on variables already in the environment
 
-# ElevenLabs. A channel's voice is in schemas/settings.json ("voice_by_channel"); else ELEVENLABS_VOICE_ID,
+# ElevenLabs. A channel's voice is in app/schemas/settings.json ("voice_by_channel"); else ELEVENLABS_VOICE_ID,
 # else this default. The voice id is in the ElevenLabs app (Voices -> the voice -> "Copy voice ID"); a
 # native French voice from the Voice Library sounds the most natural, and works by its id alone.
 # Default: "Olivier D" (a French voice made for cartoons: slow, the channels have their own).

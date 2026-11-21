@@ -5,11 +5,11 @@ settings.json "prices", per agent and per run.
   record_llm / record_tts   called where the money is spent (app/agent/__init__.py llm_call,
                             app/tts_manager.py generate_voice): one record in memory each
   settle(channel, agent)    called by finish() when an agent is done: its records are added to
-                            instance/{channel}/costs.json, the ledger of the channel's current run
+                            app/instance/{channel}/costs.json, the ledger of the channel's current run
                             (a new run id starts a new ledger), and summed up for its row
   run_summary(channel)      the ledger's totals, for the orchestrator's line and costs_history.json
 
-instance/{channel}/costs.json = {run_id, currency, by_agent: {agent: totals}, total: totals,
+app/instance/{channel}/costs.json = {run_id, currency, by_agent: {agent: totals}, total: totals,
 unpriced: [what has no price in settings]}, totals = {llm_calls, input_tokens, cached_input_tokens,
 output_tokens, tts_chars, llm_cost, tts_cost, cost}. A provider or a voice engine with no price is
 counted (tokens, characters) but not priced, and named in "unpriced": the cost is then a floor.
@@ -20,8 +20,8 @@ import json
 import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
-SETTINGS_PATH = os.path.join(BASE_DIR, "schemas", "settings.json")
+INSTANCE_DIR = os.path.join(BASE_DIR, "app", "instance")
+SETTINGS_PATH = os.path.join(BASE_DIR, "app", "schemas", "settings.json")
 HISTORY_PATH = os.path.join(INSTANCE_DIR, "costs_history.json")
 FIELDS = ("llm_calls", "input_tokens", "cached_input_tokens", "output_tokens", "tts_chars", "llm_cost", "tts_cost", "cost")
 
@@ -143,7 +143,7 @@ def run_summary(channel_id):
 
 
 def remember(entry):
-    """Append one finished run's costs to instance/costs_history.json (what agent011 will read)."""
+    """Append one finished run's costs to app/instance/costs_history.json (what agent011 will read)."""
     try:
         with open(HISTORY_PATH, encoding="utf-8") as f:
             history = json.load(f)

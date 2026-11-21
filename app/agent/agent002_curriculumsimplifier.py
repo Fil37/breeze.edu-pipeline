@@ -1,6 +1,6 @@
 """
-INPUT:  instance/{channel_id}/research.json + schemas/routes.json (target_age_band)
-OUTPUT: instance/{channel_id}/outline.json = {learning_outline[], aha_moment, prerequisites[],
+INPUT:  app/instance/{channel_id}/research.json + app/schemas/routes.json (target_age_band)
+OUTPUT: app/instance/{channel_id}/outline.json = {learning_outline[], aha_moment, prerequisites[],
         visual_metaphors[], scene_count_target}
 NOTES:  Builds the pedagogical arc only, rewritten for the age band.
         Never writes narration. Never picks visuals or renderers.

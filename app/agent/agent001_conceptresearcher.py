@@ -1,7 +1,7 @@
 """
-INPUT:  schemas/routes.json (channel_id, name, domain, target_age_band, persona)
-        + instance/analytics.json (optional: top_topics, saturated_topics)
-OUTPUT: instance/{channel_id}/research.json = {concept, misconceptions[], analogies[],
+INPUT:  app/schemas/routes.json (channel_id, name, domain, target_age_band, persona)
+        + app/instance/analytics.json (optional: top_topics, saturated_topics)
+OUTPUT: app/instance/{channel_id}/research.json = {concept, misconceptions[], analogies[],
         sources[{title, url, accessed}], difficulty_assessment, why_now}
 NOTES:  Never states a fact without a source URL. Never picks a topic listed in
         analytics.saturated_topics. Never reads another channel's folder.
@@ -14,7 +14,7 @@ NOTES:  Never states a fact without a source URL. Never picks a topic listed in
         LLM, asked whether it is the same subject in other words or from another angle. A repeat is
         sent back with the reason, up to TOPIC_ATTEMPTS answers; research.json records the check in
         "novelty". An imposed topic is checked too, but only reported.
-        Curriculum: a channel whose route names a "curriculum" (schemas/german_curriculum.json) takes no
+        Curriculum: a channel whose route names a "curriculum" (app/schemas/german_curriculum.json) takes no
         topic from the LLM: its next episode is the first one not made yet (its id, "a1_01", starts the
         topics in breeze.db), skipping the ones marked "review"; --topic set to an episode id picks that
         one. research.json carries the episode, the next one (for the video's ending) and whether the
@@ -45,7 +45,7 @@ SKILLS = [
     {"skill_id": "topic_research", "version": "1.0", "objective": "Choose a topic the channel has not made, with sourced facts",
      "summary": "LLM proposal checked for novelty against breeze.db (key words, then the LLM)."},
     {"skill_id": "curriculum_episode", "version": "1.0", "objective": "Take the next episode of a channel's programme",
-     "summary": "No LLM: the first episode not made yet in schemas/german_curriculum.json, reviews left out."},
+     "summary": "No LLM: the first episode not made yet in app/schemas/german_curriculum.json, reviews left out."},
 ]
 EMPTY_ANALYTICS = {"top_topics": [], "saturated_topics": [], "by_channel": {}}
 TOPIC_ENV = "LBREEZE_TOPIC"      # an imposed topic (set by --topic), for reproducible runs

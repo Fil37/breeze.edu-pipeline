@@ -1,7 +1,7 @@
 """
 Recurring defects report: what goes wrong again and again, run after run, per channel.
 
-INPUT:  schemas/rows.json (what each agent reported in each run) + schemas/reports.json (each run's
+INPUT:  app/schemas/rows.json (what each agent reported in each run) + app/schemas/reports.json (each run's
         agent statuses and errors). Read only: nothing is written unless --out is given.
 OUTPUT: a Markdown report on stdout (or --out FILE), or JSON with --json:
           1. the runs looked at: topic, worst status (and which agent), video or not, QA revisions,
@@ -27,7 +27,7 @@ NOTES:  A defect is counted once per run (a QA revision that repeats it does not
 
   .venv/bin/python app/defect_report.py                                  # every channel, last 10 runs each
   .venv/bin/python app/defect_report.py --channel "breeze_(math)" --last 5
-  .venv/bin/python app/defect_report.py --json --out instance/defects.json
+  .venv/bin/python app/defect_report.py --json --out app/instance/defects.json
 """
 
 import argparse
@@ -258,7 +258,7 @@ def as_json(collected, min_runs):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Recurring defects, run after run (reads schemas/rows.json and reports.json)")
+    parser = argparse.ArgumentParser(description="Recurring defects, run after run (reads app/schemas/rows.json and reports.json)")
     parser.add_argument("--channel", help='only this channel, e.g. "breeze_(math)" (quote it)')
     parser.add_argument("--last", type=int, default=10, help="the last N runs of each channel (default 10)")
     parser.add_argument("--min-runs", type=int, default=2, help="seen in at least this many runs to be listed (default 2)")

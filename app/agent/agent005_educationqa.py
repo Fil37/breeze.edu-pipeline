@@ -1,12 +1,12 @@
 """
-INPUT:  instance/{channel_id}/script.json + storyboard.json (from agent004) + research.json
+INPUT:  app/instance/{channel_id}/script.json + storyboard.json (from agent004) + research.json
         + routes (the channel's domain) + settings.qa_strict_mode
-OUTPUT: instance/{channel_id}/qa.json = {verdict: "pass"|"reject", status: "healthy"|"warning"|"not_healthy",
+OUTPUT: app/instance/{channel_id}/qa.json = {verdict: "pass"|"reject", status: "healthy"|"warning"|"not_healthy",
         scores:{accuracy, simplicity, clarity}, rejection_notes, reject_to: "agent003"|"agent004"|null,
         issues: [{scene_id, text, kind, severity: "blocking"|"corrected"|"informative", fixed_by}],
         blocking_count, corrected_count, informative_count, corrections: [...], unsupported: [...]}
         (verdict vs status: see score_status(); severity, in observation mode: see issue_severities())
-        + instance/{channel_id}/storyboard.json, auto-corrected in place.
+        + app/instance/{channel_id}/storyboard.json, auto-corrected in place.
 NOTES:  Pedagogical and scientific QA judge, in two layers, applied in this order:
           1. LLM review against the channel domain's rules (electronics, physics, maths, economics):
              scores, plus corrections as small patches (overlay text, labels, arrow directions,
@@ -45,7 +45,7 @@ from pydantic import ValidationError
 from app.agent import channel_dir, finish, find_route, llm_call, load_json, parse_llm_json, run_standalone, save_json
 from app import provenance
 from app.layout_solver import solve_layout
-from models.visual_brief_schema import (COMPONENT_PORTS, ComponentType, SceneVisualBrief, direction_problem, measure_problem,
+from app.models.visual_brief_schema import (COMPONENT_PORTS, ComponentType, SceneVisualBrief, direction_problem, measure_problem,
                                         emphasis_problem, move_problem)
 
 AGENT = "agent005"

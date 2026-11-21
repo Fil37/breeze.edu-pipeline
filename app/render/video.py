@@ -5,7 +5,7 @@ joined per scene, the scenes concatenated, the music and sound effects mixed und
 (app/render/soundtrack.py), and the audio brought to YouTube's loudness (-14 LUFS).
 Also the storyboard check the renderer starts with. ffmpeg and ffprobe come from the system.
 
-(Moved here from agent006, the Manim renderer, when it was retired: see archive/manim/README.md.)
+(Moved here from agent006, the Manim renderer, when it was retired: see app/archive/manim/README.md.)
 """
 
 import json
@@ -17,7 +17,7 @@ import textwrap
 
 from pydantic import ValidationError
 
-from models.visual_brief_schema import SceneVisualBrief
+from app.models.visual_brief_schema import SceneVisualBrief
 
 WIDTH, HEIGHT, FPS = 1920, 1080, 30
 TAIL_PAUSE = 0.4          # seconds of picture after the voice ends: a breath between scenes

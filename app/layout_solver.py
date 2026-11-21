@@ -34,7 +34,7 @@ second run on its own output changes nothing.
 import math
 import re
 
-from models.visual_brief_schema import (COMPONENT_PORTS, INSTRUMENT_TYPES, SVG_TYPES, ComponentType, is_status_annotation,
+from app.models.visual_brief_schema import (COMPONENT_PORTS, INSTRUMENT_TYPES, SVG_TYPES, ComponentType, is_status_annotation,
                                         scene_point)
 
 SCREEN_W, SCREEN_H = 1920, 1080
@@ -223,7 +223,7 @@ def split_rails(brief):
     """A ground or supply symbol wired to several parts becomes one symbol per part, put beside that
     part (under it for 0 V, over it for the supply) and coming in with it: on a schematic each part has
     its own, never a bundle of wires running back to one symbol. In place; returns the brief."""
-    from models.visual_brief_schema import scene_point
+    from app.models.visual_brief_schema import scene_point
     entities = brief.get("entities") or []
     by_id = {e.get("id"): e for e in entities}
     spawns = {a.get("target"): a for a in brief.get("actions") or [] if isinstance(a, dict) and a.get("action") == "spawn"}
@@ -281,7 +281,7 @@ def port_offset(kind, port):
 def place_schematic(brief):
     """Lay a schematic's parts out (see above), in place; nothing for a scene with fewer than
     SCHEMATIC_MIN schematic parts. Returns the brief."""
-    from models.visual_brief_schema import scene_point
+    from app.models.visual_brief_schema import scene_point
     entities = brief.get("entities") or []
     kinds = {e["id"]: e["type"] for e in entities}
     if sum(t in SCHEMATIC_PARTS for t in kinds.values()) < SCHEMATIC_MIN:
@@ -323,7 +323,7 @@ def place_schematic(brief):
 
 def place_rails(brief, parts):
     """Each ground / supply symbol at the end of the lead it feeds (on `parts`, placed already)."""
-    from models.visual_brief_schema import scene_point
+    from app.models.visual_brief_schema import scene_point
     entities = brief.get("entities") or []
     ids, kinds = {e["id"] for e in parts}, {e["id"]: e["type"] for e in entities}
     by_ids = {e["id"]: e for e in entities}
@@ -861,7 +861,7 @@ LEADS = {"LAMP": ("left_terminal", "right_terminal")}
 def orient_parts(brief):
     """Swap the leads of a horizontal resistor whose left lead goes to the right (see above), in place.
     Returns the ids turned."""
-    from models.visual_brief_schema import scene_point
+    from app.models.visual_brief_schema import scene_point
     entities = brief.get("entities") or []
     at = {e["id"]: scene_point(e.get("position"))[0] for e in entities}
     kinds = {e["id"]: e["type"] for e in entities}

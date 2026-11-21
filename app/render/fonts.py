@@ -1,7 +1,7 @@
 """
 The web fonts of the channels' themes (agent010): Inter, Fira Code and Space Grotesk, from their
 npm packages (@fontsource, SIL Open Font License), pinned and checked against their published sha512,
-cached in assets/fonts/ on first use, then inlined into each page as data: URIs, so the page itself
+cached in app/assets/fonts/ on first use, then inlined into each page as data: URIs, so the page itself
 never touches the network. Without them (offline first run, wrong hash), the page keeps DejaVu Sans.
 """
 
@@ -15,7 +15,7 @@ import urllib.request
 
 from app.render.asset_resolver import BASE_DIR
 
-FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
+FONTS_DIR = os.path.join(BASE_DIR, "app", "assets", "fonts")
 FONT_MAX_BYTES = 20_000_000
 # family -> (npm package, version, sha512 of its tarball, the weights kept)
 FONT_PACKAGES = {

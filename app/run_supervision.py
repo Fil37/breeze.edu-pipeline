@@ -1,7 +1,7 @@
 """
 The supervision of breeze's runs, on the studio kit's socle (app/supervision.py, copied as is):
 
-  store()                       the SupervisionStore on instance/breeze.db (tables llm_calls, agent_health,
+  store()                       the SupervisionStore on app/instance/breeze.db (tables llm_calls, agent_health,
                                 incidents, events), with the secrets of .env and of the environment to hide
   supervise(store, run_id, channel_id, statuses, errors)
                                 called by agent000 at the end of each channel's run, from its reports:
@@ -14,7 +14,7 @@ The supervision of breeze's runs, on the studio kit's socle (app/supervision.py,
                                     incident does NOT change the agent's health (the socle's rule).
   error_category(error)         the socle's category for a breeze error message
 
-The costs stay app/costs.py's (instance/costs_history.json): it counts the voice too, which the socle's
+The costs stay app/costs.py's (app/instance/costs_history.json): it counts the voice too, which the socle's
 LLMClient does not. Nothing here calls a model.
 """
 
@@ -24,7 +24,7 @@ import re
 from app.supervision import SupervisionStore
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "instance", "breeze.db")
+DB_PATH = os.path.join(BASE_DIR, "app", "instance", "breeze.db")
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|DB_URL", re.IGNORECASE)
 
@@ -206,11 +206,11 @@ BACKUP_DIR = os.path.expanduser("~/breeze_backups")
 
 
 def daily_backup(supervision, folder=None):
-    """instance/breeze.db copied once a day to ~/breeze_backups (verified, private files), with schemas/settings.json;
+    """app/instance/breeze.db copied once a day to ~/breeze_backups (verified, private files), with app/schemas/settings.json;
     never .env. One extra file only: the socle names them <name>_<day><suffix>, so two .json files would overwrite
     each other (said to the kit, not changed here)."""
     if folder is None:      # the real base to ~/breeze_backups; a test's base next to itself, never in the home
         real = os.path.realpath(supervision.db_path) == os.path.realpath(DB_PATH)
         folder = BACKUP_DIR if real else os.path.join(os.path.dirname(supervision.db_path), "backups")
-    extra = [os.path.join(BASE_DIR, "schemas", "settings.json")]
+    extra = [os.path.join(BASE_DIR, "app", "schemas", "settings.json")]
     return supervision.backup_database(folder, "breeze", extra_files=[p for p in extra if os.path.isfile(p)])

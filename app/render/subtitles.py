@@ -2,7 +2,7 @@
 Subtitles: each scene's narration cut into short lines, each shown while the voice says it (timed on
 the voice's word timings, the same ones the actions' cues use). The renderer (agent010) burns them
 into the picture (D.subtitles, drawn by the page's seek) and writes the whole video's lines to
-instance/<channel_id>/subtitles.srt for YouTube's own captions (agent008).
+app/instance/<channel_id>/subtitles.srt for YouTube's own captions (agent008).
 
 The text shown is the narration as written (what the viewer reads), not the text read by the voice
 (numbers and symbols spelled out): each line is found in the voice's words through that spelled-out
@@ -13,7 +13,7 @@ import math
 import re
 
 from app.tts_manager import normalize_text_for_tts
-from models.visual_brief_schema import find_cue, narration_words
+from app.models.visual_brief_schema import find_cue, narration_words
 
 LINE_MAX_CHARS = 62        # one line on screen at 1080p
 BREAK_AFTER_CHARS = 28     # a comma or a colon ends the line once it is this long

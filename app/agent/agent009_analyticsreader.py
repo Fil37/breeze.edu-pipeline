@@ -1,7 +1,7 @@
 """
-INPUT:  schemas/rows.json (stage "publish" rows = published videos, stage "research" rows = topics)
+INPUT:  app/schemas/rows.json (stage "publish" rows = published videos, stage "research" rows = topics)
         + YouTube Data / Analytics APIs (read-only, skipped when settings.dry_run=true)
-OUTPUT: instance/analytics.json = {by_channel:{channel_id:{views, retention, ctr, revenue_estimate}},
+OUTPUT: app/instance/analytics.json = {by_channel:{channel_id:{views, retention, ctr, revenue_estimate}},
         top_topics[], saturated_topics[]}
 NOTES:  Global (not per-channel); runs FIRST in every orchestrator cycle and feeds agent001.
         Read-only on platform APIs, never publishes. Always writes valid JSON, even with 0 videos.

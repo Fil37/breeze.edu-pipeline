@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 from app import costs
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SCHEMAS_DIR = os.path.join(BASE_DIR, "schemas")
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+SCHEMAS_DIR = os.path.join(BASE_DIR, "app", "schemas")
+INSTANCE_DIR = os.path.join(BASE_DIR, "app", "instance")
 ROWS_PATH = os.path.join(SCHEMAS_DIR, "rows.json")
 REPORTS_PATH = os.path.join(SCHEMAS_DIR, "reports.json")
 DB_PATH = os.path.join(INSTANCE_DIR, "breeze.db")
@@ -56,14 +56,14 @@ def save_json(path, data):
 
 
 def append_row(row):
-    """Append one row to schemas/rows.json. Agents call this; they never read the file."""
+    """Append one row to app/schemas/rows.json. Agents call this; they never read the file."""
     rows = load_json(ROWS_PATH) or []
     rows.append(row)
     save_json(ROWS_PATH, rows)
 
 
 def log_status(run_id, agent, status, error=None, channel=None):
-    """Record one agent status in schemas/reports.json. Only agent000 calls this."""
+    """Record one agent status in app/schemas/reports.json. Only agent000 calls this."""
     reports = load_json(REPORTS_PATH) or []
     entry = next((r for r in reports if r["run_id"] == run_id and r["channel"] == channel), None)
     if entry is None:
@@ -77,7 +77,7 @@ def log_status(run_id, agent, status, error=None, channel=None):
 
 
 def channel_dir(channel_id):
-    """Return instance/{channel_id}, creating it if needed. Rejects anything that is not breeze_(xxx)."""
+    """Return app/instance/{channel_id}, creating it if needed. Rejects anything that is not breeze_(xxx)."""
     if not CHANNEL_ID_PATTERN.match(channel_id or ""):
         raise ValueError(f"invalid channel_id: {channel_id!r}")
     path = os.path.join(INSTANCE_DIR, channel_id)
@@ -86,7 +86,7 @@ def channel_dir(channel_id):
 
 
 def db_connect():
-    """Open instance/breeze.db and create the 4 flat tables if missing."""
+    """Open app/instance/breeze.db and create the 4 flat tables if missing."""
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row

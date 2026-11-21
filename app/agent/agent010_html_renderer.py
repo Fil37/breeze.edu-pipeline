@@ -1,7 +1,7 @@
 """
-INPUT:  instance/{channel_id}/storyboard.json (each scene with a visual_brief) + script.json
+INPUT:  app/instance/{channel_id}/storyboard.json (each scene with a visual_brief) + script.json
         + qa.json (verdict must be "pass") + settings (dry_run)
-OUTPUT: instance/{channel_id}/video.mp4 + subtitles.srt + render_manifest.json = {video_path, duration,
+OUTPUT: app/instance/{channel_id}/video.mp4 + subtitles.srt + render_manifest.json = {video_path, duration,
         resolution, renderer_used "html_playwright", rendered_at, status, voice_engine, subtitles_path, scenes:[{scene_id,
         start_sec, end_sec, duration_sec, voice_sec, voice_engine, voice_fallback, layout_template,
         layout_conflicts, status, error}]}
@@ -13,7 +13,7 @@ NOTES:  The renderer (the Manim one, agent006, is retired): "web-style" motion d
                              seek(t) draws the scene at time t: CSS keyframes are paused and
                              scrubbed, "transitions" and electron positions (CSS offset-path) are
                              computed for t, nothing runs on the wall clock, so every frame is exact.
-                             KaTeX (pinned npm package, hash-checked, cached in assets/katex/) is
+                             KaTeX (pinned npm package, hash-checked, cached in app/assets/katex/) is
                              inlined for formulas: the page never touches the network
           3. headless Chromium (Playwright) calls seek(i / FPS) for each frame and screenshots it;
              the JPEGs are piped straight into ffmpeg -> scene_001_visual.mp4
@@ -73,8 +73,8 @@ from app.breadboard import breadboard_data
 from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, table_heights, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
                                logic_size, orient_parts, place_divider, place_opamp, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
-from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
-from models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
+from app.models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
+from app.models.visual_brief_schema import (TONES, DEFAULT_OBJECT_ICON, INSTRUMENT_TYPES, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SVG_TYPES,
                                         check_curve, check_function_expression, find_cue,
                                         is_number, is_parametric, is_status_annotation, measured_axis, narration_words, parameter_range,
                                         scene_point, unit_direction)
@@ -572,7 +572,7 @@ def landscape_data(state, width, height):
     """LANDSCAPE: the view's places in pixels, its 3D markers, and each flow as a curve from place to place (bowed
     to one side, stopped short of both ends), its colour from its kind and its label at its middle; the French
     names of the places to write. The scenery itself is drawn in the page from these sizes."""
-    from models.visual_brief_schema import LANDSCAPE_PLACES
+    from app.models.visual_brief_schema import LANDSCAPE_PLACES
     view = state["view"]
     at = {k: (round(x * width, 1), round(y * height, 1)) for k, (x, y) in LANDSCAPE_AT[view].items()}
     flows = []
@@ -1326,12 +1326,12 @@ def page_data(brief, voice_duration, planned_duration, spoken=None, layout="circ
 
 
 # KaTeX for TEX_FORMULA: the npm package, pinned and checked against its published hash, cached in
-# assets/katex/ on first use, then inlined into each page (CSS with its fonts as data: URIs + JS), so
+# app/assets/katex/ on first use, then inlined into each page (CSS with its fonts as data: URIs + JS), so
 # the page itself never touches the network. Without it (offline first run), formulas are plain text.
 KATEX_VERSION = "0.16.11"
 KATEX_URL = f"https://registry.npmjs.org/katex/-/katex-{KATEX_VERSION}.tgz"
 KATEX_SHA512 = "RQrI8rlHY92OLf3rho/Ts8i/XvjgguEjOkO1BEXcU3N8BqPpSzBNwV/G0Ukr+P/l3ivvJUE/Fa/CwbS6HesGNQ=="
-KATEX_DIR = os.path.join(BASE_DIR, "assets", "katex")
+KATEX_DIR = os.path.join(BASE_DIR, "app", "assets", "katex")
 KATEX_MAX_BYTES = 5_000_000
 KATEX_FONT = re.compile(r"^package/dist/fonts/(KaTeX_[A-Za-z0-9_-]+\.woff2)$")
 

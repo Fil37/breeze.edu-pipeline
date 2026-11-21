@@ -1,5 +1,5 @@
 """
-A circuit laid out on a breadboard (BREADBOARD, models/visual_brief_schema.py), as someone building it
+A circuit laid out on a breadboard (BREADBOARD, app/models/visual_brief_schema.py), as someone building it
 would: the op-amp (an 8-pin DIP, LM358 pinout) straddling the middle gap, each other part plugged so
 that its leads share the column strips of what they join (5 holes a strip), a jumper where a net
 still has to reach another strip, and one from every strip of a supply net to the board's red (+) or
@@ -9,7 +9,7 @@ coordinate is computed. breadboard_data(state) gives agent010 the drawing in pix
 
 import re
 
-from models.visual_brief_schema import BB_KINDS, BB_LABEL_MAX, BB_RAIL
+from app.models.visual_brief_schema import BB_KINDS, BB_LABEL_MAX, BB_RAIL
 
 COLS = 30
 PITCH = 29

@@ -1,7 +1,7 @@
 """
-INPUT:  instance/{channel_id}/script.json + video.mp4 (size only, never decoded) + research.json
-        + schemas/routes.json (name, persona) + schemas/words.json (banned_clickbait)
-OUTPUT: instance/{channel_id}/metadata.json = {title, description, tags[], thumbnail_brief,
+INPUT:  app/instance/{channel_id}/script.json + video.mp4 (size only, never decoded) + research.json
+        + app/schemas/routes.json (name, persona) + app/schemas/words.json (banned_clickbait)
+OUTPUT: app/instance/{channel_id}/metadata.json = {title, description, tags[], thumbnail_brief,
         chapters[], target_keywords[]}
 NOTES:  SEO only. Never publishes. Title <= 70 chars, description <= 5000 chars,
         title checked against words.json banned_clickbait.

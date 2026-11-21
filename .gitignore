@@ -4,12 +4,12 @@
 __pycache__/
 *.py[cod]
 .venv/
-instance/
-media/
-schemas/reports.json
-schemas/rows.json
+app/instance/
+app/media/
+app/schemas/reports.json
+app/schemas/rows.json
 
-# Film clips (assets/footage/): large, fetched again from Pixabay or put by hand; index.json (their sources) is kept
-assets/footage/*.mp4
-assets/footage/*.part
-assets/footage/local/
+# Film clips (app/assets/footage/): large, fetched again from Pixabay or put by hand; index.json (their sources) is kept
+app/assets/footage/*.mp4
+app/assets/footage/*.part
+app/assets/footage/local/

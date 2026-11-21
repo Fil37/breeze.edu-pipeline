@@ -13,21 +13,21 @@ Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 
 | Order | Agent | Writes |
 |-------|-------|--------|
-| 1st, once per cycle | `agent009_analyticsreader` | `instance/analytics.json` |
-| then per channel | `agent001_conceptresearcher` | `instance/<channel>/research.json` |
+| 1st, once per cycle | `agent009_analyticsreader` | `app/instance/analytics.json` |
+| then per channel | `agent001_conceptresearcher` | `app/instance/<channel>/research.json` |
 | | `agent002_curriculumsimplifier` | `outline.json` |
 | | `agent003_scriptwriter` | `script.json` (narration per scene) |
 | | `agent004_visualbriefgenerator` | `storyboard.json` (one validated visual brief per scene) |
 | | `agent005_educationqa` | `qa.json`, and corrects `storyboard.json` (can send work back to 003 or 004, max 3 times) |
 | | `agent010_html_renderer` (a browser draws each frame) | `video.mp4` + `render_manifest.json` + `subtitles.srt` |
 | | `agent007_metadatagenerator` | `metadata.json` |
-| | `agent008_platformpublisher` | rows in `schemas/rows.json` |
+| | `agent008_platformpublisher` | rows in `app/schemas/rows.json` |
 
 Each channel runs nine agents; agent010 renders every video. The Manim renderer (agent006) was
-retired on 2026-10-31: its code is kept in `archive/manim/` (see its README), out of the pipeline.
+retired on 2026-10-31: its code is kept in `app/archive/manim/` (see its README), out of the pipeline.
 
-`agent000_breeze.py` is the orchestrator. It is the only writer of `schemas/reports.json`,
-`instance/breeze.db` and `instance/breeze.json`.
+`agent000_breeze.py` is the orchestrator. It is the only writer of `app/schemas/reports.json`,
+`app/instance/breeze.db` and `app/instance/breeze.json`.
 
 Statuses: `healthy` (green), `not_healthy` (finished with a warning, yellow),
 `revision_needed` (QA sent it back, orange), `critical` (failed: the channel stops, red),
@@ -38,17 +38,17 @@ with `--skip-agents`, grey dashed outline; it does not lower the run's overall s
 
 System packages: **ffmpeg** (with `ffprobe`) and the DejaVu fonts (the error screen). The voice
 (ElevenLabs or edge-tts) and the first download of KaTeX need internet access (the icons are in
-`assets/icons`). The renderer (agent010) needs a Chromium for Playwright: run
+`app/assets/icons`). The renderer (agent010) needs a Chromium for Playwright: run
 `playwright install chromium` once after `pip install`.
 
 ```bash
 cd L_breeze
-python3 -m venv .venv && source .venv/bin/activate   # ./run calls `python`: keep the venv active
+python3 -m venv .venv && source .venv/bin/activate   # app/agent/run calls `python`: keep the venv active
 pip install -r requirements.txt
 cp .env.example .env                # fill in only the keys you use
 
-./run                               # one full cycle, all enabled channels
-python web/app.py                   # dashboard on http://127.0.0.1:5000
+./app/agent/run                     # one full cycle, all enabled channels
+python app/web/app.py                   # dashboard on http://127.0.0.1:5000
 ```
 
 The orchestrator takes three optional flags (without them it runs every enabled channel and every agent):
@@ -59,7 +59,7 @@ python app/agent/agent000_breeze.py --channel "breeze_(electronics)" --skip-agen
 python app/agent/agent000_breeze.py --channel "breeze_(physics)" --topic "Les saisons et l'inclinaison terrestre à 23,5°" --skip-agents agent008,agent009
 ```
 
-**The web interface** (`python web/app.py`, read-only) is in English; what the channels produce (names, topics, titles, scenes, QA notes) stays in French. It has three pages. The dashboard
+**The web interface** (`python app/web/app.py`, read-only) is in English; what the channels produce (names, topics, titles, scenes, QA notes) stays in French. It has three pages. The dashboard
 shows each channel's last video (it plays, muted, under the mouse), its QA scores and the state of
 each agent at the last run. A channel's page has the video player with its plan: click a scene to jump
 to it, and the scene being played is lit. It also shows the QA's verdict and issues, the last 10 runs,
@@ -68,16 +68,16 @@ last run, channel by channel. Each channel keeps its video theme's accent colour
 `THEMES`). The look is the studio kit's (`~/ProjetPerso/studio-kit`, v1.0: warm paper or graphite, one lime
 signature, one colour per state, Inter and Space Grotesk): the theme follows the system, or ☀ / ☾ in the side
 bar (cookie `theme`); English, or French with EN / FR (cookie `lang`); a Content-Security-Policy with a nonce per
-request, no inline style (each channel's accent is a class `.ch-<id>`). Files: `web/app.py` (routes; the
-video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `web/page.py` (reads
-`breeze.db` and `instance/<channel_id>/*.json`, writes nothing), `web/templates/` (`base.html`,
-`dashboard.html`, `channel.html`, `standup.html`, `partials/`), `static/css/breeze_master.css`,
-`static/js/breeze.js`, `static/images/favicon.svg`; the fonts sit beside the stylesheet (`static/css/*.ttf`, OFL).
+request, no inline style (each channel's accent is a class `.ch-<id>`). Files: `app/web/app.py` (routes; the
+video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `app/web/page.py` (reads
+`breeze.db` and `app/instance/<channel_id>/*.json`, writes nothing), `app/web/templates/` (`base.html`,
+`breeze.html`, `breeze_page.html`, `breeze_standup.html`, `partials/`; the channel card in `app/static/card/breeze_card.html`), `app/static/css/breeze_master.css`,
+`app/static/js/breeze.js`, `app/static/images/favicon.svg`; the fonts sit beside the stylesheet (`app/static/css/*.ttf`, OFL).
 **Runs from the site**: a channel's page starts the orchestrator for that channel ("Start a run": an optional
 topic or episode id; publication and analytics skipped unless unticked), in the background, one run at a time (none
-while a real run is going); its output is in `instance/web_runs/` and readable from the page (plain text, secrets
+while a real run is going); its output is in `app/instance/web_runs/` and readable from the page (plain text, secrets
 removed). A publication still waits for your approval on the standup.
-The previous version is in `archive/web_v1/`. Check: `python tests/test_web.py`.
+The previous version is in `app/archive/web_v1/`. Check: `python app/tests/test_web.py`.
 
 **Supervision** (the standup page, on the studio kit's socle `app/supervision.py`, copied as is from
 `~/ProjetPerso/studio-kit/socle/`): at the end of each channel's run, agent000 hands its reports to
@@ -86,8 +86,8 @@ timeout, misconfiguration, access_denied) opens an incident; a QA refusal, a top
 limitation does not. Errors and warnings go to `events`; each agent's health goes `degraded` with an incident
 and back to `healthy` at its next good run; closing an incident ("Resolved" / "Ignore" on the standup, checked
 against the browser's CSRF cookie) never changes it. Tables `llm_calls`, `agent_health`, `incidents`, `events`
-in `instance/breeze.db`; the secrets of `.env` are removed from every stored text. The costs shown (last run, AI
-and voice, by day) stay `app/costs.py`'s (`instance/costs_history.json`): it counts the voice, the socle does
+in `app/instance/breeze.db`; the secrets of `.env` are removed from every stored text. The costs shown (last run, AI
+and voice, by day) stay `app/costs.py`'s (`app/instance/costs_history.json`): it counts the voice, the socle does
 not. Socle 2.0 (2026-11-20): each agent declares its `SKILLS` (registered "proposed" at start; activated only by an
 approval: "Propose skill activations", then Approve / Reject on the standup). **A publication waits for the user**:
 agent008 only asks (`publish_video`, target `<channel>:<platform>`, the video's and metadata's sha256); the video
@@ -96,10 +96,10 @@ no handler nothing is applied. breeze's named checks (`CHECKS` in `app/run_super
 that made it) get their outcomes (pass / corrected / kept_despite) from the agents' rows. At start, agent000 runs
 the startup checks (LLM key, ffmpeg and Playwright, YouTube keys when publishing: the only place that sets an agent
 "critical"), closes runs left "running" by a dead process, backs `breeze.db` up once a day to `~/breeze_backups`
-(with `schemas/settings.json`, never `.env`) and marks its run in `sup_runs`; the table `runs` and the reports stay
-the source of the agents' states. Run the tests with `python tests/run_tests.py`: it refuses to start while a real
+(with `app/schemas/settings.json`, never `.env`) and marks its run in `sup_runs`; the table `runs` and the reports stay
+the source of the agents' states. Run the tests with `python app/tests/run_tests.py`: it refuses to start while a real
 run is in progress.
-Check: `python tests/test_run_supervision.py`, `python tests/test_supervision.py`.
+Check: `python app/tests/test_run_supervision.py`, `python app/tests/test_supervision.py`.
 
 `--channel` runs that channel only, even if `routes.json` disables it. `--skip-agents` takes a
 comma-separated list of agents that are never called, e.g. to test the QA -> agent004 -> agent010
@@ -118,9 +118,9 @@ LLM choose, skips the saturated-topics check (the topic was asked for), and reco
 `research.json` as `imposed_topic` (`concept` stays the LLM's wording of the idea to explain).
 Without `--topic` (and with `LBREEZE_TOPIC` unset), the LLM chooses freely, as before. agent001
 alone takes it too: `python app/agent/agent001_conceptresearcher.py --channel "breeze_(physics)"
---topic "..."`, or `LBREEZE_TOPIC="..."` in front of the command. Check: `python tests/test_orchestrator_topic.py`.
+--topic "..."`, or `LBREEZE_TOPIC="..."` in front of the command. Check: `python app/tests/test_orchestrator_topic.py`.
 
-Run a single agent on one channel (it reads the previous agent's file from `instance/<channel>/`):
+Run a single agent on one channel (it reads the previous agent's file from `app/instance/<channel>/`):
 
 ```bash
 python app/agent/agent004_visualbriefgenerator.py --channel "breeze_(electronics)"
@@ -131,21 +131,21 @@ python app/agent/agent009_analyticsreader.py          # global agent, no --chann
 Running agents one by one does not re-run the ones after them: after changing a script, run
 004, 005 and 010 again, or the video is made from an old storyboard.
 
-The tests are in `tests/`, one script each, run from the project folder (each prints PASS or FAIL
+The tests are in `app/tests/`, one script each, run from the project folder (each prints PASS or FAIL
 per case and exits 1 on a failure); all of them:
-`for f in tests/test_*.py; do .venv/bin/python "$f" > /dev/null || echo "FAIL $f"; done`.
+`for f in app/tests/test_*.py; do .venv/bin/python "$f" > /dev/null || echo "FAIL $f"; done`.
 
-`python tests/test_html_scene.py` renders hard-coded scenes with the renderer (agent010) only, the
+`python app/tests/test_html_scene.py` renders hard-coded scenes with the renderer (agent010) only, the
 quickest way to check a change to it: six scenes
 (a circuit, graphs with a vector and a formula, 1/x, a voltmeter measuring with its probes, ground symbols and probe polarity,
 annotation badges), saved as PNG stills and `.html` pages in
-`media/test_html_scene/` (no internet needed). Add `--video` for the full video with the voice.
+`app/media/test_html_scene/` (no internet needed). Add `--video` for the full video with the voice.
 
 There is no scheduler inside the app. `schedule_cron` in `routes.json` is shown on the
-dashboard only. `./run` processes every enabled channel, so schedule it **once** a day with the
-system cron, e.g. `0 9 * * * /path/to/L_breeze/run`.
+dashboard only. `./app/agent/run` processes every enabled channel, so schedule it **once** a day with the
+system cron, e.g. `0 9 * * * /path/to/L_breeze/app/agent/run`.
 
-## Settings (`schemas/settings.json`)
+## Settings (`app/schemas/settings.json`)
 
 | Key | Meaning |
 |-----|---------|
@@ -169,7 +169,7 @@ Keys for each provider, in `.env`: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
 1. **agent003** writes the narration, scene by scene (at least 15–20 words per scene, so the
    voice lasts long enough for the animations; 280 to 520 words in all, the narrator speaking about
    3.1 words a second: a script under 280 words is asked again once, `MIN_WORDS`).
-2. **agent004** turns each scene into a **visual brief** (`models/visual_brief_schema.py`):
+2. **agent004** turns each scene into a **visual brief** (`app/models/visual_brief_schema.py`):
    components on stage, wires between their named ports, timed actions, a text overlay. The LLM's
    JSON is validated with Pydantic plus topology checks (real ports, known ids, no shared
    positions); on errors it is sent back to the LLM, up to 3 attempts.
@@ -188,7 +188,7 @@ Keys for each provider, in `.env`: `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
    and brings the whole video's audio to -16 LUFS (`LOUDNESS_TARGET`; YouTube plays at -14 and does
    not raise quieter videos, -16 was judged less loud by ear; two-pass `loudnorm`, linear, true peak
    -1.5 dBTP; the picture is copied, not re-encoded). The voices come out near -28 LUFS: without it
-   the video sounds weak next to others. Check: `python tests/test_loudnorm.py`.
+   the video sounds weak next to others. Check: `python app/tests/test_loudnorm.py`.
 
 The LLM never writes drawing code: it picks components and actions; the renderer draws them with
 fixed HTML/JavaScript code.
@@ -220,7 +220,7 @@ fixed HTML/JavaScript code.
 | Microcontroller | `MICROCONTROLLER` | — | `label`, `instructions` (1 to 8 short texts); `run` |
 | Table | `TABLE` | — | `columns`, `rows` (short cells); `fill`, `row`, `column`, `total` (summed by the program) |
 | Chain of steps | `CHAIN` | — | `steps` (2 to 6), `loop`; `step`, `focus` |
-| Simple catalogue pieces | `TIMELINE`, `FRACTION_BAR`, `PIE_CHART`, `UNIT_CONVERTER`, `TREE`, `SET_DIAGRAM`, `GAME_MATRIX`, `BAR_CHART`, `EQUATION_STEPS`, `POWER_SUPPLY` (ports `negative`, `positive`) | see `models/visual_brief_schema.py` | their data only; every figure worked out |
+| Simple catalogue pieces | `TIMELINE`, `FRACTION_BAR`, `PIE_CHART`, `UNIT_CONVERTER`, `TREE`, `SET_DIAGRAM`, `GAME_MATRIX`, `BAR_CHART`, `EQUATION_STEPS`, `POWER_SUPPLY` (ports `negative`, `positive`) | see `app/models/visual_brief_schema.py` | their data only; every figure worked out |
 | Mechanical wave | `WAVE` | — | `mode` (`rope`, `water`, `crowd`, `spring`), `kind` (`pulse`, `continuous`); `go`, `mark`, `energy` |
 | Tunnel effect | `TUNNEL` | — | `particle`, `barrier` (short texts), `zoom` (true); `bounce`, `tunnel` |
 | Tides | `TIDES` | — | nothing to give (all drawn and labelled); `points`, `forces`, `relative`, `stretch`, `spin`, `sun` (`aligned` / `square`) |
@@ -238,7 +238,7 @@ same safety rules as `func` (only t, numbers, pi, e and the listed `np.` functio
 evaluated in Python, never in the page. A curve that ends where it starts is drawn closed. agent010
 keeps one unit as long on x as on y on axes that carry a parametric curve (a circle stays round,
 the axes' ranges grow if needed). agent005 knows an orbit is drawable, so a sine standing for
-one is an error to fix, not a renderer limit. Check: `python tests/test_renderer_parametric_curve.py`.
+one is an error to fix, not a renderer limit. Check: `python app/tests/test_renderer_parametric_curve.py`.
 
 A `VECTOR_ARROW` can start on a curve: `"anchor": {"curve": "<CURVE_PLOT id>", "t": <t>}` on a
 parametric curve (t within its `t_min`..`t_max`), `{"curve": ..., "x": <x>}` on y = f(x). Its
@@ -249,17 +249,17 @@ drawing, an orbit's centre: gravity) or `"OUTWARD"`, worked out from the curve
 `3*np.cos(t)`, `3*np.sin(t)`: velocity `{"anchor": {"curve": "orbit", "t": 0.785}, "direction":
 "TANGENT"}`, gravity the same with `"CENTER"`. The schema refuses an anchor on an unknown curve, `x`
 on a parametric curve (or `t` on y = f(x)), a `t` outside its range, and TANGENT / CENTER / OUTWARD
-without an anchor. agent005 can anchor a floating vector by patch. Check: `python tests/test_vector_anchor.py`.
+without an anchor. agent005 can anchor a floating vector by patch. Check: `python app/tests/test_vector_anchor.py`.
 
 An `OBJECT` is any concrete thing that has no type of its own (an elevator, a rocket, a person, the
 Sun, a house...), drawn like the icon types, ports included, from its `icon`: one of a closed list of
-118 (`OBJECT_ICONS` in `models/visual_brief_schema.py`, by theme, as agent004's prompt lists them:
+118 (`OBJECT_ICONS` in `app/models/visual_brief_schema.py`, by theme, as agent004's prompt lists them:
 things, energy, buildings, transport, people, nature and sky, living, health, food and farming,
 money and trade, society, other). The list keeps the vocabulary checkable (the schema
-refuses another name) and is all on disk in `assets/icons` (Lucide, pinned version), so it draws
+refuses another name) and is all on disk in `app/assets/icons` (Lucide, pinned version), so it draws
 offline; `elevator`, `cannon` and `spring` are breeze's own drawings, Lucide has none of them. agent004's prompt lists the icons and
 forbids borrowing another type's (a CART is a shopping cart, never an elevator); agent005 can change
-an OBJECT's icon by patch. Check: `python tests/test_object_component.py`.
+an OBJECT's icon by patch. Check: `python app/tests/test_object_component.py`.
 
 `LANES` draws queues side by side, the analogy of parallel branches (lanes at a toll, checkouts):
 each lane delimited (solid edges, dashed between two lanes), its label on its left, its vehicles or
@@ -267,7 +267,7 @@ people (one `icon`) standing up to the gate and, once on screen, rolling through
 `rate` (how many per second, 0.2 to 3), and on the right how many went through. Positions and counts
 are worked out from t (`seekLanes`). `set_state {"active": false}` stops the lanes, `true` sets them
 off again. agent004 sends back a scene that moves three or more cars or people one by one
-(`queues_by_hand`): they piled up and left the frame. Check: `python tests/test_subtitles_lanes.py`.
+(`queues_by_hand`): they piled up and left the frame. Check: `python app/tests/test_subtitles_lanes.py`.
 
 An `OBJECT`, a `BODY` or a `VECTOR_ARROW` that belongs to a graph (the Earth at the centre of an
 orbit, the Sun at a focus) sits on a point of it, in the graph's units:
@@ -277,7 +277,7 @@ out, before the wires, and its guessed position pushes nothing away.
 agent005 fixes a planet beside its orbit by anchoring it, never by moving the orbit. Vectors riding on
 one body get one colour each (unless the brief gives one), their label in it, and the label tries
 past the tip, then beside the arrow, then behind its start, so it is never hidden by the planet it
-points at. Check: `python tests/test_point_anchor.py`.
+points at. Check: `python app/tests/test_point_anchor.py`.
 
 A `BODY` is a disc (a satellite, a planet, a ball) with its label; anchored on a curve like a vector
 (`"anchor": {"curve": "orbit", "t": 0}`), it sits on it, and the action
@@ -295,8 +295,8 @@ end with the scene (starting earlier if it would last under 1.5 s; `planned_dura
 asked), and agent004 sends such a move back to the LLM; a move without a cue planned at the same time
 as a cued one starts with it, and moves on one cue start together (other actions on one cue stay
 0.4 s apart). A `CENTER` vector (gravity) stops short of what sits at the curve's centre (the
-planet's drawing), else at 80 % of the way. Check: `python tests/test_move_along.py`,
-`python tests/test_motion_followups.py`.
+planet's drawing), else at 80 % of the way. Check: `python app/tests/test_move_along.py`,
+`python app/tests/test_motion_followups.py`.
 
 A thing that moves in a straight line (an elevator falling, a car, a ball dropped) needs no graph:
 an `OBJECT` or a `BODY` with no anchor, and `{"action": "move", "target": "lift", "to": [0, -2.5],
@@ -370,9 +370,9 @@ backdrop. A graph shares the frame with the icons and formulas beside it (55 % x
 70 % x 60 %), and spreading things out tries the other axis when the frame stops a push. An AXES_GRAPH
 with no curve and no y label, whose points sit at y = 0, is drawn as a number line (one graduated
 line, its BODYs as dots). agent004 sends back bodies set off one after the other on one curve that
-catch each other up. Check: `python tests/test_free_motion.py`.
+catch each other up. Check: `python app/tests/test_free_motion.py`.
 
-The channels' domains (`schemas/routes.json`) set what agent001 may pick: each domain gets a scope in
+The channels' domains (`app/schemas/routes.json`) set what agent001 may pick: each domain gets a scope in
 its prompt (`DOMAIN_SCOPES`: a "math" channel stays in mathematics, never the seasons), and agent005
 checks a "math" channel with the maths rules alone.
 
@@ -384,15 +384,15 @@ same misconception from another angle. A repeat is sent back with the reason, up
 (`TOPIC_ATTEMPTS`); if all of them repeat, agent001 is `critical` and no video is made. An imposed
 topic (`--topic`) is checked too but kept: agent001 ends `not_healthy`. `research.json` records the
 check in `"novelty"` (`verdict`: `new`, `duplicate` or `unchecked` when the LLM could not be asked;
-the topics refused and why). Check: `python tests/test_plan.py` (case 6).
+the topics refused and why). Check: `python app/tests/test_plan.py` (case 6).
 
 `direction` (where a `VECTOR_ARROW` or an `ARROW_ANNOTATION` points, scene axes: x right, y up) is
 either a cardinal, `"UP"` / `"DOWN"` / `"LEFT"` / `"RIGHT"` (case-insensitive, drawn exactly as
 before), or a vector `[x, y]` of two real numbers, of any length but not `[0, 0]`: both renderers
 normalise it and draw at the angle `atan2(y, x)`. `[0.4, 0.9]` is an axis tilted about 23.5° from the
 vertical (the Earth's), `[1, 1]` points up-right at 45°. Anything else (`"DIAGONAL"`, `[1, 2, 3]`) is
-refused by the schema (`models/visual_brief_schema.py`, `direction_problem`), so agent004 sends it back
-to the LLM. Check: `.venv/bin/python tests/test_schema_direction.py`.
+refused by the schema (`app/models/visual_brief_schema.py`, `direction_problem`), so agent004 sends it back
+to the LLM. Check: `.venv/bin/python app/tests/test_schema_direction.py`.
 
 In the HTML renderer an annotation is a pill badge: a `pointer` gets a 50 px arrow onto what its
 `target` names, on whichever side keeps the badge and arrow off the wires; a `status` badge
@@ -400,12 +400,12 @@ In the HTML renderer an annotation is a pill badge: a `pointer` gets a 50 px arr
 The arrow ends on the component's edge, on a curve (the point of it where the badge fits best,
 near the brief's position, off the other curves, the legend and the axis titles), on a vector's
 shaft, or on a graph's plot (not its legend). A badge with no target and nothing near it is
-reported `<id> points at nothing` in `layout_conflicts`. Check: `python tests/test_annotation_targets.py`.
+reported `<id> points at nothing` in `layout_conflicts`. Check: `python app/tests/test_annotation_targets.py`.
 A vector's label goes beside its arrow, where it touches nothing (another label, an arrow, a
 component, an axis or its title, a curve, the frame): beside the middle first (its place when there
 is room), then nearer an end, then in line behind the start or past the tip, shifted up or down by
 whole lines if needed, never far from its arrow. Several forces drawn from one point keep their
-arrows there, and their labels stack beside them. Check: `python tests/test_vector_labels.py`.
+arrows there, and their labels stack beside them. Check: `python app/tests/test_vector_labels.py`.
 Narration and picture stay in step. Every action has a `cue`, the narration's words it happens on:
 agent004 times it from where those words fall in the text, and agent010 starts it when the voice
 actually says them (the word timings ElevenLabs or edge-tts return). agent004 also sends back to the LLM, for a retry,
@@ -474,17 +474,17 @@ ends are on screen; `start_flow` closes any open switch on its path first.
   repeating a resistor's bands (the program also drops such a label from the REAL_PART).
 - **Real parts (electronics channel only):** `REAL_PART` shows one part as it looks in the hand (resistor,
   LED, capacitors, transistor, diode, batteries, potentiometer, switch, push button, motor, LDR, Arduino Uno,
-  breadboard), from the Fritzing parts library (`assets/fritzing/`, CC BY-SA 3.0, `app/render/fritzing.py`).
+  breadboard), from the Fritzing parts library (`app/assets/fritzing/`, CC BY-SA 3.0, `app/render/fritzing.py`).
   A resistor's colour bands and their reading are worked out by the program from its value (two significant
   digits); an LED lights on `{"on": true}`. Hidden from the other channels. A video showing one gets the
   Fritzing credit and the CC BY-SA 3.0 licence in its description (agent007).
 - **Objects in relief:** an OBJECT (or an icon component such as `COINS`, `CART`) with an image in
-  `assets/fluent_3d/` (Microsoft Fluent Emoji 3D, MIT, licence beside the images) is shown as that 3D
+  `app/assets/fluent_3d/` (Microsoft Fluent Emoji 3D, MIT, licence beside the images) is shown as that 3D
   image; the others (people, `cpu`, `spring`...) keep their Lucide outline. The table is
   `app/render/fluent3d.py`; some objects exist only in relief (`volcano`, `dna`, `microbe`...).
   Visuals the user does not want go in `settings.json` `banned_visuals` (`{"all": [...], "<channel>": [...]}`):
   agent004 never offers them and sends a storyboard using one back.
-- **Icons:** downloaded once from the Lucide CDN (version pinned) into `assets/icons/`, then read
+- **Icons:** downloaded once from the Lucide CDN (version pinned) into `app/assets/icons/`, then read
   from there. Put your own `<icon>.svg` there to replace one; edit `ICON_ALIASES` in
   `app/render/asset_resolver.py` to change which icon a type uses. `BREEZE_OFFLINE=1` disables
   downloads (a question-mark icon is drawn for a missing one).
@@ -502,7 +502,7 @@ accent line). A theme sets the design tokens (light or dark: cards, ink, wires, 
 the background (built once, moved by `seek(t)` so every frame is exact: glows on slow ellipses, a
 sliding grid, the stars, the pulses; radial gradients, not a CSS blur, which tripled the render
 time), and the fonts. Inter, Fira Code and Space Grotesk come from their npm packages (@fontsource,
-SIL Open Font License), pinned and checked against their sha512, cached in `assets/fonts/` and
+SIL Open Font License), pinned and checked against their sha512, cached in `app/assets/fonts/` and
 inlined into each page (`app/render/fonts.py`): the page never fetches anything. Effects: an OBJECT
 "earth" / "globe", "moon" or "sun" is drawn as a lit sphere (its atmosphere, craters, its light), not
 an icon card; a BODY is a disc lit from the top left. On the dark themes ("glow"), curves get a
@@ -514,7 +514,7 @@ curve is drawn. Meaning in colour: a TEX_FORMULA or an ARROW_ANNOTATION may have
 elsewhere), and the action `{"action": "emphasize", "target": id, "effect": "shake" | "pulse"}` makes a
 contradiction shake (0.9 s, fading, flashing red) or a result pulse (two beats, a ring in its tone),
 moved by `seek(t)`. agent004's prompt asks for them, once or twice a video; agent005 can patch a tone
-and add an emphasis. Check: `python tests/test_themes.py`.
+and add an emphasis. Check: `python app/tests/test_themes.py`.
 
 **The plan.** Right after the hook (scene 1), agent010 adds a scene of its own, "Au programme". agent003
 writes it in `script.json` (`"plan"`): a spoken narration of 2 or 3 natural sentences, as a teacher
@@ -541,7 +541,7 @@ last scene is held 2 s after the voice (`END_HOLD`), the last 1.2 s fading to th
 sentence; never end on a question or an example left unexplained) and to keep one example's values
 all along (a 6 V battery stays 6 V); agent005 checks both on the whole video and sends an unfinished
 ending back to agent003. agent004 reports a BODY that neither moves nor sits on a graph (a disc
-standing for "Prix du pain"). Check: `python tests/test_plan.py`.
+standing for "Prix du pain"). Check: `python app/tests/test_plan.py`.
 
 **Fixes from the evaluation of 2026-11-02.** A vector or a curve named by its colour ("Bleu diffusé",
 "Lumière rouge") is drawn in that colour whatever the brief says, and the arrows of one legend line
@@ -553,7 +553,7 @@ LLM with the other advisory problems (about 2 s a video; without Chromium the ch
 logged). A badge in a graph's empty margin is not a conflict. The axis titles are drawn over the
 curves, outlined in the background colour, and every badge keeps off every graph's axis titles; a
 badge over a formula or an icon costs more than one over a graph's empty plot. A graph with three
-or more things beside it takes 48 % x 42 % of the frame. Check: `python tests/test_eval_fixes.py`.
+or more things beside it takes 48 % x 42 % of the frame. Check: `python app/tests/test_eval_fixes.py`.
 
 **Pictures that demonstrate (reactive, to scale).** agent004's prompt asks for every key idea as an
 action the viewer sees happen, in proportion to the numbers said:
@@ -591,7 +591,7 @@ the main area) is made smaller (`fitToRoom`): a formula by its font size, a sees
 scaled down. agent003 has each acronym said in full the first time it is spoken (hook, plan, then the
 scenes: "le Bureau international du travail, le BIT"); a script using one before is asked again once
 (`undefined_acronyms`), and agent003 is `not_healthy` if one is still left.
-Check: `python tests/test_run_fixes.py`.
+Check: `python app/tests/test_run_fixes.py`.
 
 **Fixes from the evaluation of 2026-11-02 (16:05).** The videos had come out short (82 to 116 s): the
 narrator speaks faster since ElevenLabs runs at speed 1.12 (3.0 to 3.3 words a second), so agent003
@@ -621,7 +621,7 @@ stethoscope, dice, vote, handshake, price tag, shopping basket, plug, fuel, trac
 no decorative ones: no maths symbols, charts or interface icons, which formulas, graphs and
 components already show), and a conditional probability read both ways ("chien sachant animal") is asked
 as a POPULATION.
-Check: `python tests/test_population_fixes.py`.
+Check: `python app/tests/test_population_fixes.py`.
 
 **Fixes from the evaluation of 2026-11-02 (21:02).** TIDES draws the Earth in its ocean and the Moon,
 each step on the words that say it: the three points of the Earth-Moon line, labelled ("Point
@@ -639,20 +639,20 @@ monnaie, ce n'est que des pièces et des billets ?"), which agent004 makes the h
 terminal touches its sign, and the meter says where each probe is ("Rouge : GND (0 V)", "Noire : Pile
 6 V (−)"). A formula is cut on its right only while it writes itself, then not at all: a formula on
 several rows (cases) was shown with its middle row only.
-Check: `python tests/test_tides_fixes.py`.
+Check: `python app/tests/test_tides_fixes.py`.
 
 **What a run costs.** Every LLM call records its tokens (input, of which cached, and output, thinking
 included: `tracked` in `app/agent/__init__.py`), every voice-over the characters sent to its engine
 (`app/tts_manager.py`). When an agent finishes, its records are priced with `settings.json`
 `"prices"` (per million tokens, cached input at its own price; per thousand characters) and added to
-`instance/{channel}/costs.json`, the ledger of the channel's current run, per agent and in total;
+`app/instance/{channel}/costs.json`, the ledger of the channel's current run, per agent and in total;
 the agent's row in `rows.json` gets its own `"cost"`. At the end of a channel's run the orchestrator
 prints one line ("breeze_(math): cost 0,62 $ (LLM 0,14 $, 23 calls...; voice 0,48 $, 2 180
-characters)"), appends the run to `instance/costs_history.json` (with the video's length and each
-agent's share) and keeps the total in `instance/breeze.json`. A provider or engine with no price is
+characters)"), appends the run to `app/instance/costs_history.json` (with the video's length and each
+agent's share) and keeps the total in `app/instance/breeze.json`. A provider or engine with no price is
 counted and named (`unpriced`), its cost left out. The prices are written by hand, from memory: check
 them on DeepSeek's and ElevenLabs' price pages (an ElevenLabs subscription's real price per character
-depends on the plan and how much of it is used). Check: `python tests/test_costs.py`.
+depends on the plan and how much of it is used). Check: `python app/tests/test_costs.py`.
 
 **Logic and FPGA (the FPGA run of 2026-11-03, rejected three times for want of them).**
 LOGIC_CIRCUIT draws a small logic diagram from what feeds what: the inputs (a box showing 0 or 1),
@@ -667,8 +667,8 @@ route at once; `reconfigure` clears the blocks and places the second design. age
 or blocks drawn as other components labelled so (`gates_by_hand`: a WIRE_BUS "Porte ET").
 The orchestrator stops a channel whose QA rejects to agent004 listing what cannot be drawn
 ("unsupported") for the second time in the run (`UNSUPPORTED_ROUNDS`): the FPGA run paid three
-redos for nothing. Every such list goes to `instance/missing_components.json`, the components to
-build next. Check: `python tests/test_logic_fpga.py`, `python tests/test_orchestrator_unsupported_loop.py`.
+redos for nothing. Every such list goes to `app/instance/missing_components.json`, the components to
+build next. Check: `python app/tests/test_logic_fpga.py`, `python app/tests/test_orchestrator_unsupported_loop.py`.
 
 **Fixes from the hard-topic runs of 2026-11-03.** TUNNEL draws the tunnel effect: a small circuit
 first, a dashed frame on its wire ("Vue agrandie du fil"); the view zooms into the frame, which
@@ -695,7 +695,7 @@ inside, grows in from the middle (it arrives from the zoom). `{"action": "zoom_o
 a scene's start begins on the thing and pulls back to the whole. Everything drawn moves (`#world`), the
 titles, subtitles and background never do. agent004 sends back a narration going inside a thing with
 no zoom before it, a zoom_in followed by seconds of narration, a zoom_out late in its scene
-(`zoom_problems`; TUNNEL and an FPGA_GRID's own zoom count). Check: `python tests/test_zoom.py`.
+(`zoom_problems`; TUNNEL and an FPGA_GRID's own zoom count). Check: `python app/tests/test_zoom.py`.
 
 **A program at work.** A LOGIC_CIRCUIT set to `"sequential"` shows, on its right, the same circuit as a
 program: one line per gate ("r1 = Bouton 1 ET Bouton 2"), then the outputs, a pointer on the line at
@@ -704,7 +704,7 @@ work in step with the gates; in `"parallel"` the lines dim (`with_program` sets 
 instructions) and ONE unit: `run` takes the instructions one after the other along the bus into the
 unit ("Une instruction à la fois : 2 / 4"); beside an FPGA_GRID it shows the difference with blocks
 working all at once. agent004 sends back a cpu icon labelled "Microcontrôleur" or "Processeur".
-Check: `python tests/test_program_mcu.py`.
+Check: `python app/tests/test_program_mcu.py`.
 
 **Building a circuit for real (the temperature-regulation bench).** The schematic parts are the
 standard symbols (IEC, as in French schools), wired by their named leads: a resistor, a
@@ -731,7 +731,7 @@ each ground or supply symbol at the end of its lead. A voltage divider (a chain 
 battery's terminals, nothing else but parts across its links) is drawn as on paper (`place_divider`):
 the battery upright, + at the top, the chain in one column of upright resistors, the one fed by + at
 the top ("la résistance du bas" is the bottom one), a load upright beside the part it is across and
-wired to its foot; a flow follows two wires meeting at a lead (`tests/test_divider.py`). One AOP circuit
+wired to its foot; a flow follows two wires meeting at a lead (`app/tests/test_divider.py`). One AOP circuit
 is drawn as in a course too (`place_opamp`, a basic circuit: no MOSFET, sensor nor heater): the AOP in
 the middle, + on top when the signal comes in by it (non-inverting, follower) and its feedback under
 it, else − on top and the feedback over it, input resistors on the left, the supply written under the
@@ -747,9 +747,9 @@ its output may go negative, an inverter or a summer; the LLM could not fix it in
 nodes crossing, running side by side closer than 14 px, or a wire making a detour (more than 4 bends, or
 over 2.2 times its ends' distance); a schematic laid out as on paper moves as one block on the page, and a
 lead's stub clears only a label right under it. Known: the column layout of a big schematic (the
-temperature bench) still has crossings (`tests/test_schematic.py` lists them). agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
+temperature bench) still has crossings (`app/tests/test_schematic.py` lists them). agent004 works the voltages out (`circuit_volts`: an ideal AOP, V+ =
 V− with feedback, else a comparator, its output within its supplies) and sends back a wrong reading, two
-AOP circuits in one scene, a resistor with no value (`aop_problems`, `tests/test_opamp.py`); a supply
+AOP circuits in one scene, a resistor with no value (`aop_problems`, `app/tests/test_opamp.py`); a supply
 on from its initial_state shows its voltage. Wires of one node (leads joined) share their way and part at a
 junction dot, rather than running side by side (`wireNets`, `sharedLength`); "37 °C" is said "37
 degrés Celsius", "90°" "90 degrés"; agent003 writes a temperature in digits with "degrés Celsius"
@@ -771,9 +771,9 @@ sent back (`repeated_drawings`): each scene shows its own point (another harmoni
 **Formulas in physics and maths.** agent003 says the key relation of the topic at least once, in
 words with the example's values (`FORMULA_RULES`, for the "math" and "physics_math" domains); agent004
 writes a relation said as a TEX_FORMULA in that scene and sends back a physics or maths video with
-none (`formulas_said`). Check: `python tests/test_formulas.py`.
+none (`formulas_said`). Check: `python app/tests/test_formulas.py`.
 
-**The pieces catalogue.** `docs/pieces/` holds the user's 131 piece specifications (the four CSV files,
+**The pieces catalogue.** `app/docs/pieces/` holds the user's 131 piece specifications (the four CSV files,
 their columns one to the left of their header: `catalogue.json` reads them right), grouped into 76
 pieces to build and ordered simplest first (`ORDRE.md`); each entry's "etat" says "fait", "partiel" or
 "à faire". Built: every simple piece, each figure on it worked out by the program, never given by the brief:
@@ -782,14 +782,14 @@ TIMELINE (to scale when the dates are years), FRACTION_BAR (the sum as a fractio
 PIE_CHART (shares adding up to 100 %), UNIT_CONVERTER (the units' ladder, the factor, the result),
 TREE (a path's probability, the product), SET_DIAGRAM (two sets, each region counted, its probability),
 GAME_MATRIX (best answers, the Nash equilibrium), BAR_CHART (one scale, negatives below, a reference
-line), EQUATION_STEPS (LaTeX lines, what is done on each arrow; a linear system solved by the pivot de Gauss, each step as tall as its system, every line checked by agent004 to keep the first system's solution: `gauss_problems`, `tests/test_gauss.py`; each reduction found and worked out term by term beside the steps by `app/linear_system.py` (L₂, + 3/2 L₁, the result, what vanishes); an augmented TABLE goes with its whole system and no TEX_FORMULA repeats the operations: `system_display_problems`), POWER_SUPPLY (a bench supply wired
+line), EQUATION_STEPS (LaTeX lines, what is done on each arrow; a linear system solved by the pivot de Gauss, each step as tall as its system, every line checked by agent004 to keep the first system's solution: `gauss_problems`, `app/tests/test_gauss.py`; each reduction found and worked out term by term beside the steps by `app/linear_system.py` (L₂, + 3/2 L₁, the result, what vanishes); an augmented TABLE goes with its whole system and no TEX_FORMULA repeats the operations: `system_display_problems`), POWER_SUPPLY (a bench supply wired
 like a battery: CV / CC), and the multimeter as an ohmmeter (a "measure" in Ω: its mode, a beep under
 30 Ω, its range as on a real one: 4,700 kΩ). The reading is checked against the circuit drawn: agent004
 works out the resistance between the probes from the labels (`ohmmeter_problems`: two 1 kΩ across the
 same pins read 500 Ω, a part faded out is gone) and sends back a wrong value, a supply drawn as "the
 ohmmeter's source" or left on. Units are written with their prefix (`si_prefixes`: "1 000 Ω" -> "1 kΩ",
-"0,01 A" -> "10 mA"), comparison panels over a film nearly opaque; equation pages 720 px tall (two systems of three rows); the voice says "kilo ohms", two words ("dix kiloohms" in one came out garbled) (`tests/test_ohmmeter.py`). Check:
-`python tests/test_table_chain.py`, `python tests/test_simple_pieces.py`. Physics, worked out by the program from the data
+"0,01 A" -> "10 mA"), comparison panels over a film nearly opaque; equation pages 720 px tall (two systems of three rows); the voice says "kilo ohms", two words ("dix kiloohms" in one came out garbled) (`app/tests/test_ohmmeter.py`). Check:
+`python app/tests/test_table_chain.py`, `python app/tests/test_simple_pieces.py`. Physics, worked out by the program from the data
 (exact motions, conservation laws): FREE_BODY (forces to scale, components along the slope, the
 resultant, a = ΣF / m), KINEMATICS (a projectile, a uniform, accelerated or free fall: strobe images,
 v and a, x(t) and v(t)), COLLISION (velocities after an elastic or inelastic collision, momentum and
@@ -798,10 +798,10 @@ period; a pendulum's exact period at its angle, T₀ / agm(1, cos(θ₀/2)), not
 angle in radians and its sine under it, {"count": 10} ten oscillations timed, in real time so two side by
 side drift apart; drawn narrower when never asked for its energies nor its graph), ORBIT (Kepler's equation solved each frame: faster near the centre, the pull in 1/r², equal
 areas; P and A always named, {"ratio": true} their distances r_P, r_A and v_P / v_A = (1 + e) / (1 − e)
-worked out). Check: `python tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
+worked out). Check: `python app/tests/test_physics_pieces.py`. agent004 sends back a wave drawn as discs or
 icons (`waves_by_hand`: the rope of five scattered discs, the ola of icons all over).
 A scene with a drawing as wide as the screen (WAVE, TIDES, TUNNEL, BREADBOARD, LOGIC_CIRCUIT...) stays
-"circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python tests/test_wave.py`.
+"circuit", never a comparison's half panel (`WIDE_DRAWINGS`, `needs_circuit`). Check: `python app/tests/test_wave.py`.
 
 A circuit built step by step keeps what is built: a schematic scene sharing most of the last one's parts
 (60 %, a preview of the whole circuit then a first step is not one) gets back every part, ground / supply symbol and wire of it left out (`carry_circuit`; a part of the same type and label under another id is
@@ -809,7 +809,7 @@ the same part, not put back twice);
 a schematic's 0 V / +12 V symbols do not count in its 16 entities, and its parts' positions are not
 checked (the program lays them out). A project's hook starts from what
 it is for in everyday life (an incubator, an aquarium, a 3D printer's bed) before naming what is built.
-Check: `python tests/test_schematic.py`.
+Check: `python app/tests/test_schematic.py`.
 
 **Keeping the frame clear.** A plan of many chapters goes over pages of `PLAN_PAGE` (6) rows, the next
 page in place of the last when its first chapter is named. Things still overlapping once spread out
@@ -817,7 +817,7 @@ page in place of the last when its first chapter is named. Things still overlapp
 spread again, up to four times (`shrinkToFit`). A badge may take a longer arrow (up to `ARROW_MAX` +
 300 px) rather than sit on another. The conflict check counts a graph by its drawn part (its empty
 margins may hold anything) and leaves out two things never on screen together.
-Check: `python tests/test_overlaps.py`.
+Check: `python app/tests/test_overlaps.py`.
 
 **Facts and figures.** agent001 brings the topic's key facts with their sources (`"facts"`: for a
 measure, a law, a tax, a policy or a news event, what it is, who proposed it and when, where it
@@ -845,25 +845,25 @@ stages (research "format": "project", the topic as its concept), agent002 plans 
 the order it is built (`PROJECT_PROMPT`), agent003 writes one stage a scene (the parts it adds with
 their values, what is connected to what, how to check it), the breadboard build then the power-up
 last (`PROJECT_RULES`); agent004 is given the wiring of an AOP comparator with hysteresis.
-Check: `python tests/test_project_format.py`. Words the voice
+Check: `python app/tests/test_project_format.py`. Words the voice
 says wrong are written as they sound in `PRONUNCIATIONS` (`app/tts_manager.py`: "quantum" ->
 "kwantome"); add any other there. A hook clip seen to be wrong goes, by hand, in
-`assets/footage/index.json` "rejected" (`{"pixabay:<id>": "why"}`): never offered again nor taken from
+`app/assets/footage/index.json` "rejected" (`{"pixabay:<id>": "why"}`): never offered again nor taken from
 the cache (the electrician at a panel picked for "usine de puces"); the chooser is told that an
 electrical panel or power cables are not electronics.
-Check: `python tests/test_tunnel.py`, `python tests/test_logic_fpga.py`.
+Check: `python app/tests/test_tunnel.py`, `python app/tests/test_logic_fpga.py`.
 
 A badge naming one terminal of a battery ("borne +", "pôle négatif") points at that terminal's sign
 on the drawing, not at the battery as a whole (`batteryTerminal`); no badge's arrow runs through
 another badge. A number line's graduations are 1, 2 or 5 times a power of ten (0 to 10 000: every 1 000), never "-0", and a number
 under a dot's label, or too close to the previous one, is hidden. Counters roll in 0.8 s.
-Check: `python tests/test_reactive.py`.
+Check: `python app/tests/test_reactive.py`.
 
 **Film behind the hook.** agent004 may give the first scene a real film clip: `"footage": {"query":
 "ciel bleu nuages"}` on the storyboard scene (1 to 4 French words, letters only; people far off, never a face in close-up), with at
 most 3 things drawn over it. agent010 finds the clip (`app/render/footage.py`): a clip of
-`assets/footage/local/` whose file name shares a word with the query first, then one already fetched
-for that query (`assets/footage/index.json`), then Pixabay's video search (`PIXABAY_API_KEY`; only the
+`app/assets/footage/local/` whose file name shares a word with the query first, then one already fetched
+for that query (`app/assets/footage/index.json`), then Pixabay's video search (`PIXABAY_API_KEY`; only the
 query is sent). A Pixabay clip is taken only if rated for everyone, not low quality, at least 6 s long,
 on Pixabay's CDN, with no face in the foreground (portrait, close-up, selfie) or brand in its tags, and not a made-up picture (AI-generated, 3D
 render, animation, exoplanet, fiction). agent004 looks for the hook's clip as soon as the storyboard is
@@ -877,7 +877,7 @@ behind the scene, darkened, the titles in white; `seek` waits until each frame i
 `render_manifest.json` records the clip of each scene (`footage`), agent007 credits each Pixabay clip in
 the description ("Images : <author> sur Pixabay (<page>)"), agent005 is told a film plays behind the
 scene. No clip found (no match, no key, network): the scene is drawn without one, agent010
-`not_healthy`. The clips are git-ignored, `index.json` is kept. Check: `python tests/test_footage.py`.
+`not_healthy`. The clips are git-ignored, `index.json` is kept. Check: `python app/tests/test_footage.py`.
 
 **Music and sound effects.** Everything under the voice is made by the code (`app/render/soundtrack.py`,
 numpy): no clip, no licence, no Content ID claim. A music bed the length of the video, in the channel's
@@ -892,17 +892,17 @@ value changes (set_value), a "whoosh" between two scenes; effects closer than 0.
 21 LU below the voice and ducked while someone speaks (sidechain), the effects' peaks 6 dB above the
 voice's loudness. `render_manifest.json` says what was added (`soundtrack`).
 `"background_music": false` / `"sound_effects": false` in the settings leave either out.
-Check: `python tests/test_soundtrack.py`.
+Check: `python app/tests/test_soundtrack.py`.
 
 **Subtitles.** Each scene's narration (the plan's too) is cut into short lines (`app/render/subtitles.py`:
 at most about 62 characters, cut at a sentence's end or a comma, a long sentence into lines of even
 length), each timed on the voice's word timings, found through the text as the voice reads it
 (numbers and units spelled out), and shown as written ("0,96 A"). The page draws the line being said
 at the bottom (`#subs`); the diagram, the vectors' legend and a comparison's panels stay above it.
-The whole video's lines go to `instance/<channel>/subtitles.srt` (`subtitles_path` in
+The whole video's lines go to `app/instance/<channel>/subtitles.srt` (`subtitles_path` in
 `render_manifest.json`), which agent008 sends to YouTube as the French captions.
 `"burn_subtitles": false` in the settings keeps them out of the picture (the file is still written).
-Check: `python tests/test_subtitles_lanes.py`.
+Check: `python app/tests/test_subtitles_lanes.py`.
 
 agent010 draws each scene as a web page:
 
@@ -925,7 +925,7 @@ agent010 draws each scene as a web page:
   with a spring (`@keyframes popIn`, scale 0.9 → 1). `THEME` in the agent switches to `"dark"`.
   Animations are paused and set from `seek(t)`, never left running, so each frame is exact.
 - **Formulas:** rendered with KaTeX 0.16.11, downloaded once from npm, checked against its
-  sha512 and cached in `assets/katex/`; without it (offline first run, `BREEZE_OFFLINE=1`)
+  sha512 and cached in `app/assets/katex/`; without it (offline first run, `BREEZE_OFFLINE=1`)
   formulas are plain text.
 - **Wires** keep at least 40 px between parallel runs (`LANE` in the page script).
 - `renderer_used` in `render_manifest.json` is `html_playwright` (or `dry_run`).
@@ -937,7 +937,7 @@ On the dashboard, the render step is agent010's (older runs rendered by agent006
 agent010 makes each scene's voice with `generate_voice(text, mp3_path, spoken, engine, voice_id)`:
 
 1. **ElevenLabs** when `ELEVENLABS_API_KEY` is in `.env`: model `eleven_multilingual_v2`, a voice per
-   channel (`"voice_by_channel"` in `schemas/settings.json`: Nicolas - Narrator for electronics and
+   channel (`"voice_by_channel"` in `app/schemas/settings.json`: Nicolas - Narrator for electronics and
    physics, Anaïs - Instructor for maths and economics; Voice Library voices, used by their id alone).
    A channel without one gets `ELEVENLABS_VOICE_ID`, else "Olivier D" (`GFj5Qf6cNQ3Lgp8VKBwc`).
    Settings: stability 0.5 (below, the voice now and then restarts a sentence), style 0.2, speed 1.12
@@ -969,7 +969,7 @@ written "10x" still meets the spoken "10 ixe". The maths a script may still writ
 index "t_n" is "t indice n", "10^{-n}" "10 puissance moins n", `< > ≤ ≥ ≠ ≈ →` "inférieur à",
 "supérieur à", "inférieur ou égal à"..., and a truncation "0,999…9" "0 virgule neuf neuf neuf, et
 ainsi de suite jusqu'à un dernier neuf" (it ends: not "à l'infini"); agent003 is asked to write the
-narration in words anyway. Check: `python tests/test_tts_normalization.py` (offline).
+narration in words anyway. Check: `python app/tests/test_tts_normalization.py` (offline).
 
 `render_manifest.json` records which engine spoke: `voice_engine` per scene (`"elevenlabs"` or
 `"edge-tts"`, and `voice_fallback`: why ElevenLabs failed, when edge-tts stood in), and for the video
@@ -978,10 +978,10 @@ narration in words anyway. Check: `python tests/test_tts_normalization.py` (offl
 renderer ends `not_healthy`; no key at all is not a fallback (edge-tts by choice, no warning).
 
 The duration is measured with ffprobe on the file, whatever the engine. Check (needs internet, uses a
-few dozen characters of the ElevenLabs quota): `python tests/test_elevenlabs_tts.py` (`--keep` keeps the
-.mp3 files in `media/test_elevenlabs_tts/`).
+few dozen characters of the ElevenLabs quota): `python app/tests/test_elevenlabs_tts.py` (`--keep` keeps the
+.mp3 files in `app/media/test_elevenlabs_tts/`).
 
-### Provenance (`instance/<channel>/manifest.json`)
+### Provenance (`app/instance/<channel>/manifest.json`)
 
 Each channel's run gets a run id (`2026-10-30T16-19-05-electronics`) and a `manifest.json` listing
 every file the run wrote, with the agent that wrote it and when (and the history of writers for a
@@ -993,7 +993,7 @@ Observation mode: when an agent starts, each input file that is not in the curre
 gets a warning, `artefact non tracé dans le manifeste : script.json`, and the agent carries on.
 Nothing is ever moved or blocked. An agent run alone continues the run in the manifest, or uses
 `--run-id X` (or `LBREEZE_RUN_ID=X`): with no manifest for X it starts an empty one, with a warning.
-`python tests/test_provenance.py` checks this behaviour in a temporary folder.
+`python app/tests/test_provenance.py` checks this behaviour in a temporary folder.
 
 ### QA feedback (`LBREEZE_QA_FEEDBACK`)
 
@@ -1022,17 +1022,17 @@ composant", "ne peuvent pas être rendus", "cannot draw", "not representable"...
 `agent000_breeze.py`), the channel stops at once, agent005 `critical` with
 `Renderer limitation: <reason> (unsupported: ...)`, instead of up to 3 useless storyboard rewrites.
 `unsupported` alone does not stop it (the QA lists it even when it passes), and a reject to agent003
-still gets its rewrite. Check: `python tests/test_orchestrator_unsupported_loop.py`.
+still gets its rewrite. Check: `python app/tests/test_orchestrator_unsupported_loop.py`.
 
 ### Recurring defects (`app/defect_report.py`)
 
-What goes wrong again and again, run after run, per channel, from `schemas/rows.json` and
-`schemas/reports.json` (read only):
+What goes wrong again and again, run after run, per channel, from `app/schemas/rows.json` and
+`app/schemas/reports.json` (read only):
 
 ```bash
 python app/defect_report.py                                   # every channel, last 10 runs each
 python app/defect_report.py --channel "breeze_(math)" --last 5
-python app/defect_report.py --json --out instance/defects.json
+python app/defect_report.py --json --out app/instance/defects.json
 ```
 
 It lists the runs (topic, worst status, video or not, QA revisions, why it stopped), then every
@@ -1042,11 +1042,11 @@ counts once per run (a QA revision repeating it does not count twice). Messages 
 entity ids becoming their role (`arrow_slow overlaps arrow_earth` -> `badge chevauche badge`); the
 QA's free-text issues by theme; its `unsupported` list by what is missing to draw (the vocabulary to
 add). Themes and roles are keyword heuristics: each line shows a real example. Standalone runs are
-left out. Check: `python tests/test_defect_report.py`.
+left out. Check: `python app/tests/test_defect_report.py`.
 
 ## Add a channel
 
-1. Add one object to `schemas/routes.json`:
+1. Add one object to `app/schemas/routes.json`:
 
    ```json
    {"channel_id": "breeze_(chemistry)", "name": "Chimie facile", "domain": "physics_math",
@@ -1055,9 +1055,9 @@ left out. Check: `python tests/test_defect_report.py`.
    ```
 
    `channel_id` must match `breeze_(...)` with lowercase letters or `_` inside the parentheses.
-   Its folder `instance/breeze_(chemistry)/` is created on the first run. `domain` picks the QA
+   Its folder `app/instance/breeze_(chemistry)/` is created on the first run. `domain` picks the QA
    rules agent005 applies: `electronics`, `physics_math` or `economics` (any other value: all rules).
-2. Add the same id to `render_backend_by_channel` in `schemas/settings.json`
+2. Add the same id to `render_backend_by_channel` in `app/schemas/settings.json`
    (`"html"`, the default, or `"skip"`).
 3. For live publishing, add `YOUTUBE_REFRESH_TOKEN_BREEZE_CHEMISTRY=` to `.env`
    (the variable name is the channel id without parentheses, in upper case).
@@ -1072,11 +1072,11 @@ working provider to get past agent001.
 
 1. **LLM:** set `llm_provider` and `llm_model` (see Settings) and the matching key in `.env`.
    For Bedrock, check that the model is enabled in your region in the Bedrock console.
-2. **Check one dry run end to end** and read the files in `instance/<channel>/`.
+2. **Check one dry run end to end** and read the files in `app/instance/<channel>/`.
    The LLM proposes the source URLs in `research.json` without browsing the web,
    so **a human must open every URL** before a video goes out.
 3. **Videos without publishing:** set `"dry_run": false` and `"enabled_platforms": []`, run, and
-   watch `instance/<channel>/video.mp4`.
+   watch `app/instance/<channel>/video.mp4`.
 4. **YouTube:** create an OAuth client (`YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`) and one
    refresh token per channel with the scopes `youtube.upload`, `youtube.readonly`,
    `yt-analytics.readonly` and `youtube.force-ssl` (the captions), then set `"enabled_platforms": ["youtube"]`.
@@ -1106,8 +1106,8 @@ The parentheses are part of the id.
 | Where | How |
 |-------|-----|
 | JSON | literal: `"breeze_(math)"` |
-| file paths | literal: `instance/breeze_(math)/script.json` |
-| shell | always quote: `--channel "breeze_(math)"`, `ls "instance/breeze_(math)"`. Unquoted, bash reads `(` as syntax |
+| file paths | literal: `app/instance/breeze_(math)/script.json` |
+| shell | always quote: `--channel "breeze_(math)"`, `ls "app/instance/breeze_(math)"`. Unquoted, bash reads `(` as syntax |
 | URLs | percent-encode: `/channel/breeze_%28math%29` (Python: `urllib.parse.quote("breeze_(math)", safe="")`, decoded with `unquote`) |
 
 ## Agent count clarification

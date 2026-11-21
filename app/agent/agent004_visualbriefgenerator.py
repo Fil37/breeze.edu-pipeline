@@ -1,10 +1,10 @@
 """
-INPUT:  instance/{channel_id}/script.json (from agent003) + settings.render_backend_by_channel
+INPUT:  app/instance/{channel_id}/script.json (from agent003) + settings.render_backend_by_channel
         Each script scene: scene_id, narration_text, duration_sec, key_visual_moment
         (also accepted under the names narration, duration_seconds, visual_intent).
-OUTPUT: instance/{channel_id}/storyboard.json = {scenes:[{scene_id, renderer, visual_brief,
+OUTPUT: app/instance/{channel_id}/storyboard.json = {scenes:[{scene_id, renderer, visual_brief,
         aspect_ratio, transition_in, transition_out}]}
-        visual_brief = one SceneVisualBrief (models/visual_brief_schema.py): components with
+        visual_brief = one SceneVisualBrief (app/models/visual_brief_schema.py): components with
         positions, wires between named ports, timed actions, text overlay.
 NOTES:  The LLM decomposes each narration into concrete components, how they are wired and what
         happens to them. Its answer is parsed as list[SceneVisualBrief] (Pydantic), sanitized, then
@@ -60,7 +60,7 @@ from app.render import fluent3d
 from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
-from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, LOGIC_GATES, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
+from app.models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, LOGIC_GATES, POPULATION_DOTS, POPULATION_GROUPS, RACE_DISTANCE_UNITS, RACE_SPEED_UNITS, SAFE_MATH_FUNCTIONS, SVG_TYPES, ComponentType, SceneVisualBrief,
                                         DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, OBJECT_ICONS, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
@@ -2276,7 +2276,7 @@ def comparison_problem(brief):
                 f"\"circuit\"); each panel shows one side of the comparison")
     # a big drawing on the middle line belongs to no panel (the physics run of 2026-11-07: a sin θ graph
     # at x = 0 went into panel B, over its pendulum); two big drawings in one panel cover each other
-    from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES
+    from app.models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES
     big = {"AXES_GRAPH", "WAVE", "TABLE", "CHAIN", *PHYS_PIECES, *SIMPLE_PIECES}
     drawings = [(e.id, scene_point(e.position)[0]) for e in brief.entities if e.type.value in big]
     middle = [i for i, x in drawings if abs(x) < 0.6]
@@ -2394,7 +2394,7 @@ def clip_chooser(narration):
 
 
 def checked_footage(order, layouts, narrations, find=None):
-    """The hook's film, found now and chosen for its narration (cached in assets/footage/index.json,
+    """The hook's film, found now and chosen for its narration (cached in app/assets/footage/index.json,
     where agent010 finds it); none fits, or none can be found: the hook is drawn without one.
     Returns what happened, for the report ({} without a film asked for)."""
     hook = order[0] if order else None

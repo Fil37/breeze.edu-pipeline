@@ -1,32 +1,32 @@
 # Third-party notices
 
-breeze's own code (everything outside `assets/katex/`, `assets/fonts/` and the Lucide icons of
-`assets/icons/`) belongs to its author. The components below are copied into this repository (or
+breeze's own code (everything outside `app/assets/katex/`, `app/assets/fonts/` and the Lucide icons of
+`app/assets/icons/`) belongs to its author. The components below are copied into this repository (or
 downloaded into it on first use: `app/render/fonts.py`, `app/agent/agent010_html_renderer.py`,
 `app/render/asset_resolver.py`, each pinned and checked) and keep their own licenses, reproduced here
 as their packages ship them.
 
 | Component | Version | Where | License |
 |---|---|---|---|
-| [KaTeX](https://katex.org) (JS, CSS and its fonts) | 0.16.11 (npm `katex`) | `assets/katex/` | MIT |
-| [Lucide](https://lucide.dev) icons | 0.460.0 (npm `lucide-static`) | `assets/icons/*.svg`, but `cannon.svg`, `elevator.svg` and `spring.svg` (breeze's own drawings); the whole set with its `tags.json` in `assets/icons/lucide/` (CARD_SCENE) | ISC |
-| [Inter](https://github.com/rsms/inter) | 5.3.0 (npm `@fontsource/inter`) | `assets/fonts/inter-*.woff2` | SIL OFL 1.1 |
-| [Fira Code](https://github.com/tonsky/FiraCode) | 5.3.0 (npm `@fontsource/fira-code`) | `assets/fonts/fira-code-*.woff2` | SIL OFL 1.1 |
-| [Space Grotesk](https://github.com/floriankarsten/space-grotesk) | 5.3.0 (npm `@fontsource/space-grotesk`) | `assets/fonts/space-grotesk-*.woff2` | SIL OFL 1.1 |
+| [KaTeX](https://katex.org) (JS, CSS and its fonts) | 0.16.11 (npm `katex`) | `app/assets/katex/` | MIT |
+| [Lucide](https://lucide.dev) icons | 0.460.0 (npm `lucide-static`) | `app/assets/icons/*.svg`, but `cannon.svg`, `elevator.svg` and `spring.svg` (breeze's own drawings); the whole set with its `tags.json` in `app/assets/icons/lucide/` (CARD_SCENE) | ISC |
+| [Inter](https://github.com/rsms/inter) | 5.3.0 (npm `@fontsource/inter`) | `app/assets/fonts/inter-*.woff2` | SIL OFL 1.1 |
+| [Fira Code](https://github.com/tonsky/FiraCode) | 5.3.0 (npm `@fontsource/fira-code`) | `app/assets/fonts/fira-code-*.woff2` | SIL OFL 1.1 |
+| [Space Grotesk](https://github.com/floriankarsten/space-grotesk) | 5.3.0 (npm `@fontsource/space-grotesk`) | `app/assets/fonts/space-grotesk-*.woff2` | SIL OFL 1.1 |
 
 The fonts are used unmodified (latin subsets as published by Fontsource), embedded in the rendered
 videos' pages and served by the web interface; they are not sold on their own.
 
 The Python packages of `requirements.txt`, Chromium (Playwright) and ffmpeg are installed separately
 and are not part of this repository. Voices (ElevenLabs, edge-tts) and LLM answers are produced at run
-time under the terms of those services and are not stored in the repository (`instance/` and `media/`
+time under the terms of those services and are not stored in the repository (`app/instance/` and `app/media/`
 are git-ignored).
 
 Film clips behind a video's hook come from [Pixabay](https://pixabay.com) under the Pixabay Content
-License (or are put in `assets/footage/local/` by hand, under their own terms). They are downloaded
-into `assets/footage/` (git-ignored) and only ever shown reworked: darkened behind a scene, under its
+License (or are put in `app/assets/footage/local/` by hand, under their own terms). They are downloaded
+into `app/assets/footage/` (git-ignored) and only ever shown reworked: darkened behind a scene, under its
 titles, voice and subtitles, never on their own. `app/render/footage.py` takes no clip whose tags name
-a face in the foreground (portrait, close-up, selfie) or a brand, and no AI-generated one. `assets/footage/index.json` keeps each clip's Pixabay id, page, author, the query
+a face in the foreground (portrait, close-up, selfie) or a brand, and no AI-generated one. `app/assets/footage/index.json` keeps each clip's Pixabay id, page, author, the query
 and the day it was fetched; the YouTube description credits the author and the page.
 
 ## KaTeX — MIT License
@@ -195,12 +195,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ## Fluent Emoji 3D images
 
 - Source: https://github.com/microsoft/fluentui-emoji (the `3D/*.png` images only, a selection)
-- Where: `assets/fluent_3d/`, about 500 images (the list in `app/render/fluent3d.py`)
-- License: MIT, Copyright (c) Microsoft Corporation, full text in `assets/fluent_3d/LICENSE`
+- Where: `app/assets/fluent_3d/`, about 500 images (the list in `app/render/fluent3d.py`)
+- License: MIT, Copyright (c) Microsoft Corporation, full text in `app/assets/fluent_3d/LICENSE`
 
 ## Fritzing parts (breadboard drawings)
 
 - Source: https://github.com/fritzing/fritzing-parts (`svg/core/breadboard`, 15 parts, renamed by part)
-- Where: `assets/fritzing/` (the list in `app/render/fritzing.py`); a resistor's band colours are changed by the program
-- License: Creative Commons Attribution-ShareAlike 3.0 Unported, text in `assets/fritzing/LICENSE.txt`.
+- Where: `app/assets/fritzing/` (the list in `app/render/fritzing.py`); a resistor's band colours are changed by the program
+- License: Creative Commons Attribution-ShareAlike 3.0 Unported, text in `app/assets/fritzing/LICENSE.txt`.
   A video that shows one credits Fritzing and is offered under CC BY-SA 3.0 in its description (agent007).

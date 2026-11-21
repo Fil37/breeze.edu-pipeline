@@ -5,7 +5,7 @@ for agent010, which then maps it to its pixels.
 A VECTOR_ARROW with initial_state "anchor": {"curve": "<CURVE_PLOT id>", "t": <t>} (a parametric
 curve) or {"curve": ..., "x": <x>} (y = f(x)) starts on that point of the curve. Its "direction" is
 then a cardinal or [dx, dy] as usual (drawn as given), or one of ANCHORED_DIRECTIONS
-(models/visual_brief_schema.py), worked out from the curve:
+(app/models/visual_brief_schema.py), worked out from the curve:
   TANGENT  along the curve, the way t (or x) grows: a velocity
   CENTER   towards the middle of the curve's drawing (an orbit's centre, where the planet is): gravity
   OUTWARD  the other way
@@ -14,7 +14,7 @@ The expressions are the schema-checked ones (safe: numbers, t or x, np. function
 
 import numpy as np
 
-from models.visual_brief_schema import check_curve, is_parametric, parameter_range
+from app.models.visual_brief_schema import check_curve, is_parametric, parameter_range
 
 SAMPLES = 360
 DEFAULT_X_RANGE = (-5.0, 5.0)

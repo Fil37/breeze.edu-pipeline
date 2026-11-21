@@ -15,7 +15,7 @@ import os
 import re
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FRITZING_DIR = os.path.join(BASE_DIR, "assets", "fritzing")
+FRITZING_DIR = os.path.join(BASE_DIR, "app", "assets", "fritzing")
 CREDIT = ("Composants dessinés avec Fritzing (fritzing.org, CC BY-SA 3.0). Cette vidéo est donc proposée sous "
           "licence CC BY-SA 3.0 : https://creativecommons.org/licenses/by-sa/3.0/deed.fr")
 

@@ -5,7 +5,7 @@ Universal SVG asset resolver: component type -> local SVG file, for the SVG-base
 
 Order:
   1. ICON_ALIASES turns a component type (or a free name) into a Lucide icon name.
-  2. assets/icons/<icon>.svg already on disk (downloaded before, or put there by hand) -> "cache".
+  2. app/assets/icons/<icon>.svg already on disk (downloaded before, or put there by hand) -> "cache".
   3. Download from the Lucide CDN (version pinned), check it is a small, plain SVG, save it -> "cdn".
   4. Otherwise the Lucide "circle-help" icon if cached, else a built-in SVG -> "fallback".
      A fallback is never saved under the icon's own name, so the next run tries the download again.
@@ -18,7 +18,7 @@ import re
 import urllib.request
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ICONS_DIR = os.path.join(BASE_DIR, "assets", "icons")
+ICONS_DIR = os.path.join(BASE_DIR, "app", "assets", "icons")
 
 LUCIDE_VERSION = "0.460.0"    # pinned: icon names and drawings do not change under us
 CDN_URL = "https://unpkg.com/lucide-static@{version}/icons/{name}.svg"

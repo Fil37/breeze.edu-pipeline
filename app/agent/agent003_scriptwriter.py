@@ -1,6 +1,6 @@
 """
-INPUT:  instance/{channel_id}/outline.json
-OUTPUT: instance/{channel_id}/script.json = {scenes:[{scene_id, narration_text, duration_sec,
+INPUT:  app/instance/{channel_id}/outline.json
+OUTPUT: app/instance/{channel_id}/script.json = {scenes:[{scene_id, narration_text, duration_sec,
         key_visual_moment}], plan: {narration, parts:[{scene_id, text, cue}]} | null, question | null,
         total_duration_sec, word_count}
 NOTES:  Narration only, aiming at 90-180 s. Also the plan announced after the hook (agent010 shows it):

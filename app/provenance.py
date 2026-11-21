@@ -1,15 +1,15 @@
 """
-Provenance of the artefacts in instance/<channel>/: which run wrote each file, which agent, when.
+Provenance of the artefacts in app/instance/<channel>/: which run wrote each file, which agent, when.
 OBSERVATION MODE: it records and warns. It never moves, deletes or blocks anything.
 
-instance/<channel>/manifest.json describes the channel's current run:
+app/instance/<channel>/manifest.json describes the channel's current run:
   {"run_id": "2026-10-30T16-19-05-electronics", "channel": "breeze_(electronics)",
    "topic": "...", "started_at": "...", "orchestrator_run_id": "20261030T161905Z" | null,
    "artifacts": {"script.json": {"agent": "agent003", "written_at": "...",
                                  "history": [{"agent": "agent003", "written_at": "..."}]}}}
 Each agent adds its files as it writes them (register_artifact), so the manifest grows during the
 run. A new run replaces it; the previous manifest (the manifest only: artefacts stay where they
-are) is kept as instance/<channel>/manifests/<its run_id>.json.
+are) is kept as app/instance/<channel>/manifests/<its run_id>.json.
 
 Which run an agent belongs to (current_run_id), in this order:
   1. the LBREEZE_RUN_ID environment variable: the orchestrator sets it for each channel, and
@@ -122,7 +122,7 @@ def manifest_for(run_id, channel, root=None) -> dict:
 
 
 def register_artifact(run_id, channel, filename, agent_name, root=None):
-    """Declare that `agent_name` has just written instance/<channel>/<filename> in run `run_id`.
+    """Declare that `agent_name` has just written app/instance/<channel>/<filename> in run `run_id`.
     Called by each agent right after it writes the file: the manifest is kept up to date as the
     run goes, never rebuilt at the end. A file written again (QA corrections, revisions) keeps the
     history of its writers."""
@@ -154,7 +154,7 @@ def check_artifact(run_id, filename, channel=None, root=None, agent_name=None) -
 
 def check_inputs(channel, agent_name, filenames, root=None):
     """At an agent's start: its run id (see current_run_id), the run's manifest made sure of, and a
-    warning for each input file present in instance/<channel>/ but not declared in it. Returns the
+    warning for each input file present in app/instance/<channel>/ but not declared in it. Returns the
     run id, for register_artifact."""
     run_id = current_run_id(channel, root)
     manifest_for(run_id, channel, root)

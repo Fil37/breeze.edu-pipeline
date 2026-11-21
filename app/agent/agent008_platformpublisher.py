@@ -1,9 +1,9 @@
 """
-INPUT:  instance/{channel_id}/video.mp4 + metadata.json + subtitles.srt (agent010; optional)
-        + schemas/routes.json (publish_platforms)
+INPUT:  app/instance/{channel_id}/video.mp4 + metadata.json + subtitles.srt (agent010; optional)
+        + app/schemas/routes.json (publish_platforms)
         + settings (dry_run, enabled_platforms, publisher, youtube_quota_limit,
         youtube_quota_used_today: injected by the orchestrator)
-OUTPUT: one row per platform appended to schemas/rows.json, stage "publish",
+OUTPUT: one row per platform appended to app/schemas/rows.json, stage "publish",
         data = {platform, video_id, url, publish_timestamp, quota_used}
 NOTES:  The ONLY agent that touches platform APIs. Only YouTube is wired at launch.
         A publication is a sensitive action (2026-11-20): the run only asks for it (the socle's request_approval,

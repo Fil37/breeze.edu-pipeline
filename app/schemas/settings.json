@@ -1,0 +1,56 @@
+{
+  "llm_provider": "deepseek",
+  "llm_model": "deepseek-flash",
+  "ollama_model": "llama3.1:8b",
+  "ollama_base_url": "http://localhost:11434/v1",
+  "render_backend_by_channel": {
+    "breeze_(electronics)": "html",
+    "breeze_(physics)": "html",
+    "breeze_(math)": "html",
+    "breeze_(economics)": "html",
+    "breeze_(allemand)": "html"
+  },
+  "publisher": "direct",
+  "youtube_quota_limit": 10000,
+  "enabled_platforms": [
+    "youtube"
+  ],
+  "dry_run": false,
+  "qa_strict_mode": true,
+  "burn_subtitles": true,
+  "voice_by_channel": {
+    "breeze_(electronics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
+    "breeze_(physics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
+    "breeze_(math)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"},
+    "breeze_(economics)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"},
+    "breeze_(allemand)": {"voice_id": "7eVMgwCnXydb3CikjV7a", "name": "Lea - German", "speed": 0.9, "language": "de", "edge": {"voice": "fr-FR-VivienneMultilingualNeural", "rate": "-8%", "foreign_rate": "-18%"}, "words": [300, 335], "words_per_sec": 2.75}
+  },
+  "background_music": true,
+  "music_style_by_channel": {
+    "breeze_(electronics)": "cinematic",
+    "breeze_(physics)": "cinematic",
+    "breeze_(math)": "ambient",
+    "breeze_(economics)": "ambient",
+    "breeze_(allemand)": "ambient"
+  },
+  "banned_visuals": {
+    "all": ["WATER_TANK"]
+  },
+  "watermark_by_channel": {
+    "breeze_(electronics)": "app/assets/brand/breeze_electronics.png",
+    "breeze_(physics)": "app/assets/brand/breeze_physics.png",
+    "breeze_(math)": "app/assets/brand/breeze_math.png",
+    "breeze_(economics)": "app/assets/brand/breeze_economics.png",
+    "breeze_(allemand)": "app/assets/brand/breeze_b.png"
+  },
+  "music_style": "ambient",
+  "sound_effects": true,
+  "max_revisions": 3,
+  "prices": {
+    "currency": "USD",
+    "note": "Prix à tenir à jour à la main (app/costs.py) : relevés de mémoire, à vérifier sur les pages de tarifs de DeepSeek et d'ElevenLabs.",
+    "llm": {"deepseek": {"input_per_million": 0.28, "cached_input_per_million": 0.028, "output_per_million": 0.42},
+            "ollama": {"input_per_million": 0, "output_per_million": 0}},
+    "tts": {"elevenlabs": {"per_thousand_chars": 0.22}, "edge-tts": {"per_thousand_chars": 0}}
+  }
+}

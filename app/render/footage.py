@@ -4,9 +4,9 @@ a few French words of what to film; agent010 finds the clip, cuts it into the sc
 them full-frame behind the scene, darkened, under its titles and badges.
 
 Where a clip comes from, in this order:
-  1. assets/footage/local/: clips put there by hand (.mp4, .webm, .mov), matched by the words of their
+  1. app/assets/footage/local/: clips put there by hand (.mp4, .webm, .mov), matched by the words of their
      file name ("ciel_bleu_nuages.mp4");
-  2. a clip already fetched for the same query (assets/footage/index.json);
+  2. a clip already fetched for the same query (app/assets/footage/index.json);
   3. Pixabay's video search (PIXABAY_API_KEY in .env): only the query's words are sent. A clip is
      taken only if it is rated for everyone (isGRated), not marked low quality, at least MIN_SECONDS
      long, and its tags name no face in the foreground (a portrait, a close-up, a selfie: people far
@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FOOTAGE_DIR = os.path.join(BASE_DIR, "assets", "footage")
+FOOTAGE_DIR = os.path.join(BASE_DIR, "app", "assets", "footage")
 LOCAL_DIR = os.path.join(FOOTAGE_DIR, "local")
 INDEX_PATH = os.path.join(FOOTAGE_DIR, "index.json")
 LOCAL_TYPES = (".mp4", ".webm", ".mov")

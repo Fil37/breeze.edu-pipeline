@@ -564,6 +564,9 @@ STRICT RULES:
 - A GAUGE SHOWS A VALUE: every GAUGE gets its number with set_value, cued on the words that say it; a
   dial with no number means nothing (for an idea with no number: an OBJECT icon or an ARROW_ANNOTATION).
   A count of people is not a gauge: groups of a population are a POPULATION.
+  A GAUGE is a dial: only for a value read on a dial (a pressure, a speed, a temperature, a voltage on a
+  meter); never for a heat, a share, a humidity, a volume or any number that is not measured that way:
+  write that number in a TEX_FORMULA, a TABLE or a label.
 - THE SAME VALUES ALL ALONG: a battery, a price, an object keeps the values the narration gives it
   from one scene to the next (a "Pile 6 V" stays "Pile 6 V"); change them only where the narration does.
 - THINGS IN A GRAPH: an OBJECT, a BODY or a VECTOR_ARROW that belongs to a graph (the Earth at the
@@ -2838,7 +2841,35 @@ def qa_feedback_section():
     return feedback_section(AGENT, "storyboard")
 
 
-def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None, pair=None):
+# What the user does not want to see (settings.json "banned_visuals": {"all": [...], "<channel>": [...]}, component
+# types such as "WATER_TANK" or Lucide icon names such as "cylinder"): never offered to the LLM, sent back if used.
+# The water cycle of 2026-11-21 drew a puddle as a WATER_TANK (a tank with its water level), and the user disliked it.
+def banned_visuals(settings, channel_id):
+    table = (settings or {}).get("banned_visuals") or {}
+    return frozenset(str(v).strip() for v in list(table.get("all") or []) + list(table.get(channel_id) or []) if str(v).strip())
+
+
+def banned_problems(order, briefs, banned):
+    """A banned component type, or an OBJECT with a banned icon, in a scene: sent back with what to do instead."""
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        for e in brief.entities if brief else []:
+            icon = str((e.initial_state or {}).get("icon") or "")
+            if e.type.value in banned or (e.type == ComponentType.OBJECT and icon in banned):
+                what = e.type.value if e.type.value in banned else f'the icon "{icon}"'
+                errors.append(f"scene {scene_id}: {e.id} uses {what}, which the user does not want on this channel: show "
+                              f"the thing another way (another icon, a formula, a label, a graph)")
+    return errors
+
+
+def components_text(banned=frozenset()):
+    return "\n".join(line for line in COMPONENTS_FOR_PROMPT.split("\n")
+                     if not any(line.startswith(f"  * {name}:") for name in banned))
+
+
+def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None, pair=None,
+                       banned=frozenset()):
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
@@ -2854,11 +2885,14 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
     narrations = {s["scene_id"]: s["narration_text"] for s in scenes_for_prompt}
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
-    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(names)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=COMPONENTS_FOR_PROMPT, positions=", ".join(SEMANTIC_POSITIONS),
+    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(n for n in names if n not in banned)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=components_text(banned), positions=", ".join(SEMANTIC_POSITIONS),
                            max_entities=MAX_ENTITIES, max_schematic=MAX_SCHEMATIC, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
                            scenes=json.dumps(scenes_for_prompt, ensure_ascii=False))
+    if banned:
+        qa_section = (f"\n\nNOT WANTED on this channel (the user dislikes them, never use them): {', '.join(sorted(banned))}."
+                      + qa_section)
     prompt = prompt.replace("\n\nAnswer with JSON only", qa_section + "\n\nAnswer with JSON only", 1)
     errors, best = "", None
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -2877,6 +2911,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         coherence += formulas_said(order, briefs, narrations, channel_domain)
         coherence += sentences_moved(order, briefs, narrations, channel_domain)
         coherence += sentence_problems(order, briefs, narrations, channel_domain, pair)
+        coherence += banned_problems(order, briefs, banned)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
@@ -2932,7 +2967,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             scenes_for_prompt, qa_section, None if renderer == "skip" else measure,
             (find_route(routes, channel_id) or {}).get("domain") in FOOTAGE_DOMAINS,
             (find_route(routes, channel_id) or {}).get("domain"),
-            (script["episode"]["wrong_example"], script["episode"]["right_example"]) if script.get("episode") else None)
+            (script["episode"]["wrong_example"], script["episode"]["right_example"]) if script.get("episode") else None,
+            banned_visuals(settings, channel_id))
     except RuntimeError as exc:
         return finish(channel_id, AGENT, "storyboard", "critical", output_path, error=str(exc))
     order = [s["scene_id"] for s in scenes_for_prompt]

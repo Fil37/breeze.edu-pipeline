@@ -33,6 +33,9 @@
     "breeze_(economics)": "ambient",
     "breeze_(allemand)": "ambient"
   },
+  "banned_visuals": {
+    "all": ["WATER_TANK"]
+  },
   "watermark_by_channel": {
     "breeze_(electronics)": "assets/brand/breeze_electronics.png",
     "breeze_(physics)": "assets/brand/breeze_physics.png",

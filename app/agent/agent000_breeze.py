@@ -268,7 +268,8 @@ def run_channel(route, settings, routes, run_id, analytics_status, skip=frozense
     try:
         errors = {name: "; ".join(t["error"] for t in timings if t["agent"] == name and t["error"]) or None
                   for name in statuses}
-        opened = run_supervision.supervise(run_supervision.store(), run_id, channel_id, statuses, errors)
+        opened = run_supervision.supervise(run_supervision.store(), run_id, channel_id, statuses, errors,
+                                           run_rows, revisions)
         if opened:
             print(f"  {channel_id}: {len(opened)} incident(s) opened (see /standup)")
     except Exception as exc:          # noqa: BLE001 (the video is made: supervision only reports)
@@ -324,6 +325,35 @@ def parse_args(argv=None):
     return args
 
 
+MODULES = (agent001_conceptresearcher, agent002_curriculumsimplifier, agent003_scriptwriter, agent004_visualbriefgenerator,
+           agent005_educationqa, agent010_html_renderer, agent007_metadatagenerator, agent008_platformpublisher,
+           agent009_analyticsreader)
+
+
+def start_supervision(settings, run_id, args):
+    """At the start of a run (the studio kit's socle, app/run_supervision.py): runs left 'running' by a dead process
+    closed 'failed'; the startup checks (keys, tools: the only place that sets an agent 'critical'); the day's backup
+    of breeze.db in ~/breeze_backups; the agents' skills and breeze's named checks registered; this run marked
+    'running' (the test launcher refuses to start while it is). Returns (store, its run id), or (None, None): the
+    supervision never stops a run."""
+    try:
+        supervision = run_supervision.store()
+        interrupted = supervision.mark_interrupted_runs()
+        states = run_supervision.startup_checks(supervision, settings)
+        critical = [agent for agent, state in states.items() if state == "critical"]
+        if critical or interrupted:
+            print(f"  supervision: {len(interrupted)} interrupted run(s) closed; critical at start: {', '.join(critical) or 'none'}")
+        backup = run_supervision.daily_backup(supervision)
+        if backup.get("created"):
+            print(f"  supervision: breeze.db backed up to {backup['path']}")
+        run_supervision.register_skills_and_checks(supervision, MODULES)
+        return supervision, supervision.new_run(f"breeze run {run_id}", {"breeze_run": run_id, "channel": args.channel,
+                                                                         "skip": sorted(args.skip)})
+    except Exception as exc:          # noqa: BLE001 (the videos are made: supervision only reports)
+        print(f"WARNING supervision not started: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None, None
+
+
 def main(argv=None):
     args = parse_args(argv)
     settings = load_json(os.path.join(SCHEMAS_DIR, "settings.json"))
@@ -339,6 +369,8 @@ def main(argv=None):
     helpers.RUN_ID = run_id
     print(f"breeze run {run_id}  dry_run={settings.get('dry_run')}  provider={settings.get('llm_provider')}"
           + (f"  channel={args.channel}" if args.channel else "") + (f"  skip={','.join(sorted(args.skip))}" if args.skip else "") + (f"  topic={args.topic!r}" if args.topic else ""))
+
+    supervision, sup_run = start_supervision(settings, run_id, args)
 
     # 1. Analytics first, once, for every channel. Advisory: a critical result stops nothing.
     timings = []
@@ -358,14 +390,22 @@ def main(argv=None):
     print(f"  agent009 (global): {analytics['status']}")
 
     # 2. Each enabled channel, one after the other (or only the --channel one, enabled or not).
+    overalls = []
     for route in routes:
         if args.channel and route["channel_id"] != args.channel:
             continue
         if not route.get("enabled") and not args.channel:
             continue
         statuses, overall = run_channel(route, settings, routes, run_id, analytics["status"], args.skip, args.topic)
+        overalls.append(overall)
         line = " ".join(f"{name[-3:]}:{status}" for name, status in statuses.items())
         print(f"  {route['channel_id']:<22} {overall:<12} {line}")
+    if supervision and sup_run:
+        try:
+            supervision.finish_run(sup_run, "failed" if "critical" in overalls else ("partial" if "not_healthy" in overalls else "succeeded"),
+                                   {"breeze_run": run_id, "channels": len(overalls)})
+        except Exception as exc:      # noqa: BLE001
+            print(f"WARNING supervision: run not closed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

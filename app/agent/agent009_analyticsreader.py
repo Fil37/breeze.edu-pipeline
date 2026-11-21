@@ -18,6 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from app.agent import INSTANCE_DIR, ROWS_PATH, finish, load_json, require_env, run_standalone, save_json
 
 AGENT = "agent009"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "analytics_read", "version": "1.0", "objective": "Read the channels' YouTube analytics",
+     "summary": "Top and saturated topics for agent001; never blocks a run."},
+]
 ESTIMATED_RPM = 1.0  # rough revenue per 1000 views, a placeholder to tune with real payouts
 SATURATION_COUNT = 2  # a concept published this many times (any channel) is saturated
 TOP_TOPICS = 5

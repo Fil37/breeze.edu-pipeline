@@ -9,8 +9,9 @@ inline style. A channel is told by its logo (/logo/<channel_id>: its "watermark_
 settings.json), never by a colour: the kit keeps colours for states.
 The standup is the kit's supervision (app/run_supervision.py on the socle app/supervision.py): what the runs
 cost (app/costs.py's history), each agent's health over time, the open incidents and the recent errors. The
-only thing this interface changes: an incident closed ("Resolved" / "Ignore", a POST checked against the
-"csrf" cookie); closing it does not change the agent's health."""
+only thing this interface changes, by POSTs checked against the "csrf" cookie: an incident closed ("Resolved" / "Ignore",
+which does not change the agent's health), an approval decided (a publication goes up only then, by agent008's
+handler), skill activations proposed."""
 
 import json
 import os
@@ -86,7 +87,16 @@ FRENCH = {
     "No run yet. Start one with": "Aucun passage pour l'instant. Lancez-en un avec", "warnings": "avertissements",
     "agents in all": "agents en tout", "finished cleanly": "terminés proprement", "to look at": "à regarder",
     "healthy": "sain", "warning": "avertissement", "critical": "échec", "revision": "révision", "not run": "pas lancé",
-    "skipped": "sauté", "this interface starts nothing; it only closes incidents.": "cette interface ne lance rien ; elle ne fait que fermer des incidents.",
+    "skipped": "sauté", "this interface starts nothing; it closes incidents and decides approvals.": "cette interface ne lance rien ; elle ferme des incidents et décide des validations.",
+    "Runs in progress": "Runs en cours", "Nothing running.": "Rien en cours.", "Pending approvals": "Validations en attente",
+    "Propose skill activations": "Proposer les activations", "Action": "Action", "Target": "Cible", "Parameters": "Paramètres",
+    "Decision": "Décision", "Approve": "Approuver", "Reject": "Refuser", "No pending approval.": "Aucune validation en attente.",
+    "Skills": "Skills", "Skill": "Skill", "proposed": "proposée", "validated": "validée", "active": "active", "retired": "retirée",
+    "Quality checks": "Contrôles qualité", "Check": "Contrôle", "Outcome": "Résultat", "Count": "Nombre", "pass": "réussi",
+    "kept_despite": "gardé malgré", "No check recorded yet.": "Aucun contrôle enregistré pour l'instant.",
+    "Backups and disk": "Sauvegardes et disque", "No backup yet.": "Aucune sauvegarde pour l'instant.", "instance": "instance",
+    "backups": "sauvegardes", "free": "libre", "Approvals": "Validations", "waiting for you": "en attente de vous",
+    "running": "en cours",
     "Cost of the last run": "Coût du dernier run", "AI": "IA", "voice": "voix", "Costs by day": "Coûts par jour",
     "Day": "Jour", "Runs": "Passages", "Calls": "Appels", "Tokens": "Jetons", "Total": "Total",
     "Agent health": "Santé des agents", "Incidents": "Incidents", "Resolved": "Résolu", "Ignore": "Ignorer",
@@ -201,13 +211,47 @@ def supervision():
 
 @app.route("/standup")
 def standup():
+    from app import supervision as socle
     agents = [a for a in page.AGENT_ORDER]
-    data = supervision().standup(agents)
+    store = supervision()
+    data = store.dashboard(agents)
+    backup_dir = app.config.get("BACKUP_DIR") or run_supervision.BACKUP_DIR
+    data["backups"] = socle.backups(backup_dir, "breeze")
+    data["disk"] = socle.disk_usage({"instance": os.path.dirname(store.db_path), "backups": backup_dir})
     for row in data["agents"]:
         row["name"] = page.AGENT_NAMES.get(row["id"], row["id"])
     for incident in data["incidents"]:
         incident["name"] = page.AGENT_NAMES.get(incident["agent"], incident["agent"])
     return render_template("standup.html", active="standup", supervision=data, costs=page.costs(), **page.standup())
+
+
+def publish_handler(target, parameters):
+    """The project's handler for "publish_video" (agent008): what an approval applies. Nothing else is applied."""
+    from app.agent import agent008_platformpublisher
+    return agent008_platformpublisher.publish_approved(target, parameters)
+
+
+APPROVAL_HANDLERS = {"publish_video": publish_handler}
+
+
+@app.route("/approvals/<int:approval_id>", methods=["POST"])
+def approval_decide(approval_id):
+    """Approve (the handler applies it) or reject a pending approval; CSRF-checked. An action with no handler stays
+    pending: nothing is applied blindly."""
+    check_csrf()
+    try:
+        supervision().decide(approval_id, request.form.get("decision") == "approve", app.config.get("HANDLERS", APPROVAL_HANDLERS))
+    except KeyError:
+        abort(404)
+    return redirect(url_for("standup") + "#approvals")
+
+
+@app.route("/skills/propose", methods=["POST"])
+def propose_skills():
+    """One approval "activate_skill" per skill not active yet."""
+    check_csrf()
+    supervision().propose_skill_activations()
+    return redirect(url_for("standup") + "#approvals")
 
 
 @app.route("/incidents/<int:incident_id>/close", methods=["POST"])

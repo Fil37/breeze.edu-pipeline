@@ -39,6 +39,14 @@ from app.agent import (INSTANCE_DIR, channel_dir, db_connect, find_route, finish
 from app import provenance
 
 AGENT = "agent001"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "topic_research", "version": "1.0", "objective": "Choose a topic the channel has not made, with sourced facts",
+     "summary": "LLM proposal checked for novelty against breeze.db (key words, then the LLM)."},
+    {"skill_id": "curriculum_episode", "version": "1.0", "objective": "Take the next episode of a channel's programme",
+     "summary": "No LLM: the first episode not made yet in schemas/german_curriculum.json, reviews left out."},
+]
 EMPTY_ANALYTICS = {"top_topics": [], "saturated_topics": [], "by_channel": {}}
 TOPIC_ENV = "LBREEZE_TOPIC"      # an imposed topic (set by --topic), for reproducible runs
 

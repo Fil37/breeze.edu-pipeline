@@ -33,6 +33,12 @@ from app import provenance
 from app.qa_feedback import feedback_section
 
 AGENT = "agent003"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "narration_script", "version": "1.0", "objective": "Write the spoken narration, scene by scene",
+     "summary": "Pace and length per channel; acronyms said in full; one example per scene for German."},
+]
 MIN_SCENE_WORDS = 15      # below this a scene's audio is too short for its animations
 WORDS_PER_SEC = 3.1       # the narrator's pace (ElevenLabs at speed 1.12: 3.0 to 3.3 measured on the run of 2026-11-02)
 MIN_WORDS = 280           # in all the scenes: under this the video is shorter than 90 s at that pace

@@ -63,6 +63,14 @@ from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, LOGIC_GATES
                                         DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, OBJECT_ICONS, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "visual_storyboard", "version": "1.0", "objective": "Turn each scene into a visual brief the renderer can draw",
+     "summary": "Checked for coherence with the narration and measured on the page before the render."},
+    {"skill_id": "german_sentences", "version": "1.0", "objective": "Show German word order happening on SENTENCE pieces",
+     "summary": "Wrong orders marked, the said sentence shown whole, verdicts timed on the move."},
+]
 KNOWN_RENDERERS = ("html", "skip")       # "html": agent010 draws it (default); "manim" is read as "html" (retired)
 MAX_ATTEMPTS = 3          # 1 call + 2 retries; each attempt is one LLM call
 MAX_ERROR_CHARS = 2000    # errors sent back to the LLM on a retry

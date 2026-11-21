@@ -1,4 +1,4 @@
-"""Tests of the supervision base (app/supervision.py, the studio kit's socle v1.0 copied as is; no network, no
+"""Tests of the supervision base (app/supervision.py, the studio kit's socle 2.0 copied as is; no network, no
 cost). Prints PASS / FAIL per case, like breeze's other tests:
     .venv/bin/python tests/test_supervision.py
 """
@@ -121,6 +121,156 @@ def test_standup_data_for_the_page():
     assert data["tiles"][0]["value"] == "1/2" and data["tiles"][1]["value"] == "$0.003"
     assert data["incidents"][0]["message"] == "too long" and data["costs"][0]["calls"] == 2
     assert [a["state"] for a in data["agents"]] == ["unknown", "healthy"]
+
+
+def test_model_profiles_by_purpose():
+    """LLM_PROFILE (auto_clip 'mixed'): one purpose of one agent uses another model under a profile chosen per run;
+    the record keeps the model really used and its price; an unknown profile is refused before any call."""
+    pricing = dict(PRICING, peak=dict(PRICING["peak"], pro={"input_hit": 1, "input_miss": 4, "output": 12}))
+    seen = []
+    c = sv.LLMClient(dict(PROVIDER, pricing=pricing), MODEL, "agent002", profile="mixed",
+                     profiles={"mixed": {"agent002": {"select": {"model": "pro"}}}},
+                     transport=lambda u, h, b, t: (seen.append(b["model"]), ok_answer({"x": 1}))[1])
+    c.chat_json([], purpose="select")
+    c.chat_json([], purpose="package")
+    assert seen == ["pro", "m"] and [r["model"] for r in c.calls] == ["pro", "m"]
+    assert c.calls[0]["estimated_cost"] > c.calls[1]["estimated_cost"]
+    try:
+        sv.LLMClient(PROVIDER, MODEL, "a", profile="turbo", profiles={})
+        raise AssertionError("no error")
+    except ValueError:
+        pass
+
+
+def test_skills_and_their_approval():
+    """Skills declared by an agent start 'proposed'; re-declaring keeps the user's decision; activation goes through
+    an approval (one pending per skill); 'approved' makes it active."""
+    s = store()
+    s.register_skills("agent002", [{"skill_id": "SK_SELECT", "version": "1", "objective": "pick passages"}])
+    assert [k["status"] for k in s.skills()] == ["proposed"]
+    assert s.propose_skill_activations() == 1 and s.propose_skill_activations() == 0
+    aid = s.approvals()[0]["approval_id"]
+    assert s.decide(aid, True) == {"applied": True}
+    s.register_skills("agent002", [{"skill_id": "SK_SELECT", "version": "1", "objective": "new text"}])
+    k = s.skills()[0]
+    assert k["status"] == "active" and k["objective"] == "new text" and s.approvals() == []
+
+
+def test_approvals_apply_only_with_a_handler():
+    """A sensitive action waits for the user with its target and parameters; approving calls the project's handler;
+    an approved action without a handler is refused and stays pending (nothing applied blindly); rejecting applies
+    nothing; every decision is logged."""
+    s = store()
+    done = []
+    aid = s.request_approval("remove_source", "video.mp4", {"bytes": 12})
+    assert s.request_approval("remove_source", "video.mp4", {}) is None
+    try:
+        s.decide(aid, True)
+        raise AssertionError("no error")
+    except KeyError:
+        pass
+    assert s.approvals()[0]["parameters"] == {"bytes": 12}
+    out = s.decide(aid, True, handlers={"remove_source": lambda target, p: (done.append(target), {"applied": True})[1]})
+    assert out == {"applied": True} and done == ["video.mp4"]
+    rid = s.request_approval("remove_source", "other.mp4", {})
+    assert s.decide(rid, False) == {"applied": False} and done == ["video.mp4"]
+    with s.connect() as c:
+        assert [r[0] for r in c.execute("SELECT code FROM events ORDER BY event_id")] == ["approval_approved", "approval_rejected"]
+
+
+def test_quality_checks_and_ratings():
+    """Named checks cite their real case; outcomes are counted per check (pass / corrected / kept_despite); an
+    unknown check is kept, not lost; the latest rating of an item counts."""
+    s = store()
+    s.register_check("ENDING_COMPLETE", "agent002", "end on a full sentence", "87 of 105 rejections were ends_unresolved")
+    n = s.record_outcomes("r1", [{"check": "ENDING_COMPLETE", "outcome": "corrected"},
+                                 {"check": "ENDING_COMPLETE", "outcome": "pass"}, {"check": "NEW_ONE", "outcome": "pass"}])
+    summary = {(x["check_id"], x["outcome"]): x["count"] for x in s.check_summary()}
+    assert n == 3 and summary == {("ENDING_COMPLETE", "corrected"): 1, ("ENDING_COMPLETE", "pass"): 1, ("NEW_ONE", "pass"): 1}
+    s.rate("clip1", "bad")
+    s.rate("clip1", "good", "fixed")
+    s.rate("clip2", "good")
+    assert s.ratings_summary() == {"good": 2, "bad": 0}
+
+
+def test_runs_tasks_stages_and_interrupted_runs():
+    """Runs and tasks with their states; the stepper shows 'reused' for a first step skipped while the next ones
+    went on (auto_clip); a run left 'running' by a dead process is closed 'failed' at start, never a live one."""
+    s = store()
+    rid = s.new_run("Video A", {"clips": 5})
+    t1 = s.new_task(rid, "agent001", "transcribe")
+    s.set_task(t1, "skipped", "reused from run X")
+    t2 = s.new_task(rid, "agent002", "select")
+    s.set_task(t2, "running")
+    stages = s.stage_states(rid, [("agent001", "Transcribe"), ("agent002", "Select"), ("agent003", "Review")])
+    assert [x["state"] for x in stages] == ["reused", "running", "pending"]
+    s.set_task(t2, "succeeded")
+    s.finish_run(rid, "succeeded", {"clips": 5})
+    with s.connect() as c:
+        c.execute("UPDATE sup_runs SET status='running', owner_pid=999999999 WHERE run_id=?", (rid,))
+    assert s.mark_interrupted_runs() == [rid]
+    live = s.new_run("Video B")                       # owner = this process, alive
+    assert s.mark_interrupted_runs() == [] and live
+
+
+def test_trash_restore_and_purge():
+    """RUN_TRASH: a finished run goes to the trash with a purge date, can be restored, and is erased only once the
+    date has passed (the project's erase function is called; rows are kept); a running run cannot be deleted."""
+    from datetime import timedelta
+    s = store()
+    rid = s.new_run("Video A")
+    try:
+        s.trash_run(rid)
+        raise AssertionError("no error")
+    except RuntimeError:
+        pass
+    s.finish_run(rid, "succeeded")
+    s.trash_run(rid, days=7)
+    assert rid in s.trashed_runs() and s.restore_run(rid) and s.trashed_runs() == {}
+    s.trash_run(rid, days=7)
+    erased = []
+    assert s.purge_trash(lambda r: erased.append(r) or 10) == []
+    later = datetime.now(timezone.utc) + timedelta(days=8)
+    assert s.purge_trash(lambda r: erased.append(r) or 10, now=later) == [rid] and erased == [rid]
+    assert s.trashed_runs() == {}
+
+
+def test_operations_backup_startup_disk_brief_and_guard():
+    """Daily backup verified (integrity_check) and private, not redone the same day; startup checks are the only
+    place that sets 'critical' (a failing check too); disk sizes; repair brief; the test guard sees a real running
+    run and an extra condition (e.g. a live recording)."""
+    import os
+    s = store()
+    folder = Path(tempfile.mkdtemp()) / "backups"
+    b1 = s.backup_database(folder, "proj")
+    assert b1["created"] and b1["integrity"] == "ok" and oct(os.stat(b1["path"]).st_mode)[-3:] == "600"
+    assert s.backup_database(folder, "proj")["created"] is False and sv.backups(folder, "proj")[0]["name"].startswith("proj_")
+    states = s.startup_check({"agent001": lambda: ("healthy", "tool ok"), "agent002": lambda: ("critical", "key missing"),
+                              "agent003": lambda: 1 / 0})
+    assert states == {"agent001": "healthy", "agent002": "critical", "agent003": "critical"}
+    du = sv.disk_usage({"base": folder})
+    assert du["base"] > 0 and du["free"] > 0
+    iid = s.open_incident(agent_id="agent001", category="software_failure", errors=["boom"], run_id="r1")
+    assert "Incident" in s.repair_brief(iid, {"agent001": "app/agent/agent001.py"}) and "agent001.py" in s.repair_brief(iid, {"agent001": "app/agent/agent001.py"})
+    rid = s.new_run("busy")
+    assert rid in sv.busy_runs(s.db_path)
+    assert "rec1" in sv.busy_runs(s.db_path, ("SELECT 'rec1'",))
+
+
+def test_dashboard_has_everything():
+    """dashboard() = standup() + runs in progress and recent (trash marked), skills, pending approvals, quality
+    checks, ratings, and an Approvals tile."""
+    s = store()
+    rid = s.new_run("Video A")
+    s.register_skills("agent002", [{"skill_id": "SK", "version": "1"}])
+    s.propose_skill_activations()
+    s.record_outcomes(rid, [{"check": "C", "outcome": "pass"}])
+    s.rate("x", "good")
+    d = s.dashboard(["agent002"])
+    assert [r["run_id"] for r in d["runs_active"]] == [rid] and d["runs_recent"][0]["trash"] is None
+    assert len(d["skills"]) == 1 and len(d["approvals"]) == 1 and d["checks"][0]["count"] == 1
+    assert d["ratings"] == {"good": 1, "bad": 0} and d["tiles"][-1] == {"label": "Approvals", "value": 1,
+                                                                      "sub": "waiting for you", "tone": "warn"}
 
 
 if __name__ == "__main__":

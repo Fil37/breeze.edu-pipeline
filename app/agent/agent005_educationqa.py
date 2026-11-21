@@ -49,6 +49,12 @@ from models.visual_brief_schema import (COMPONENT_PORTS, ComponentType, SceneVis
                                         emphasis_problem, move_problem)
 
 AGENT = "agent005"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "education_qa", "version": "1.0", "objective": "Review accuracy, simplicity and clarity of the video",
+     "summary": "Pass, or reject to agent003/agent004 with blocking issues; domain rules per channel."},
+]
 PASS_SCORE = 7             # a score at this level passes, with a warning; below it fails
 SWITCH_LEAD_SEC = 0.6      # an inserted "close the switch" comes this long before the flow
 LAMP_DELAY_SEC = 0.5       # a lamp lights up this long after current starts through it

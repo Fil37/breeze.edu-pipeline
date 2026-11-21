@@ -18,6 +18,12 @@ from app.agent import (channel_dir, find_route, finish, llm_call, load_json,
 from app import provenance
 
 AGENT = "agent002"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "learning_outline", "version": "1.0", "objective": "Build the learning arc, from the misconception to the aha moment",
+     "summary": "Formats: concept, project, problem, course; five acts for an exam error."},
+]
 
 PROMPT = """You are a curriculum designer. Turn this research into a learning arc for age {age}.
 Research: {research}

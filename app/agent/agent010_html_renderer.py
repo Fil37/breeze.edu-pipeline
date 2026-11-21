@@ -82,6 +82,12 @@ from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL
 from app.tts_manager import media_duration
 
 AGENT = "agent010"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "html_render", "version": "1.0", "objective": "Render each scene as a web page, frame by frame, with its voice-over",
+     "summary": "Playwright frames + ffmpeg; voice by ElevenLabs or edge-tts, German examples said apart; -16 LUFS."},
+]
 THEME = "light"          # the default when no channel theme is given: "light" or "dark" design tokens
 # Each channel's theme: its colours (design tokens), its animated background, its fonts and the style
 # of its titles. Fixed here, never from the LLM; the page checks every colour is a "#RRGGBB".

@@ -191,3 +191,9 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
+
+## Fluent Emoji 3D images
+
+- Source: https://github.com/microsoft/fluentui-emoji (the `3D/*.png` images only, a selection)
+- Where: `assets/fluent_3d/` (the list in `app/render/fluent3d.py`)
+- License: MIT, Copyright (c) Microsoft Corporation, full text in `assets/fluent_3d/LICENSE`

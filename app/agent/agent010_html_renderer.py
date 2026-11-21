@@ -533,6 +533,8 @@ def simple_data(kind, state):
         out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1), output=state.get("output") is True)
     elif kind == "SENTENCE":
         out.update(sentence_data(state, width))
+    elif kind == "CARD_SCENE":
+        out.update(card_scene_data(state, width, height))
     elif kind == "REAL_PART":
         out.update(real_part_data(state, width, height))
     return out
@@ -563,6 +565,75 @@ SENTENCE_STYLE = {    # role -> (colour, French label shown under the tile; None
     "object": ("#10B981", "complément"), "other": ("#64748B", None), "punct": ("#64748B", None),
 }
 SENTENCE_GAP = 18
+
+
+CARD_TONES = {"blue": "#2563EB", "red": "#E11D48", "green": "#059669", "amber": "#D97706", "violet": "#7C3AED",
+              "neutral": "#475569"}
+
+
+def wrap_text(text, per_line):
+    """Words into lines of at most `per_line` characters (a word longer than that keeps its own line)."""
+    lines, line = [], ""
+    for word in str(text or "").split():
+        if line and len(line) + 1 + len(word) > per_line:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    return lines + ([line] if line else [])
+
+
+def card_scene_data(state, width, height):
+    """CARD_SCENE (trial 2026-11-21): 1 to 4 cards in a row, each a Lucide icon (app/render/icons.find_icon: a
+    Lucide name or a plain word) in its tone, a title and a short text wrapped here; links as arrows between cards
+    (above the row when the cards are not neighbours); the highlighted word underlined on its line."""
+    from app.render.icons import find_icon
+    cards, links_in = state["cards"], state.get("links") or []
+    n = len(cards)
+    gap = 120 if any(abs(k["to"] - k["from"]) == 1 for k in links_in) else 44     # room for an arrow and its word
+    arc = any(abs(k["to"] - k["from"]) > 1 for k in links_in)
+    # fewer cards, bigger ones (the volcano trial of 2026-11-21: two small cards in an empty frame): up to 1.4x
+    card_w = min({1: 540, 2: 480}.get(n, 380), (width - 80 - gap * (n - 1)) / n)
+    k = round(min(1.4, max(1.0, card_w / 380)), 3)
+    x0 = (width - (card_w * n + gap * (n - 1))) / 2
+    highlight = str(state.get("highlight") or "").lower()
+    keys = [w for w in re.split(r"\W+", highlight) if len(w) > 2]
+    laid = []
+    for c in cards:
+        title = wrap_text(c["title"], max(10, int(card_w / (19 * k))))[:2]
+        text = wrap_text(c.get("text") or "", max(12, int(card_w / (13.5 * k))))[:4]
+        laid.append((title, text))
+    # one height for the row: the tallest card's content (icon, title lines, text lines), centred in the piece
+    base_h = max(236 + len(t) * 40 + len(x) * 34 + 30 for t, x in laid)
+    k = min(k, max(1.0, (height - 40) / base_h))         # never taller than the piece
+    card_h = round(k * base_h, 1)
+    top = max(100 if arc else 30, (height - card_h) / 2)
+    out_cards = []
+    for i, c in enumerate(cards):
+        colour = CARD_TONES.get(c.get("tone") or "neutral", CARD_TONES["neutral"])
+        icon = c["icon"] if fluent3d.png_path(c["icon"]) else find_icon(c["icon"])   # in relief when there is one
+        title, text = laid[i]
+        whole = " ".join(text).lower()
+        # the highlighted words underlined on every line they reach (a phrase may run over two lines)
+        marked = [j for j, line in enumerate(text) if highlight and highlight in whole
+                  and any(k in line.lower() for k in keys)]
+        out_cards.append({"x": round(x0 + i * (card_w + gap), 1), "y": round(top, 1), "w": round(card_w, 1), "h": card_h, "k": k,
+                          "colour": colour, "icon": icon, "icon_uri": icon_data_uri(icon, colour),
+                          "title": title, "text": text, "marked": marked})
+    links = []
+    for k in links_in:
+        a, b = out_cards[k["from"]], out_cards[k["to"]]
+        forward = k["to"] > k["from"]
+        if abs(k["to"] - k["from"]) == 1:          # neighbours: a straight arrow across the gap, at mid height
+            y = top + 105
+            x1, x2 = (a["x"] + a["w"], b["x"]) if forward else (a["x"], b["x"] + b["w"])
+            links.append({"d": f"M{x1 + 8:.1f} {y:.1f} L{x2 - 8:.1f} {y:.1f}", "end": [x2 - 8, y],
+                          "dir": 1 if forward else -1, "label": k.get("label") or "", "lx": (x1 + x2) / 2, "ly": y - 22})
+        else:                                       # further: an arc above the row
+            ax, bx = a["x"] + a["w"] / 2, b["x"] + b["w"] / 2
+            links.append({"d": f"M{ax:.1f} {top - 2} Q{(ax + bx) / 2:.1f} {top - 90} {bx:.1f} {top - 2}", "end": [bx, top - 2],
+                          "dir": 0, "label": k.get("label") or "", "lx": (ax + bx) / 2, "ly": top - 52})
+    return {"cards": out_cards, "links": links}
 
 
 def sentence_data(state, width):
@@ -2402,6 +2473,31 @@ function buildSimple(ent) {
       }
       Object.assign(box.style, {left: "0px", width: `${z.pane - 40}px`, opacity: 0});
       shape.append(box); return box; });
+  } else if (z.kind === "CARD_SCENE") {
+    // trial 2026-11-21: cards drawn by the program from the LLM's data (icon, title, text, tone); texts as text only
+    p.cards = z.cards.map(c => { const g = sv("g", {opacity: 0}, s);
+      const box = sv("rect", {x: c.x, y: c.y, width: c.w, height: c.h, rx: 18, fill: "var(--card)", stroke: c.colour,
+                              "stroke-width": 2.5}, g);
+      sv("rect", {x: c.x, y: c.y, width: c.w, height: 10, rx: 5, fill: c.colour}, g);
+      const k = c.k || 1;       // the card's scale (bigger when there are only one or two)
+      sv("circle", {cx: c.x + c.w / 2, cy: c.y + 105 * k, r: 66 * k, fill: c.colour, opacity: 0.12}, g);
+      sv("image", {href: c.icon_uri, x: c.x + c.w / 2 - 48 * k, y: c.y + 57 * k, width: 96 * k, height: 96 * k}, g);
+      c.title.forEach((line, j) => { const t = txt(g, c.x + c.w / 2, c.y + (222 + j * 40) * k, line, "middle", "big");
+        Object.assign(t.style, {fontSize: `${34 * k}px`, fontWeight: 700}); });
+      const y0 = c.y + (222 + c.title.length * 40 + 14) * k;
+      const marks = [];
+      c.text.forEach((line, j) => {
+        if (c.marked.includes(j)) marks.push(sv("rect", {x: c.x + 24, y: y0 + (j * 34 - 24) * k, width: 0, height: 32 * k, rx: 6,
+                                                    fill: c.colour, opacity: 0.22, "data-w": c.w - 48}, g));
+        const t = txt(g, c.x + c.w / 2, y0 + j * 34 * k, line, "middle", "note");
+        Object.assign(t.style, {fontSize: `${25 * k}px`}); });
+      return {g, box, marks}; });
+    p.links = z.links.map(k => { const g = sv("g", {opacity: 0}, s);
+      sv("path", {d: k.d, fill: "none", stroke: "var(--ink)", "stroke-width": 3.5, "stroke-linecap": "round"}, g);
+      const [ex, ey] = k.end, d = k.dir;
+      sv("path", {d: d ? `M${ex} ${ey} l${-16 * d} -9 v18 Z` : `M${ex} ${ey} l-9 -16 h18 Z`, fill: "var(--ink)"}, g);
+      if (k.label) { const t = txt(g, k.lx, k.ly, k.label, "middle", "note"); t.style.fontSize = "24px"; }
+      return g; });
   } else if (z.kind === "SENTENCE") {
     // word tiles on one line, each coloured by its role (sentence_data), its role named under it; the French
     // meaning under the line. The tiles are placed in seekSimple from the order of the moment.
@@ -2524,6 +2620,21 @@ function seekSimple(e, t) {
       const g = p.notes[i], on = g && g.page === page && last === i + 1;
       if (on && !box.placed) { box.style.top = `${clamp(g.y - box.offsetHeight / 2, 0, Math.max(0, z.height - box.offsetHeight))}px`; box.placed = true; }
       box.style.opacity = on ? ks[i + 1] : 0; });
+
+  } else if (z.kind === "CARD_SCENE") {
+    const focus = lastState(e, t, "focus"), linked = lastState(e, t, "link");
+    const linksTimed = e.states.some(st => st.state && Number.isInteger(st.state.link));
+    p.cards.forEach((c, i) => { const k = ease(inTurn(e, "step", i), 0.55), lift = easeInOut(k);
+      c.g.setAttribute("opacity", k);
+      const big = focus === i ? 1.04 : 1, cx = z.cards[i].x + z.cards[i].w / 2, cy = z.cards[i].y + z.cards[i].h / 2;
+      c.g.setAttribute("transform", `translate(${cx} ${cy + 26 * (1 - lift)}) scale(${big}) translate(${-cx} ${-cy})`);
+      c.box.setAttribute("stroke-width", focus === i ? 5 : 2.5);
+      c.marks.forEach(m => m.setAttribute("width", (Number(m.getAttribute("data-w")) * ease(inTurn(e, "step", i) + 0.7, 0.6)).toFixed(1))); });
+    p.links.forEach((g, k) => { const link = z.links[k];
+      const asked = e.states.find(st => st.at >= 0 && st.state && Number.isInteger(st.state.link) && st.state.link >= k);
+      const shown = linksTimed ? (asked && Number.isInteger(linked) && linked >= k ? ease(asked.at, 0.5) : 0)
+                               : ease(inTurn(e, "step", Math.max(z.cards.length - 1, 0)) + 0.6 + 0.5 * k, 0.5);
+      g.setAttribute("opacity", shown); });
   } else if (z.kind === "SENTENCE") {
     // the words slide from the order before to the order set last (SENTENCE_MOVE s); a word that jumps over
     // others goes over them in an arc; a word left out fades away, a new one fades in at its place

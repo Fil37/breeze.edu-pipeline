@@ -460,6 +460,10 @@ ends are on screen; `start_flow` closes any open switch on its path first.
   0.8 units inside the frame. Wires are routed with right angles around components and labels.
 - **Timing:** an action with a `cue` starts when the voice says those words; the others have their
   time stretched to the real voice length.
+- **A thing no piece shows (`CARD_SCENE`):** 1 to 4 cards (icon, French title and text, tone), links between them
+  and an underlined word, drawn by the program. The icon is an OBJECT icon (in relief) or a Lucide name; an
+  unknown one is sent back with close names. Chosen on 2026-11-21 over letting the LLM draw its own SVG, by an
+  A/B trial on the same scripts (more readable, cheaper, better QA): the LLM still never gives drawing code.
 - **Real parts (electronics channel only):** `REAL_PART` shows one part as it looks in the hand (resistor,
   LED, capacitors, transistor, diode, batteries, potentiometer, switch, push button, motor, LDR, Arduino Uno,
   breadboard), from the Fritzing parts library (`assets/fritzing/`, CC BY-SA 3.0, `app/render/fritzing.py`).

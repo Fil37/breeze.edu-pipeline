@@ -56,6 +56,7 @@ from app.language_examples import QUESTION_WORDS, SUBORDINATORS, foreign_quotes,
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
+from app.render import fluent3d
 from app.render import footage as film
 from app.render.footage import clean_query, query_problem
 from app.render.layout_check import measured_conflicts
@@ -170,6 +171,12 @@ STATES = {
                             'l\'allemand"} (2 to 14 words, written in correct German; role: subject, verb, conjunction, '
                             'object, other, punct; "order": the words shown first, default all; "label": a short French '
                             'caption over it, "verdict": "wrong" (a red cross) or "right" (a green tick))',
+    ComponentType.CARD_SCENE: '{"step": n} the first n cards in (on the words that name each); {"link": k} link k drawn; '
+                              '{"focus": i} card i picked out; initial_state {"cards": [{"icon": "orbit", "title": "La '
+                              'Lune", "text": "tombe sans cesse", "tone": "blue"}], "links": [{"from": 0, "to": 1, "label": '
+                              '"attire"}], "highlight": "tombe"} (1 to 4 cards; icon: a Lucide icon name from the list '
+                              'below; title 28 characters, text 90, in French; tone blue, red, green, amber, violet or '
+                              'neutral; 0 to 3 links; highlight: a word written on a card, underlined)',
     ComponentType.CHAIN: '{"step": n} the first n boxes and their arrows (never given: one after the other); {"focus": i} '
                          'picks one out; initial_state {"steps": ["Taux en hausse", "Crédit plus cher", "Moins '
                          'd\'investissement"], "loop": false} (2 to 6 short steps; "loop": true, a cycle back to the first)',
@@ -275,6 +282,34 @@ ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_val
            "emphasize")
 SEMANTIC_POSITIONS = ("TOP_LEFT", "TOP", "TOP_RIGHT", "LEFT", "CENTER", "RIGHT",
                       "BOTTOM_LEFT", "BOTTOM", "BOTTOM_RIGHT")
+# For a thing no piece shows: CARD_SCENE, cards the program draws. Chosen over the LLM drawing its own SVG by the
+# A/B trial of 2026-11-21 on the same scripts (orbit, water cycle, volcano): more readable, cheaper, better QA.
+CARD_RULE = """  * a thing NO other piece shows (an object, a place, a living thing, a process with no piece of its own: a
+    volcano, an orbit, the stomach, the water cycle): ONE CARD_SCENE, 1 to 4 cards, never another piece bent into
+    it. Each card: an icon (a name of the OBJECT icons above, drawn in relief; else a Lucide icon name), a short
+    French title and text; links for a process ("donc", "attire"); {"step": n} on the words that name each card.
+    Only when no other piece fits: a circuit, a graph, a formula, a table... stay theirs."""
+
+
+def card_problems(order, briefs):
+    """A card whose icon is neither an OBJECT icon (3D) nor a Lucide icon: sent back with close names (never a "?"
+    on screen)."""
+    from app.render.icons import FALLBACK, find_icon, near
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        for e in brief.entities if brief else []:
+            if e.type != ComponentType.CARD_SCENE:
+                continue
+            for card in e.initial_state.get("cards") or []:
+                icon = card.get("icon") if isinstance(card, dict) else None
+                if isinstance(card, dict) and not fluent3d.png_path(icon) and find_icon(icon) == FALLBACK:
+                    close = near(icon) or ["circle", "box", "sparkles"]
+                    errors.append(f'scene {scene_id}: {e.id}: no icon "{icon}": pick an OBJECT icon or a Lucide name, '
+                                  f'e.g. {", ".join(close)}')
+    return errors
+
+
 COMPONENTS_FOR_PROMPT = "\n".join(f"  * {t.value}: ports {list(PORTS[t]) or 'none'}, set_state {STATES[t]}"
                                   for t in PORTS)
 
@@ -489,6 +524,7 @@ STRICT RULES:
   * figures to read side by side (a budget, national accounts, a balance sheet, statistics, a proportion
     table): ONE TABLE, its rows in on the words that give them; a total is {{"total": true}}, never a
     sum written in a cell. Not a set of GAUGE or icon cards for a table of numbers.
+{card_rule}
   * a sentence in a foreign language (German) whose word order is explained (the verb in second place,
     sent to the end after weil / dass / wenn, a prefix at the end, the subject after the verb): ONE
     SENTENCE with every word of the example and its role, {{"order": [...]}} on the words that move them
@@ -2895,7 +2931,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
     narrations = {s["scene_id"]: s["narration_text"] for s in scenes_for_prompt}
     order = [s["scene_id"] for s in scenes_for_prompt]
     eligible = layout_eligibility(narrations)
-    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(n for n in names if n not in banned)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=components_text(hidden), positions=", ".join(SEMANTIC_POSITIONS),
+    prompt = PROMPT.format(object_icons="; ".join(f"{theme}: {', '.join(n for n in names if n not in banned)}" for theme, names in OBJECT_ICONS.items()), maths=", np.".join(SAFE_MATH_FUNCTIONS), components=components_text(hidden), card_rule=CARD_RULE, positions=", ".join(SEMANTIC_POSITIONS),
                            max_entities=MAX_ENTITIES, max_schematic=MAX_SCHEMATIC, max_formulas=MAX_FORMULAS, max_over_footage=MAX_OVER_FOOTAGE, max_circuit=circuit_cap(len(order)),
                            layout_eligibility="\n".join(f"  scene {i}: {', '.join(eligible[i])}" for i in order),
                            actions=", ".join(ACTIONS), schema=json.dumps(SceneVisualBrief.model_json_schema()),
@@ -2922,6 +2958,7 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         coherence += sentences_moved(order, briefs, narrations, channel_domain)
         coherence += sentence_problems(order, briefs, narrations, channel_domain, pair)
         coherence += banned_problems(order, briefs, hidden)
+        coherence += card_problems(order, briefs)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}

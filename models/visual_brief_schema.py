@@ -69,6 +69,7 @@ class ComponentType(str, Enum):
     BAR_CHART = "BAR_CHART"                  # values as bars to one scale, growing in turn, a reference line
     EQUATION_STEPS = "EQUATION_STEPS"        # an equation solved line after line, what is done to both sides on each arrow
     SENTENCE = "SENTENCE"                    # a sentence as word tiles coloured by role: words slide to a new place (German word order)
+    CARD_SCENE = "CARD_SCENE"                # a thing no piece shows, as 1-4 cards (icon, title, text), drawn by the program
     REAL_PART = "REAL_PART"                  # an electronic part as it looks in the hand (Fritzing): a resistor and its colour bands...
     POWER_SUPPLY = "POWER_SUPPLY"            # a bench power supply: its voltage, its current limit, its output on, constant voltage / current
     FREE_BODY = "FREE_BODY"                  # a body and the forces on it, to scale: axes, projections, the resultant, the motion
@@ -131,6 +132,7 @@ COMPONENT_PORTS = {
     ComponentType.WAVE: (),
     ComponentType.TABLE: (),
     ComponentType.SENTENCE: (),
+    ComponentType.CARD_SCENE: (),
     ComponentType.REAL_PART: (),
     ComponentType.FREE_BODY: (),
     ComponentType.KINEMATICS: (),
@@ -508,8 +510,46 @@ def sentence_order_problem(order, count):
     return None
 
 
+# The two fallbacks compared on the branch essai/objets-libres (2026-11-21), for a thing no piece shows (the QA's
+# "unsupported", the closed orbit of the physics run): only one is offered to the LLM at a time (LBREEZE_FALLBACK).
+# CARD_SCENE: initial_state {"cards": [{"icon": "orbit", "title": "La Lune", "text": "tombe sans cesse", "tone":
+# "blue"}], "links": [{"from": 0, "to": 1, "label": "attire"}], "highlight": "tombe"} (1 to 4 cards; icon a Lucide
+# name, an OBJECT icon name (drawn in relief) or a plain English word, the program picks the icon; title 28 characters, text 90; tone one of CARD_TONES;
+# 0 to 3 links between cards; highlight a word of a card, underlined). set_state {"step": n} the first n cards in
+# (default: one after the other); {"link": k} link k drawn; {"focus": i} card i picked out.
+CARD_TONES = ("blue", "red", "green", "amber", "violet", "neutral")
+
+
+def card_scene_problem(state):
+    cards = state.get("cards")
+    problem = _short_texts(cards, 1, 4, 'CARD_SCENE "cards"')
+    if problem:
+        return problem
+    for c in cards:
+        if not (isinstance(c, dict) and isinstance(c.get("icon"), str) and 0 < len(c["icon"]) <= 40
+                and isinstance(c.get("title"), str) and 0 < len(c["title"].strip()) <= 28
+                and (c.get("text") is None or isinstance(c["text"], str) and len(c["text"]) <= 90)
+                and c.get("tone", "neutral") in CARD_TONES):
+            return (f'CARD_SCENE card {str(c)[:120]}: {{"icon": "orbit" (a Lucide name or an English word), "title": '
+                    f'28 characters, "text": 90 characters, "tone": one of {list(CARD_TONES)}}}')
+    links = state.get("links") or []
+    if not (isinstance(links, list) and len(links) <= 3 and all(
+            isinstance(k, dict) and isinstance(k.get("from"), int) and isinstance(k.get("to"), int)
+            and 0 <= k["from"] < len(cards) and 0 <= k["to"] < len(cards) and k["from"] != k["to"]
+            and (k.get("label") is None or isinstance(k["label"], str) and len(k["label"]) <= 20) for k in links)):
+        return f'CARD_SCENE "links": 0 to 3 of {{"from": i, "to": j, "label": 20 characters}} between cards 0..{len(cards) - 1}'
+    highlight = state.get("highlight")
+    if highlight is not None:
+        texts = " ".join(f"{c['title']} {c.get('text') or ''}" for c in cards).lower()
+        if not (isinstance(highlight, str) and highlight.strip() and highlight.lower() in texts):
+            return f'CARD_SCENE "highlight": a word written on a card, got {highlight!r}'
+    return None
+
+
 def simple_piece_problem(kind, state):
     """Why a simple catalogue piece's initial_state is wrong (see above), or None."""
+    if kind == "CARD_SCENE":
+        return card_scene_problem(state)
     if kind == "SENTENCE":
         words = state.get("words")
         problem = _short_texts(words, 2, 14, 'SENTENCE "words"')
@@ -692,7 +732,7 @@ def phys_piece_problem(kind, state):
 
 
 SIMPLE_PIECES = ("TIMELINE", "FRACTION_BAR", "PIE_CHART", "UNIT_CONVERTER", "TREE", "SET_DIAGRAM", "GAME_MATRIX", "BAR_CHART",
-                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE", "REAL_PART")
+                 "EQUATION_STEPS", "POWER_SUPPLY", "SENTENCE", "REAL_PART", "CARD_SCENE")
 
 
 # CHAIN: steps or causes in boxes, each with an arrow to the next. initial_state {"steps": ["Taux en

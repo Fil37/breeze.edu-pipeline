@@ -28,6 +28,7 @@ from app.agent import agent004_visualbriefgenerator as agent004         # noqa: 
 from app.agent import agent005_educationqa as agent005                  # noqa: E402
 from app.agent import agent010_html_renderer as renderer                # noqa: E402
 from app.render.asset_resolver import ICONS_DIR, AssetResolver          # noqa: E402
+from app.render import fluent3d                                          # noqa: E402
 from models.visual_brief_schema import OBJECT_ICON_NAMES, SceneVisualBrief   # noqa: E402
 
 
@@ -66,7 +67,8 @@ def case_schema():
 
 def case_icons():
     resolver, problems = AssetResolver(offline=True), []
-    fallback = [name for name in OBJECT_ICON_NAMES if resolver.resolve(name)[1] != "cache"]
+    # an object drawn only in relief (Fluent Emoji 3D, 2026-11-21) has its PNG instead of a Lucide file
+    fallback = [name for name in OBJECT_ICON_NAMES if not fluent3d.png_path(name) and resolver.resolve(name)[1] != "cache"]
     if fallback:
         problems.append(f"not on disk: {fallback}")
     with open(os.path.join(ICONS_DIR, "elevator.svg"), encoding="utf-8") as f:
@@ -80,10 +82,11 @@ def case_html():
                   [{"source_id": "lift", "source_port": "right", "target_id": "rocket", "target_port": "left"}])
     data = {e["id"]: e for e in renderer.page_data(brief, 4.0, 4)["entities"]}
     problems = []
-    with open(os.path.join(ICONS_DIR, "elevator.svg"), encoding="utf-8") as f:
-        own = f.read().replace("currentColor", "#0F172A")
+    # since 2026-11-21 the elevator is its 3D image (Fluent Emoji), no longer the hand-drawn outline
+    with open(fluent3d.png_path("elevator"), "rb") as f:
+        own = f.read()
     icon = data["lift"].get("icon") or ""
-    if not icon.startswith("data:image/svg+xml;base64,") or base64.b64decode(icon.split(",", 1)[1]).decode() != own:
+    if not icon.startswith("data:image/png;base64,") or base64.b64decode(icon.split(",", 1)[1]) != own:
         problems.append("the elevator OBJECT does not carry its own icon")
     try:
         from playwright.sync_api import sync_playwright

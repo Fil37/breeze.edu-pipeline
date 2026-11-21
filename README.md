@@ -8,7 +8,7 @@ in its domain and turns it into a 90–180 s animated video, narrated in French,
 
 [Watch the French electronics lesson (MP4)](https://github.com/Fil37/breeze.edu-pipeline/blob/main/assets/breeze-demo-electronics.mp4)
 
-Third-party components kept in the repository (KaTeX, Lucide icons, the Inter / Fira Code / Space
+Third-party components kept in the repository (KaTeX, Lucide icons, Fluent Emoji 3D images, the Inter / Fira Code / Space
 Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 
 | Order | Agent | Writes |
@@ -460,6 +460,12 @@ ends are on screen; `start_flow` closes any open switch on its path first.
   0.8 units inside the frame. Wires are routed with right angles around components and labels.
 - **Timing:** an action with a `cue` starts when the voice says those words; the others have their
   time stretched to the real voice length.
+- **Objects in relief:** an OBJECT (or an icon component such as `COINS`, `CART`) with an image in
+  `assets/fluent_3d/` (Microsoft Fluent Emoji 3D, MIT, licence beside the images) is shown as that 3D
+  image; the others (people, `cpu`, `spring`...) keep their Lucide outline. The table is
+  `app/render/fluent3d.py`; some objects exist only in relief (`volcano`, `dna`, `microbe`...).
+  Visuals the user does not want go in `settings.json` `banned_visuals` (`{"all": [...], "<channel>": [...]}`):
+  agent004 never offers them and sends a storyboard using one back.
 - **Icons:** downloaded once from the Lucide CDN (version pinned) into `assets/icons/`, then read
   from there. Put your own `<icon>.svg` there to replace one; edit `ICON_ALIASES` in
   `app/render/asset_resolver.py` to change which icon a type uses. `BREEZE_OFFLINE=1` disables

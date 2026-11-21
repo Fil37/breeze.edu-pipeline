@@ -64,6 +64,7 @@ from app.agent import channel_dir, finish, load_json, run_standalone, save_json,
 from app import provenance
 from app.curve_math import anchor_geometry, curve_at, curve_centre
 from app.tts_manager import generate_voice, normalize_text_for_tts, voice_report   # the voice: ElevenLabs, else edge-tts
+from app.render import fluent3d
 from app.render.asset_resolver import BASE_DIR, AssetResolver
 from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
@@ -185,8 +186,13 @@ def timeline(brief, voice_duration, planned_duration, spoken=None):
 
 
 def icon_data_uri(component_type, ink="#0F172A"):
-    """The component's Lucide icon (cached by AssetResolver), as a data: URI the page can show
-    with <img>: no network from the page. Its outline is drawn in `ink`, the theme's icon colour."""
+    """The object in relief (Fluent Emoji 3D) when there is one, else the component's Lucide icon (cached by
+    AssetResolver), as a data: URI the page can show with <img>: no network from the page. A Lucide outline
+    is drawn in `ink`, the theme's icon colour."""
+    relief = fluent3d.png_path(component_type)
+    if relief:
+        with open(relief, "rb") as f:
+            return "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
     path, _source = AssetResolver().resolve(component_type)
     with open(path, encoding="utf-8") as f:
         svg = f.read().replace("currentColor", ICON_COLORS.get(component_type, ink))

@@ -48,8 +48,13 @@ def case_styles():
         problems.append(f"themes {names}")
     dark = renderer.page_data(CIRCUIT, 4, 4, style=renderer.channel_style("breeze_(economics)"))
     cart = next(e for e in dark["entities"] if e["id"] == "c")["icon"]
-    svg = base64.b64decode(cart.split(",", 1)[1]).decode()
-    if renderer.THEMES["data"]["tokens"]["icon"] not in svg:
+    # since 2026-11-21 the cart is a 3D image (Fluent Emoji) with its own colours; the ink is checked on an
+    # icon that stays a Lucide outline ("cpu"), coloured the way the page colours it
+    if not cart.startswith("data:image/png;base64,"):
+        problems.append("the cart should be its 3D image")
+    ink = renderer.THEMES["data"]["tokens"]["icon"]
+    svg = base64.b64decode(renderer.icon_data_uri("cpu", ink).split(",", 1)[1]).decode()
+    if ink not in svg:
         problems.append("the icon is not drawn in the dark theme's ink")
     return report("1. a theme per channel; icons in the theme's ink", problems, [str(names)])
 

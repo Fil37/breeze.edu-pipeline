@@ -181,6 +181,11 @@ OBJECT_ICONS = {
                "bird", "fish", "squirrel", "turtle", "snail", "bug"),
     "health": ("pill", "syringe", "stethoscope", "heart-pulse"),
     "food and farming": ("wheat", "carrot", "egg", "milk", "croissant", "coffee"),
+    # drawn only in relief (Fluent Emoji 3D, app/render/fluent3d.py), no Lucide icon behind them
+    "earth sciences and matter": ("volcano", "comet", "ringed-planet", "full-moon", "milky-way", "tornado", "rainbow",
+                                  "cloud-lightning", "sun-cloud", "fog", "ice", "rock", "wood", "brick", "bubbles",
+                                  "battery", "gear"),
+    "life sciences": ("dna", "microbe", "petri-dish", "lungs", "bone", "tooth", "seedling"),
     "money and trade": ("banknote", "wallet", "piggy-bank", "receipt", "credit-card", "tag", "ticket",
                         "shopping-basket", "handshake"),
     "society": ("vote", "gavel"),

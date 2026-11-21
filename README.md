@@ -4,6 +4,10 @@ One Python process, nine agents (all nine per channel, agent009 shared), four ch
 in its domain and turns it into a 90–180 s animated video, narrated in French, that ends on an
 "aha moment": `breeze_(electronics)`, `breeze_(physics)`, `breeze_(math)`, `breeze_(economics)`.
 
+## Demo video
+
+[Watch the French electronics lesson (MP4)](https://github.com/Fil37/breeze.edu-pipeline/blob/main/assets/breeze-demo-electronics.mp4)
+
 Third-party components kept in the repository (KaTeX, Lucide icons, the Inter / Fira Code / Space
 Grotesk fonts) and their licenses: `THIRD_PARTY_NOTICES.md`.
 
@@ -1077,3 +1081,7 @@ The parentheses are part of the id.
 | file paths | literal: `instance/breeze_(math)/script.json` |
 | shell | always quote: `--channel "breeze_(math)"`, `ls "instance/breeze_(math)"`. Unquoted, bash reads `(` as syntax |
 | URLs | percent-encode: `/channel/breeze_%28math%29` (Python: `urllib.parse.quote("breeze_(math)", safe="")`, decoded with `unquote`) |
+
+## Agent count clarification
+
+The repository has ten agent modules: `agent000` is the orchestrator and nine processing modules are `agent001`-`agent005` and `agent007`-`agent010` (`agent006` is retired). `agent009` runs once per full cycle; the other eight processing agents run once per channel, including `agent010` for rendering. The introductory phrase “all nine per channel” counts the shared `agent009` role, not nine separate executions on every channel.

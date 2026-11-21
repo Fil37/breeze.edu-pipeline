@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))      # the project, above app/tests/
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))      # the project, above app/tests/
 from app import supervision as sv  # noqa: E402
 
 PRICING = {"peak": {"m": {"input_hit": 0.1, "input_miss": 1.0, "output": 4.0}},
@@ -110,7 +110,10 @@ def test_standup_data_for_the_page():
     """standup() gives the kit page's variables: tiles (agents, cost today, incidents), agents, incidents, costs by
     day, recent errors; costs are summed by the program from the stored calls."""
     s = store()
-    c = sv.LLMClient(PROVIDER, MODEL, "agent002", transport=lambda u, h, b, t: ok_answer({"x": 1}))
+    # On Saturday 2026-11-21 the weekend discount changed this aggregation fixture.
+    # Calendar pricing is exercised separately. Use a flat tariff for these two calls.
+    provider = dict(PROVIDER, pricing=dict(PRICING, peak_hours_utc_mon_fri=[]))
+    c = sv.LLMClient(provider, MODEL, "agent002", transport=lambda u, h, b, t: ok_answer({"x": 1}))
     c.chat_json([], purpose="p", run_id="r1")
     c.chat_json([], purpose="p", run_id="r1")
     s.record_llm_calls(c.calls)

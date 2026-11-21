@@ -52,6 +52,7 @@ from pydantic import TypeAdapter, ValidationError
 from app.agent import channel_dir, find_route, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
 from app import provenance
 from app.linear_system import linear_equations
+from app.language_examples import QUESTION_WORDS, SUBORDINATORS, foreign_quotes, order_problem, tokens
 from app.qa_feedback import QA_FEEDBACK_ENV, feedback_section   # noqa: F401  (the variable's name, for tests)
 from app.curve_math import curve_at, domain
 from app.layout_solver import annotation_targets, target_first_timing
@@ -62,6 +63,14 @@ from models.visual_brief_schema import (COMPONENT_PORTS, LANE_ICONS, LOGIC_GATES
                                         DEFAULT_OBJECT_ICON, OBJECT_ICON_NAMES, OBJECT_ICONS, emphasis_problem, find_cue, measure_problem, measured_axis, move_problem, narration_words, scene_point)
 
 AGENT = "agent004"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "visual_storyboard", "version": "1.0", "objective": "Turn each scene into a visual brief the renderer can draw",
+     "summary": "Checked for coherence with the narration and measured on the page before the render."},
+    {"skill_id": "german_sentences", "version": "1.0", "objective": "Show German word order happening on SENTENCE pieces",
+     "summary": "Wrong orders marked, the said sentence shown whole, verdicts timed on the move."},
+]
 KNOWN_RENDERERS = ("html", "skip")       # "html": agent010 draws it (default); "manim" is read as "html" (retired)
 MAX_ATTEMPTS = 3          # 1 call + 2 retries; each attempt is one LLM call
 MAX_ERROR_CHARS = 2000    # errors sent back to the LLM on a retry
@@ -152,6 +161,15 @@ STATES = {
                          'picks one out (from 0); {"total": true} adds the row "Total", its sums worked out by the program; '
                          'initial_state {"columns": ["Année", "PIB (Md€)"], "rows": [["2022", "2 640"], ["2023", "2 800"]]} '
                          '(1 to 6 columns, 1 to 8 rows, short cells)',
+    ComponentType.SENTENCE: '{"order": [0, 1, 2, 3, 4, 5, 7, 8, 6]} the words slide to that order, by index (a word '
+                            'left out fades away, one added fades in: show only the main clause first, then add the '
+                            'comma and "weil" and send the verb to the end); {"focus": i} picks word i out; {"step": n} '
+                            'the first n words of the first order in; {"translation": true} shows the French meaning; '
+                            'initial_state {"words": [{"text": "Ich", "role": "subject"}, {"text": "lerne", "role": "verb"}, '
+                            '{"text": "Deutsch", "role": "object"}], "order": [0, 1, 2], "translation": "J\'apprends '
+                            'l\'allemand"} (2 to 14 words, written in correct German; role: subject, verb, conjunction, '
+                            'object, other, punct; "order": the words shown first, default all; "label": a short French '
+                            'caption over it, "verdict": "wrong" (a red cross) or "right" (a green tick))',
     ComponentType.CHAIN: '{"step": n} the first n boxes and their arrows (never given: one after the other); {"focus": i} '
                          'picks one out; initial_state {"steps": ["Taux en hausse", "Crédit plus cher", "Moins '
                          'd\'investissement"], "loop": false} (2 to 6 short steps; "loop": true, a cycle back to the first)',
@@ -467,6 +485,30 @@ STRICT RULES:
   * figures to read side by side (a budget, national accounts, a balance sheet, statistics, a proportion
     table): ONE TABLE, its rows in on the words that give them; a total is {{"total": true}}, never a
     sum written in a cell. Not a set of GAUGE or icon cards for a table of numbers.
+  * a sentence in a foreign language (German) whose word order is explained (the verb in second place,
+    sent to the end after weil / dass / wenn, a prefix at the end, the subject after the verb): ONE
+    SENTENCE with every word of the example and its role, {{"order": [...]}} on the words that move them
+    (the verb slides to the end in front of the viewer, the conjunction and comma come in), {{"focus": i}}
+    on the word named, {{"translation": true}} when its meaning is said. SHOW THE RULE HAPPENING: in every
+    scene that says where a word goes, the sentence changes in front of the viewer: its first "order" is
+    the sentence before (the main clause alone, the wrong order, the clause after it), then {{"order":
+    [...]}} on the words that say the change; a "focus" alone changes nothing. Two sentences compared (the
+    wrong order and the right one, weil and denn): two SENTENCE one above the other in the same scene,
+    each with its "label" ("Ce qu'on croit", "Correct") and its "verdict" ("wrong" / "right"), never in a
+    comparison's panels (a sentence shrinks there, unreadable). A wrong order is shown marked: "verdict":
+    "wrong" and a label saying so ("Erreur fréquente"), then {{"verdict": "right"}} on the move that corrects
+    it. The sentence on screen is the one the narration says, every word of it (« Ich bleibe heute zu
+    Hause, weil ich krank bin » said: all nine words, not the clause alone); each scene shows its own
+    example, a label names only what is shown; no ARROW_ANNOTATION on a SENTENCE (its label says it), no
+    OBJECT icon in a scene with a SENTENCE (the sentences are the picture); at most TWO SENTENCE in a scene. A
+    word that CHANGES (an article "dem" -> "den", an ending, a false friend "bekommen" -> "werden"): both
+    words in "words", the wrong one in the first order, the right one in its place in the next order (the
+    one left out fades away, the other fades in), with the verdict turning to "right". Every SENTENCE has its
+    "translation" (natural French; for a wrong one, the meaning meant): it shows under the line by itself.
+    Never a CHAIN, a TABLE or a TEX_FORMULA
+    for a sentence, never a German sentence as a label or an annotation, never an annotation repeating
+    the SENTENCE's "label" (it is written over the line already). Capitals are set from the place:
+    write each word as it is inside a sentence ("weil", "ich"), nouns with their capital.
   * one thing leading to another (une chaîne de causes, "donc", "ce qui entraîne", the stages of a
     process, a cycle): ONE CHAIN, each step on the words that name it; "loop" for a cycle.
   * the simple pieces, each where its words are: dated events (une chronologie, "en 1929... puis en
@@ -1778,9 +1820,12 @@ def coherence_problems(brief, narration, duration=None) -> list:
     errors += aop_problems(brief)
     errors += gauss_problems(brief)
     errors += system_display_problems(brief)
-    errors += gauss_by_hand(brief, narration)
+    # a language scene (SENTENCE) is not maths: "B1", "B2" are no numbers, "éliminez la phrase fausse" no pivot
+    # (the German run 7 of 2026-11-20 spent its retries on those)
+    language = any(e.type == ComponentType.SENTENCE for e in brief.entities)
+    errors += [] if language else gauss_by_hand(brief, narration)
     errors += battery_in_column(brief)
-    errors += icons_only(brief, narration)
+    errors += [] if language else icons_only(brief, narration)
     errors += [f"{where}: {a} and {b} meet on {curve} around {when:g} s (one catches the other up): set them off "
                f"together, at the same speed (same \"at\", \"duration\" and distance), or keep them apart all along"
                for a, b, curve, when in curve_meetings(brief, graphs, duration)]
@@ -1963,6 +2008,9 @@ def finished_brief(brief, narration, duration, fixes):
     time_to_cues(data, narration, duration)
     flow_rules(data, where, fixes)
     target_first_timing(data, annotation_targets(data), where, fixes)
+    sentence_verdicts(data, where, fixes)
+    sentence_arrows(data, where, fixes)
+    sentence_centered(data, where, fixes)
     return data
 
 
@@ -2009,8 +2057,11 @@ WIDE_DRAWINGS = {ComponentType.WAVE, ComponentType.TIDES, ComponentType.TUNNEL, 
 def needs_circuit(briefs):
     """Scenes that must stay "circuit": they have an instrument, drawn only in its column, or a drawing as
     wide as the screen (WIDE_DRAWINGS), halved in a comparison's panel."""
+    # a SENTENCE too (the German run of 2026-11-16: two sentences in a comparison's panels came out too small to
+    # read); not in WIDE_DRAWINGS, whose repeat check would refuse the one example sentence reused across scenes
     return {scene_id for scene_id, brief in briefs.items()
-            if any(entity.type == ComponentType.VOLTMETER_PROBES or entity.type in WIDE_DRAWINGS for entity in brief.entities)}
+            if any(entity.type in (ComponentType.VOLTMETER_PROBES, ComponentType.SENTENCE) or entity.type in WIDE_DRAWINGS
+                   for entity in brief.entities)}
 
 
 def layout_options(scene_id, eligible, locked):
@@ -2265,6 +2316,191 @@ def formulas_said(order, briefs, narrations, domain):
     if not any_formula and not errors and order:
         errors.append("no TEX_FORMULA in the whole video: a physics or maths video writes the key relation of its topic "
                       "where the narration states it")
+    return errors
+
+
+# German taught in French: the words that say a word goes somewhere (the German run of 2026-11-16: five
+# scenes said "le verbe part à la fin", one sentence moved; the others only picked a word out).
+MOVE_WORDS = re.compile(r"\b(?:à la fin|en fin(?:ale)?|part|partir|passe|se range|se place|déplace\w*|recule\w*|"
+                        r"avance\w*|devant|en tête|deuxième position|seconde position)\b", re.IGNORECASE)
+
+
+def sentences_moved(order, briefs, narrations, domain):
+    """A language channel: a scene whose narration says where a word goes, with a SENTENCE, shows it move
+    (set_state "order" to another order), not a focus alone."""
+    if domain != "language":
+        return []
+    errors = []
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        sentences = [e for e in brief.entities if e.type == ComponentType.SENTENCE] if brief else []
+        words = MOVE_WORDS.search(str(narrations.get(scene_id) or ""))
+        if not sentences or not words:
+            continue
+        def moves(e):
+            first = e.initial_state.get("order") or list(range(len(e.initial_state.get("words") or [])))
+            return any(a.get("action") == "set_state" and a.get("target") == e.id and isinstance(a.get("state"), dict)
+                       and isinstance(a["state"].get("order"), list) and a["state"]["order"] != first for a in brief.actions)
+        if not any(moves(e) for e in sentences):
+            errors.append(f"scene {scene_id}: the narration says a word moves (\"{words.group(0)}\") but no SENTENCE "
+                          f"moves: give it the sentence BEFORE as its first \"order\" (the main clause alone, the "
+                          f"wrong order...), then {{\"order\": [...]}} on those words so the word slides to its place")
+    return errors
+
+
+def sentence_orders(brief, entity):
+    """[(at, order, verdict)] of a SENTENCE: its first order at 0, then a line at each time its order or
+    its verdict changes (the changes said at one time taken together). Works on a brief or its JSON."""
+    actions = brief["actions"] if isinstance(brief, dict) else brief.actions
+    state = entity["initial_state"] if isinstance(entity, dict) else entity.initial_state
+    target = entity["id"] if isinstance(entity, dict) else entity.id
+    order = state.get("order") or list(range(len(state.get("words") or [])))
+    out = [(0.0, order, state.get("verdict"))]
+    changes = {}
+    for a in actions:
+        if isinstance(a, dict) and a.get("action") == "set_state" and a.get("target") == target and isinstance(a.get("state"), dict):
+            changes.setdefault(float(a.get("at") or 0), {}).update(
+                {k: v for k, v in a["state"].items() if k in ("order", "verdict") and (k != "order" or isinstance(v, list))})
+    for at in sorted(changes):
+        order, verdict = changes[at].get("order", out[-1][1]), changes[at].get("verdict", out[-1][2])
+        if (order, verdict) != out[-1][1:]:
+            out.append((at, order, verdict))
+    return out
+
+
+def sentence_verdicts(data, where, fixes):
+    """A wrong German order is never shown as if right (the German run of 2026-11-16: "ich heute bleibe zu
+    Hause" under "Phrase principale", "weil ich bin krank" under "Forme correcte à reconstituer", no ✗):
+    the program judges each order (app/language_examples.order_problem). A wrong first order gets
+    "verdict": "wrong"; the move that makes it right turns it to "right" ("Correct" when its label was
+    about the error)."""
+    for entity in data.get("entities") or []:
+        if entity.get("type") != "SENTENCE":
+            continue
+        words, state = entity["initial_state"].get("words") or [], entity["initial_state"]
+        orders = sentence_orders(data, entity)
+        if order_problem(words, orders[0][1]) and orders[0][2] != "wrong":
+            state["verdict"] = "wrong"
+            fixes.append(f"{where}: {entity['id']} starts wrong ({order_problem(words, orders[0][1])}): marked ✗")
+            orders = sentence_orders(data, entity)
+        for (at, order, verdict), (_, before, was) in zip(orders[1:], orders):
+            if was == "wrong" and verdict == "wrong" and not order_problem(words, order):
+                change = {"verdict": "right"}
+                if not any(a.get("target") == entity["id"] and a.get("at") == at and "label" in (a.get("state") or {})
+                           for a in data.get("actions") or []):
+                    change["label"] = "Correct"
+                cue = next((a.get("cue") for a in data.get("actions") or [] if a.get("target") == entity["id"]
+                            and a.get("at") == at and a.get("cue") and "order" in (a.get("state") or {})), None)
+                # with the move's cue: agent010 times the actions on the words said, the ✓ moves with the words
+                data["actions"].append({"at": at, "action": "set_state", "target": entity["id"], "state": change,
+                                        **({"cue": cue} if cue else {})})
+                fixes.append(f"{where}: {entity['id']} made right at {at}s: marked ✓")
+        data["actions"].sort(key=lambda a: float(a.get("at") or 0))
+
+
+def sentence_arrows(data, where, fixes):
+    """No arrow annotation on a SENTENCE (the German run of 2026-11-16, run 4: "Verbe en case 2",
+    "Subordonnée : bin final" over the label and the translation): its label says it already, over the
+    line. No icon beside a SENTENCE either (run 5 of 2026-11-20: a park and a walker squeezed a sentence
+    into a corner, under "Point bleu : immobile"): the sentences are the picture. The arrow or icon and
+    its actions are taken out (with the arrows pointing at an icon); a status badge stays."""
+    sentences = {e["id"] for e in data.get("entities") or [] if e.get("type") == "SENTENCE"}
+    if not sentences:
+        return
+    # beside sentences only what reads with them: a formula ("im = in + dem"), a table; not an icon, a gauge
+    # (run 6 of 2026-11-20: a "Niveau 1 niveau" gauge between the B1 and B2 sentences)
+    icons = {e["id"] for e in data["entities"] if e.get("type") not in ("SENTENCE", "TEX_FORMULA", "TABLE", "ARROW_ANNOTATION")}
+    arrows = {a for a, target in annotation_targets(data).items() if target in sentences | icons} | icons
+    if arrows:
+        data["entities"] = [e for e in data["entities"] if e["id"] not in arrows]
+        data["actions"] = [a for a in data["actions"] if a.get("target") not in arrows]
+        data["connections"] = [c for c in data.get("connections") or [] if not any(str(v).split(".")[0] in arrows for v in c.values())]
+        fixes.append(f"{where}: arrow(s) or icon(s) beside a sentence taken out ({', '.join(sorted(arrows))}): the sentences are the picture")
+
+
+def sentence_centered(data, where, fixes):
+    """A SENTENCE is centred across the frame (run 7 of 2026-11-20: placed at x = 1.03, the B2 sentence ran
+    past the right edge, « werden » cut): it is nearly as wide as the frame (1600 of 1920 px), so any
+    sideways place pushes its end out. Only its height is kept."""
+    for e in data.get("entities") or []:
+        if e.get("type") == "SENTENCE" and isinstance(e.get("position"), list) and e["position"] and e["position"][0] != 0:
+            fixes.append(f"{where}: {e['id']} centred (x {e['position'][0]} -> 0)")
+            e["position"] = [0.0] + list(e["position"][1:])
+
+
+MAX_SENTENCES = 2       # sentences stacked in one scene: a third does not fit (320 px each, 1080 px less title and subtitles)
+
+
+def sentence_problems(order, briefs, narrations, domain, pair=None):
+    """A language channel, what the viewer is shown against what they hear (the German run of
+    2026-11-16):
+      - a wrong order with no "verdict": "wrong" ("ich heute bleibe zu Hause" under "Phrase principale");
+      - a label naming a conjunction no sentence of the scene has ("Même règle avec dass et wenn" over
+        a sentence with weil only);
+      - a German sentence said in full but shown in part (« Ich bleibe heute zu Hause, weil ich krank
+        bin » said, "weil ich bin krank" written);
+      - the same move in two scenes ("weil ich bin krank" -> "weil ich krank bin" in scenes 1, 3, 4, 5)."""
+    if domain != "language":
+        return []
+    errors, moves = [], {}
+    for scene_id in order:
+        brief = briefs.get(scene_id)
+        sentences = [e for e in brief.entities if e.type == ComponentType.SENTENCE] if brief else []
+        if not sentences:
+            continue
+        if len(sentences) > MAX_SENTENCES:    # run 7 of 2026-11-20: three stacked sentences ran into each other
+            errors.append(f"scene {scene_id}: {len(sentences)} SENTENCE pieces: at most {MAX_SENTENCES} in a scene (one above "
+                          f"the other); keep the two the narration contrasts, or move one to another scene")
+        shown = set()
+        for e in sentences:
+            words = e.initial_state.get("words") or []
+            text = lambda o: " ".join(str(words[i].get("text")) for i in o if isinstance(i, int) and 0 <= i < len(words))
+            shown |= {str(w.get("text") or "").lower() for w in words}
+            timeline = sentence_orders(brief, e)
+            for at, o, verdict in timeline:
+                wrong = order_problem(words, o)
+                if wrong and verdict != "wrong":
+                    errors.append(f"scene {scene_id}: {e.id} shows « {text(o)} » ({wrong}) with no "
+                                  f"\"verdict\": \"wrong\": a wrong sentence is marked wrong, with a label saying so "
+                                  f"(\"Erreur fréquente\"), then {{\"verdict\": \"right\", \"label\": ...}} on the move that corrects it")
+            for (_, before, _), (_, after, _) in zip(timeline, timeline[1:]):
+                if before != after:
+                    moves.setdefault((tokens(text(before)), tokens(text(after))), []).append(scene_id)
+            labels = [e.initial_state.get("label")] + [a["state"].get("label") for a in brief.actions if isinstance(a, dict)
+                                                       and a.get("target") == e.id and isinstance(a.get("state"), dict)]
+            for label in filter(None, labels):
+                # conjunctions only: "Wo ? → datif" names a question, not a clause opener (run 5 of 2026-11-20)
+                missing = [w for w in tokens(label) if w in SUBORDINATORS - QUESTION_WORDS and w not in shown]
+                if missing:
+                    errors.append(f"scene {scene_id}: the label \"{label}\" names {', '.join(missing)} but no sentence of the "
+                                  f"scene has it: add a SENTENCE with {missing[0]} (the example the narration gives), or "
+                                  f"name only what is shown")
+        for e in sentences:            # the French meaning under every sentence (shown on its own, agent010)
+            if len(e.initial_state.get("words") or []) >= 3 and not str(e.initial_state.get("translation") or "").strip():
+                errors.append(f"scene {scene_id}: {e.id} has no \"translation\": every German sentence carries its "
+                              f"French meaning, in natural French (the meaning meant, for a wrong one)")
+        for _, _, quote in foreign_quotes(narrations.get(scene_id), "de", shown):
+            said = tokens(quote)
+            # the words of each sentence read as the narration's (run 6 of 2026-11-20: "gehen," kept its comma)
+            held = [list(tokens(" ".join(str(x.get("text") or "") for x in e.initial_state.get("words") or []))) for e in sentences]
+            if len(said) >= 3 and not any(all(said.count(w) <= have.count(w) for w in said) for have in held):
+                errors.append(f"scene {scene_id}: the narration says « {quote} » but no SENTENCE has all its words: "
+                              f"show the whole sentence as it is said (every word, the main clause too), then move it")
+    first = briefs.get(order[0]) if order else None
+    if pair and first is not None:          # an episode of the programme: its pair, word for word, in the hook
+        def said(e, order):         # the sentence as read in that order
+            words = e.initial_state.get("words") or []
+            return tokens(" ".join(str(words[i].get("text") or "") for i in order if isinstance(i, int) and 0 <= i < len(words)))
+        held = [said(e, o) for e in first.entities if e.type == ComponentType.SENTENCE for _, o, _ in sentence_orders(first, e)]
+        for name, sentence in (("wrong", pair[0]), ("right", pair[1])):
+            if tokens(sentence) not in held:
+                errors.append(f"scene {order[0]}: the episode's {name} sentence « {sentence} » is not shown word for word: "
+                              f"a SENTENCE with exactly its words, in that order (at its start or after its move)")
+    for (before, after), ids in moves.items():
+        if len(set(ids)) > 1:
+            errors.append(f"scenes {sorted(set(ids))}: the same move « {' '.join(before)} » -> « {' '.join(after)} » in {len(set(ids))} "
+                          f"scenes: the viewer sees one example all along; give each scene its own (the sentence its "
+                          f"narration says: with dass, with wenn, the clause in front...)")
     return errors
 
 
@@ -2602,7 +2838,7 @@ def qa_feedback_section():
     return feedback_section(AGENT, "storyboard")
 
 
-def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None):
+def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_expected=False, channel_domain=None, pair=None):
     """Call the LLM until its answer is right. Two kinds of problems, both sent back for a retry
     (MAX_ATTEMPTS calls in all):
       - blocking: the JSON, the schema, the topology (unknown ids, ports, actions, times...): an
@@ -2639,6 +2875,8 @@ def ask_for_storyboard(scenes_for_prompt, qa_section="", measure=None, footage_e
         coherence += footage_problems(order, briefs, layouts, footage_expected) + still_scenes(order, briefs, layouts, durations)
         coherence += zoom_problems(order, briefs, narrations, durations) + repeated_drawings(order, briefs)
         coherence += formulas_said(order, briefs, narrations, channel_domain)
+        coherence += sentences_moved(order, briefs, narrations, channel_domain)
+        coherence += sentence_problems(order, briefs, narrations, channel_domain, pair)
         if measure:                     # laid out as the renderer will, with the templates it will get
             templates = force_layouts(order, proposed, eligible, needs_circuit(briefs), briefs)[0]
             titles = {i: panel_titles(layouts.get(i), templates[i]).get("panel_titles") for i in order}
@@ -2693,7 +2931,8 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         briefs, layouts, attempts, coherence_left, layout_left = ask_for_storyboard(
             scenes_for_prompt, qa_section, None if renderer == "skip" else measure,
             (find_route(routes, channel_id) or {}).get("domain") in FOOTAGE_DOMAINS,
-            (find_route(routes, channel_id) or {}).get("domain"))
+            (find_route(routes, channel_id) or {}).get("domain"),
+            (script["episode"]["wrong_example"], script["episode"]["right_example"]) if script.get("episode") else None)
     except RuntimeError as exc:
         return finish(channel_id, AGENT, "storyboard", "critical", output_path, error=str(exc))
     order = [s["scene_id"] for s in scenes_for_prompt]
@@ -2725,6 +2964,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             "transition_out": "cut",
         })
     ask_the_question(storyboard, script.get("question"))
+    if script.get("episode") and storyboard["scenes"]:     # the hook says the level (the programme, A1 to B2)
+        storyboard["scenes"][0]["visual_brief"].setdefault("text_overlay", {})["subtitle"] = \
+            f"Niveau {script['episode']['level']} · Goethe / telc"
     save_json(output_path, storyboard)
     provenance.register_artifact(run_id, channel_id, "storyboard.json", AGENT)
 

@@ -14,6 +14,11 @@ NOTES:  Never states a fact without a source URL. Never picks a topic listed in
         LLM, asked whether it is the same subject in other words or from another angle. A repeat is
         sent back with the reason, up to TOPIC_ATTEMPTS answers; research.json records the check in
         "novelty". An imposed topic is checked too, but only reported.
+        Curriculum: a channel whose route names a "curriculum" (schemas/german_curriculum.json) takes no
+        topic from the LLM: its next episode is the first one not made yet (its id, "a1_01", starts the
+        topics in breeze.db), skipping the ones marked "review"; --topic set to an episode id picks that
+        one. research.json carries the episode, the next one (for the video's ending) and whether the
+        level changes. No LLM call, no sources (the examples are the curriculum's).
 HEALTH: not_healthy if fewer than 2 sources with a URL, if an imposed topic repeats one already made,
         or if the novelty check could not run (LLM error);
         critical if llm_call fails, the answer is not valid JSON, the topic it chose is saturated, or
@@ -34,6 +39,14 @@ from app.agent import (INSTANCE_DIR, channel_dir, db_connect, find_route, finish
 from app import provenance
 
 AGENT = "agent001"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "topic_research", "version": "1.0", "objective": "Choose a topic the channel has not made, with sourced facts",
+     "summary": "LLM proposal checked for novelty against breeze.db (key words, then the LLM)."},
+    {"skill_id": "curriculum_episode", "version": "1.0", "objective": "Take the next episode of a channel's programme",
+     "summary": "No LLM: the first episode not made yet in schemas/german_curriculum.json, reviews left out."},
+]
 EMPTY_ANALYTICS = {"top_topics": [], "saturated_topics": [], "by_channel": {}}
 TOPIC_ENV = "LBREEZE_TOPIC"      # an imposed topic (set by --topic), for reproducible runs
 
@@ -62,6 +75,12 @@ DOMAIN_SCOPES = {
     "physics_math": "Stay in PHYSICS (mechanics, energy, waves, fluids, astronomy), with the maths it needs.",
     "electronics": "Stay in ELECTRONICS and electricity: circuits, voltage, current, resistance, components.",
     "economics": "Stay in ECONOMICS: prices, money, inflation, markets, trade, public finance, personal finance.",
+    "language": "Stay in the GERMAN LANGUAGE, taught to French speakers preparing the Goethe-Zertifikat or telc "
+                "B1/B2: pick ONE error French speakers commonly make there (word order and connectors: obwohl, "
+                "weil, damit, um...zu, the passive; cases and prepositions: Wechselpräpositionen, verbs with the "
+                "dative or accusative, the genitive; false friends and exam vocabulary: bekommen, aktuell, "
+                "eventuell, Nomen-Verb-Verbindungen). The explanation is in French, every example is a short, "
+                "correct German sentence with its French meaning.",
 }
 FREE_CHOICE = """Pick ONE concept that people commonly misunderstand and that can reach an "aha moment" in 90-180 seconds.
 Topics that performed well recently: {top}. NEVER pick any of these saturated topics: {saturated}."""
@@ -189,6 +208,44 @@ def novelty(research, past, route):
     return None
 
 
+# ---- a curriculum (the German channel's 90 episodes, A1 to B2): the next episode, no LLM
+EPISODE_ID = re.compile(r"^([a-z]\d_\d{2})\b")
+
+
+def curriculum_episodes(path):
+    """Every episode of a curriculum file, in order, with its level's code and title."""
+    full = path if os.path.isabs(path) else os.path.join(os.path.dirname(INSTANCE_DIR), path)
+    data = load_json(full)
+    if not data or not data.get("levels"):
+        raise ValueError(f"curriculum {path!r} missing or empty")
+    return [{**t, "level": level["level"], "level_title": level.get("title", "")}
+            for level in data["levels"] for t in level.get("topics") or []]
+
+
+def next_episode(episodes, past, imposed=None):
+    """(episode to make, the one after it or None): the episode --topic names by its id, else the first
+    one whose id starts no topic already made, the ones marked "review" left out (their examples wait
+    for a check). (None, None) when every episode is made."""
+    done = {m.group(1) for m in (EPISODE_ID.match(str(t)) for t in past) if m}
+    ready = [e for e in episodes if not e.get("review")]
+    pick = next((e for e in episodes if imposed and e["id"] == imposed.strip()), None) \
+        or next((e for e in ready if e["id"] not in done), None)
+    if pick is None:
+        return None, None
+    later = [e for e in ready if episodes.index(e) > episodes.index(pick) and e["id"] not in done]
+    return pick, (later[0] if later else None)
+
+
+def curriculum_research(episode, following):
+    """research.json for an episode: what agent002 and agent003 build the video on."""
+    brief = lambda e: {k: e.get(k) for k in ("id", "level", "variant", "type", "topic", "wrong_example", "right_example")}
+    return {"concept": f"{episode['id']} · {episode['topic']}", "episode": {**brief(episode), "level_title": episode.get("level_title")},
+            "next_episode": brief(following) if following else None,
+            "level_change": bool(following and following["level"] != episode["level"]),
+            "misconceptions": [f"« {episode['wrong_example']} »"], "analogies": [], "facts": [], "sources": [],
+            "difficulty_assessment": f"niveau {episode['level']}", "why_now": "épisode suivant du programme"}
+
+
 def imposed_topic():
     """The topic LBREEZE_TOPIC imposes, or None (the LLM chooses)."""
     return os.environ.get(TOPIC_ENV, "").strip() or None
@@ -207,6 +264,20 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
 
     topic = imposed_topic()
     past = past_topics(channel_id)
+    if route.get("curriculum"):                       # the programme decides, not the LLM
+        try:
+            episode, following = next_episode(curriculum_episodes(route["curriculum"]), past, topic)
+        except ValueError as exc:
+            return finish(channel_id, AGENT, "research", "critical", output_path, error=str(exc))
+        if episode is None:
+            return finish(channel_id, AGENT, "research", "critical", output_path, error="every episode of the curriculum is made")
+        research = curriculum_research(episode, following)
+        save_json(output_path, research)
+        provenance.register_artifact(run_id, channel_id, "research.json", AGENT)
+        print(f"--- {AGENT}: episode {episode['id']} ({episode['level']}, {episode['variant']}, {episode.get('type')}); "
+              f"next: {following['id'] if following else 'none'}", file=sys.stderr, flush=True)
+        return finish(channel_id, AGENT, "research", "healthy", output_path,
+                      data={"concept": research["concept"], "episode": episode["id"]})
     rejected = []
     check = {"checked_against": len(past), "attempts": 0, "rejected": rejected, "verdict": "new"}
     for attempt in range(1, (1 if topic else TOPIC_ATTEMPTS) + 1):

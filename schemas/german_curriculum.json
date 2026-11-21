@@ -1,0 +1,820 @@
+{
+ "channel_id": "breeze_(allemand)",
+ "description": "Programme complet de révision d'allemand (Goethe-Zertifikat & telc, niveaux A1 à B2) structuré par erreurs fréquentes des francophones.",
+ "variants": {
+  "syntax": "Ordre des mots, place du verbe (V2, rejet en fin de subordonnée, inversion, particules séparables)",
+  "case": "Déclinaisons (Nominatif, Accusatif, Datif, Génitif), prépositions fixes et Wechselpräpositionen",
+  "vocab": "Faux-amis, calques du français, verbes à préposition fixe, tournures idiomatiques et Nomen-Verb-Verbindungen"
+ },
+ "levels": [
+  {
+   "level": "A1",
+   "title": "Les fondations (Goethe / telc Start Deutsch 1)",
+   "topics": [
+    {
+     "id": "a1_01",
+     "variant": "syntax",
+     "topic": "Place du verbe en 2e position (V2) : pourquoi « Heute ich gehe » est faux",
+     "wrong_example": "Heute ich gehe ins Kino.",
+     "right_example": "Heute gehe ich ins Kino.",
+     "type": "error"
+    },
+    {
+     "id": "a1_02",
+     "variant": "vocab",
+     "topic": "Négation avec nicht ou kein : pourquoi « Ich habe nicht Zeit » est sanctionné",
+     "wrong_example": "Ich habe nicht Zeit.",
+     "right_example": "Ich habe keine Zeit.",
+     "type": "error"
+    },
+    {
+     "id": "a1_03",
+     "variant": "syntax",
+     "topic": "Verbes à particule séparable : ne pas oublier de rejeter la particule à la fin",
+     "wrong_example": "Der Kurs anfängt um 9 Uhr.",
+     "right_example": "Der Kurs fängt um 9 Uhr an.",
+     "type": "error"
+    },
+    {
+     "id": "a1_04",
+     "variant": "case",
+     "topic": "L'accusatif masculin : pourquoi « Ich sehe der Mann » est une faute de base",
+     "wrong_example": "Ich sehe der Mann.",
+     "right_example": "Ich sehe den Mann.",
+     "type": "error"
+    },
+    {
+     "id": "a1_05",
+     "variant": "vocab",
+     "topic": "Les terminaisons qui donnent le genre à 100 % (-ung, -heit, -keit, -chen)",
+     "wrong_example": "Der Wohnung ist groß.",
+     "right_example": "Die Wohnung ist groß.",
+     "type": "error"
+    },
+    {
+     "id": "a1_06",
+     "variant": "case",
+     "topic": "Prépositions de temps : ne plus confondre am, um et im",
+     "wrong_example": "Ich komme im Montag.",
+     "right_example": "Ich komme am Montag.",
+     "type": "error"
+    },
+    {
+     "id": "a1_07",
+     "variant": "vocab",
+     "topic": "Faux-ami A1 : « Ich bin kalt » ne veut pas dire j'ai froid",
+     "wrong_example": "Ich bin kalt.",
+     "right_example": "Mir ist kalt.",
+     "type": "error"
+    },
+    {
+     "id": "a1_08",
+     "variant": "syntax",
+     "topic": "Les verbes de modalité (können, müssen, wollen) : rejet de l'infinitif à la fin",
+     "wrong_example": "Ich muss lernen Deutsch.",
+     "right_example": "Ich muss Deutsch lernen.",
+     "type": "error"
+    },
+    {
+     "id": "a1_09",
+     "variant": "vocab",
+     "topic": "Sein ou haben pour l'âge : pourquoi « Ich habe 25 Jahre » est un calque",
+     "wrong_example": "Ich habe 25 Jahre.",
+     "right_example": "Ich bin 25 Jahre alt.",
+     "type": "error"
+    },
+    {
+     "id": "a1_10",
+     "variant": "syntax",
+     "topic": "Poser une question fermée : inversion directe sans « est-ce que »",
+     "wrong_example": "Du wohnst in Berlin?",
+     "right_example": "Wohnst du in Berlin?",
+     "type": "error"
+    },
+    {
+     "id": "a1_11",
+     "variant": "case",
+     "topic": "Les pronoms personnels à l'accusatif : mich et dich au lieu de mir et dir",
+     "wrong_example": "Er liebt mir.",
+     "right_example": "Er liebt mich.",
+     "type": "error"
+    },
+    {
+     "id": "a1_12",
+     "variant": "vocab",
+     "topic": "Dire « chez » en allemand : zu (mouvement) vs bei (position)",
+     "wrong_example": "Ich bin zu dem Arzt.",
+     "right_example": "Ich bin beim Arzt.",
+     "type": "error"
+    },
+    {
+     "id": "a1_13",
+     "variant": "syntax",
+     "topic": "L'impératif avec Sie : garder le pronom après le verbe",
+     "wrong_example": "Sprechen langsam!",
+     "right_example": "Sprechen Sie bitte langsam!",
+     "type": "error"
+    },
+    {
+     "id": "a1_14",
+     "variant": "vocab",
+     "topic": "Différence entre Uhr et Stunde pour parler de l'heure et de la durée",
+     "wrong_example": "Der Film dauert zwei Uhren.",
+     "right_example": "Der Film dauert zwei Stunden.",
+     "type": "error"
+    },
+    {
+     "id": "a1_15",
+     "variant": "case",
+     "topic": "La préposition « mit » impose toujours le datif",
+     "wrong_example": "Ich fahre mit der Bus.",
+     "right_example": "Ich fahre mit dem Bus.",
+     "type": "error"
+    },
+    {
+     "id": "a1_16",
+     "variant": "vocab",
+     "topic": "Faux-ami A1 : « bekommen » signifie recevoir, jamais devenir",
+     "wrong_example": "Ich möchte Arzt bekommen.",
+     "right_example": "Ich möchte Arzt werden.",
+     "type": "error"
+    },
+    {
+     "id": "a1_17",
+     "variant": "syntax",
+     "topic": "Les conjonctions qui ne changent pas l'ordre des mots (und, aber, oder, denn)",
+     "wrong_example": "Ich bleibe zu Hause, denn bin ich krank.",
+     "right_example": "Ich bleibe zu Hause, denn ich bin krank.",
+     "type": "error"
+    },
+    {
+     "id": "a1_18",
+     "variant": "vocab",
+     "topic": "Aller dans un pays ou une ville : nach vs in (mit Artikel)",
+     "wrong_example": "Ich fliege nach der Schweiz.",
+     "right_example": "Ich fliege in die Schweiz.",
+     "type": "error"
+    },
+    {
+     "id": "a1_19",
+     "variant": "case",
+     "topic": "Les possessifs à l'accusatif masculin : meinen, deinen, seinen",
+     "wrong_example": "Ich suche mein Schlüssel.",
+     "right_example": "Ich suche meinen Schlüssel.",
+     "type": "error"
+    },
+    {
+     "id": "a1_20",
+     "variant": "vocab",
+     "topic": "Dire « aimer » : mögen (nom) vs gern (verbe)",
+     "wrong_example": "Ich mag schwimmen.",
+     "right_example": "Ich schwimme gern.",
+     "type": "error"
+    }
+   ]
+  },
+  {
+   "level": "A2",
+   "title": "Le passé et les premières liaisons (Goethe / telc A2)",
+   "topics": [
+    {
+     "id": "a2_01",
+     "variant": "vocab",
+     "topic": "Perfekt : quand utiliser sein au lieu de haben (déplacement et changement d'état)",
+     "wrong_example": "Ich habe nach Paris gefahren.",
+     "right_example": "Ich bin nach Paris gefahren.",
+     "type": "error"
+    },
+    {
+     "id": "a2_02",
+     "variant": "vocab",
+     "topic": "Perfekt des verbes inséparables (ver-, be-, er-) : jamais de ge-",
+     "wrong_example": "Ich habe das nicht geverstanden.",
+     "right_example": "Ich habe das nicht verstanden.",
+     "type": "error"
+    },
+    {
+     "id": "a2_03",
+     "variant": "syntax",
+     "topic": "La subordonnée avec « weil » : le verbe conjugué part tout à la fin",
+     "wrong_example": "Ich lerne Deutsch, weil ich brauche es.",
+     "right_example": "Ich lerne Deutsch, weil ich es brauche.",
+     "type": "error"
+    },
+    {
+     "id": "a2_04",
+     "variant": "syntax",
+     "topic": "La subordonnée avec « dass » : attention à la virgule et au rejet du verbe",
+     "wrong_example": "Ich hoffe, dass du kommst morgen.",
+     "right_example": "Ich hoffe, dass du morgen kommst.",
+     "type": "error"
+    },
+    {
+     "id": "a2_05",
+     "variant": "case",
+     "topic": "Les verbes qui exigent le datif (helfen, danken, gefallen, gehören)",
+     "wrong_example": "Kannst du mich helfen?",
+     "right_example": "Kannst du mir helfen?",
+     "type": "error"
+    },
+    {
+     "id": "a2_06",
+     "variant": "case",
+     "topic": "Les prépositions toujours suivies du datif (aus, bei, mit, nach, seit, von, zu)",
+     "wrong_example": "Ich wohne seit ein Jahr hier.",
+     "right_example": "Ich wohne seit einem Jahr hier.",
+     "type": "error"
+    },
+    {
+     "id": "a2_07",
+     "variant": "case",
+     "topic": "Les prépositions toujours suivies de l'accusatif (durch, für, gegen, ohne, um)",
+     "wrong_example": "Das Geschenk ist für mein Vater.",
+     "right_example": "Das Geschenk ist für meinen Vater.",
+     "type": "error"
+    },
+    {
+     "id": "a2_08",
+     "variant": "syntax",
+     "topic": "Subordonnée en tête de phrase avec « Wenn » : règle « verbe contre verbe »",
+     "wrong_example": "Wenn ich Zeit habe, ich komme.",
+     "right_example": "Wenn ich Zeit habe, komme ich.",
+     "type": "error"
+    },
+    {
+     "id": "a2_09",
+     "variant": "case",
+     "topic": "Les pronoms réfléchis : mich (accusatif) vs mir (datif avec un COD)",
+     "wrong_example": "Ich putze mich die Zähne.",
+     "right_example": "Ich putze mir die Zähne.",
+     "type": "error"
+    },
+    {
+     "id": "a2_10",
+     "variant": "vocab",
+     "topic": "Ne plus confondre wenn (condition/répétition) et als (passé unique)",
+     "wrong_example": "Wenn ich ein Kind war, wohnte ich in Lyon.",
+     "right_example": "Als ich ein Kind war, wohnte ich in Lyon.",
+     "type": "error"
+    },
+    {
+     "id": "a2_11",
+     "variant": "vocab",
+     "topic": "Comparatif : utiliser als (différence) et non wie (égalité)",
+     "wrong_example": "Er ist größer wie ich.",
+     "right_example": "Er ist größer als ich.",
+     "type": "error"
+    },
+    {
+     "id": "a2_12",
+     "variant": "syntax",
+     "topic": "Le Perfekt dans une subordonnée : l'auxiliaire conjugué passe tout à la fin",
+     "wrong_example": "Ich weiß, dass er hat angerufen.",
+     "right_example": "Ich weiß, dass er angerufen hat.",
+     "type": "error"
+    },
+    {
+     "id": "a2_13",
+     "variant": "vocab",
+     "topic": "Poser ou mettre : stellen, legen, setzen vs stehen, liegen, sitzen",
+     "wrong_example": "Das Buch legt auf dem Tisch.",
+     "right_example": "Das Buch liegt auf dem Tisch.",
+     "type": "error",
+     "changed": {
+      "from": [
+       "Ich stelle das Buch auf dem Tisch.",
+       "Ich lege das Buch auf den Tisch."
+      ],
+      "why": "l'ancien exemple changeait le verbe ET le cas (stelle → lege, dem → den) : deux leçons en une"
+     }
+    },
+    {
+     "id": "a2_14",
+     "variant": "case",
+     "topic": "Le datif pluriel : ne pas oublier le -n final sur le nom",
+     "wrong_example": "Ich spiele mit den Kinder.",
+     "right_example": "Ich spiele mit den Kindern.",
+     "type": "error"
+    },
+    {
+     "id": "a2_15",
+     "variant": "vocab",
+     "topic": "Kennen vs wissen : savoir un fait ou connaître une personne/un lieu",
+     "wrong_example": "Ich weiß diesen Mann nicht.",
+     "right_example": "Ich kenne diesen Mann nicht.",
+     "type": "error"
+    },
+    {
+     "id": "a2_16",
+     "variant": "syntax",
+     "topic": "L'ordre des compléments : Datif avant Accusatif quand ce sont des noms",
+     "wrong_example": "Ich gebe das Buch dem Lehrer.",
+     "right_example": "Ich gebe dem Lehrer das Buch.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Ich gebe das Buch dem Lehrer » est correct (ordre marqué)"
+     }
+    },
+    {
+     "id": "a2_17",
+     "variant": "vocab",
+     "topic": "Faux-ami A2 : « aktuell » veut dire actuel, pas actuellement",
+     "wrong_example": "Aktuell wohne ich in München.",
+     "right_example": "Derzeit wohne ich in München.",
+     "type": "error",
+     "review": "« Aktuell wohne ich in München » est de l'allemand correct (aktuell = actuellement est courant) : le faux-ami annoncé n'en est pas un"
+    },
+    {
+     "id": "a2_18",
+     "variant": "syntax",
+     "topic": "Le Präteritum de sein et haben : plus naturel que le Perfekt à l'oral",
+     "wrong_example": "Gestern bin ich müde gewesen.",
+     "right_example": "Gestern war ich müde.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Gestern bin ich müde gewesen » est correct, juste moins naturel"
+     }
+    },
+    {
+     "id": "a2_19",
+     "variant": "vocab",
+     "topic": "Dire « demander » : fragen (une question) vs bitten um (un service)",
+     "wrong_example": "Ich frage dich um Hilfe.",
+     "right_example": "Ich bitte dich um Hilfe.",
+     "type": "error"
+    },
+    {
+     "id": "a2_20",
+     "variant": "syntax",
+     "topic": "Les interrogatives indirectes (ob / W-Fragen) : rejet du verbe",
+     "wrong_example": "Ich weiß nicht, wann kommt der Zug.",
+     "right_example": "Ich weiß nicht, wann der Zug kommt.",
+     "type": "error"
+    }
+   ]
+  },
+  {
+   "level": "B1",
+   "title": "Autonomie et argumentation (Goethe-Zertifikat B1 & telc B1)",
+   "topics": [
+    {
+     "id": "b1_01",
+     "variant": "case",
+     "topic": "Wechselpräpositionen : Wo? (Datif) vs Wohin? (Accusatif)",
+     "wrong_example": "Ich lege das Buch auf dem Tisch.",
+     "right_example": "Ich lege das Buch auf den Tisch.",
+     "type": "error"
+    },
+    {
+     "id": "b1_02",
+     "variant": "syntax",
+     "topic": "Obwohl vs trotzdem : conjonction de subordination contre adverbe",
+     "wrong_example": "Obwohl ich bin müde, lerne ich.",
+     "right_example": "Obwohl ich müde bin, lerne ich.",
+     "type": "error"
+    },
+    {
+     "id": "b1_03",
+     "variant": "syntax",
+     "topic": "Um ... zu vs damit : le piège du changement de sujet",
+     "wrong_example": "Ich lerne, um meine Eltern stolz sind.",
+     "right_example": "Ich lerne, damit meine Eltern stolz sind.",
+     "type": "error"
+    },
+    {
+     "id": "b1_04",
+     "variant": "syntax",
+     "topic": "L'infinitif avec « zu » : quand faut-il mettre zu devant l'infinitif ?",
+     "wrong_example": "Ich habe keine Lust gehen.",
+     "right_example": "Ich habe keine Lust zu gehen.",
+     "type": "error"
+    },
+    {
+     "id": "b1_05",
+     "variant": "case",
+     "topic": "Déclinaison de l'adjectif après un article défini (der, die, das)",
+     "wrong_example": "Ich kaufe den neuer Computer.",
+     "right_example": "Ich kaufe den neuen Computer.",
+     "type": "error"
+    },
+    {
+     "id": "b1_06",
+     "variant": "case",
+     "topic": "Déclinaison de l'adjectif après un article indéfini (ein, kein, mein)",
+     "wrong_example": "Das ist ein interessantes Film.",
+     "right_example": "Das ist ein interessanter Film.",
+     "type": "error"
+    },
+    {
+     "id": "b1_07",
+     "variant": "case",
+     "topic": "Les pronoms relatifs au datif : dem, der, denen",
+     "wrong_example": "Der Kollege, den ich helfe, ist nett.",
+     "right_example": "Der Kollege, dem ich helfe, ist nett.",
+     "type": "error"
+    },
+    {
+     "id": "b1_08",
+     "variant": "vocab",
+     "topic": "Verbes à préposition fixe : warten auf + Akkusatif (et non für)",
+     "wrong_example": "Ich warte für den Bus.",
+     "right_example": "Ich warte auf den Bus.",
+     "type": "error"
+    },
+    {
+     "id": "b1_09",
+     "variant": "vocab",
+     "topic": "Les adverbes pronominaux da(r)- et wo(r)- pour les choses",
+     "wrong_example": "Ich freue mich auf es.",
+     "right_example": "Ich freue mich darauf.",
+     "type": "error"
+    },
+    {
+     "id": "b1_10",
+     "variant": "vocab",
+     "topic": "Konjunktiv II : exprimer un souhait ou un conseil poli (hätte, wäre, würde)",
+     "wrong_example": "Wenn ich Zeit habe, würde ich reisen.",
+     "right_example": "Wenn ich Zeit hätte, würde ich reisen.",
+     "type": "error"
+    },
+    {
+     "id": "b1_11",
+     "variant": "syntax",
+     "topic": "Deshalb vs denn : cause et conséquence avec la bonne place du verbe",
+     "wrong_example": "Es regnet, deshalb ich bleibe hier.",
+     "right_example": "Es regnet, deshalb bleibe ich hier.",
+     "type": "error"
+    },
+    {
+     "id": "b1_12",
+     "variant": "vocab",
+     "topic": "Teilnehmen an + Datif : participer à un examen ou un cours",
+     "wrong_example": "Ich nehme an den Kurs teil.",
+     "right_example": "Ich nehme am Kurs teil.",
+     "type": "error"
+    },
+    {
+     "id": "b1_13",
+     "variant": "case",
+     "topic": "La déclinaison en -n (n-Deklination) : der Student, den Studenten",
+     "wrong_example": "Ich frage der Student.",
+     "right_example": "Ich frage den Studenten.",
+     "type": "error"
+    },
+    {
+     "id": "b1_14",
+     "variant": "vocab",
+     "topic": "Sich interessieren für + Akkusatif : ne pas calquer « s'intéresser à »",
+     "wrong_example": "Ich interessiere mich an Musik.",
+     "right_example": "Ich interessiere mich für Musik.",
+     "type": "error"
+    },
+    {
+     "id": "b1_15",
+     "variant": "vocab",
+     "topic": "Passé des verbes modaux : le Präteritum remplace le double infinitif",
+     "wrong_example": "Ich habe gestern arbeiten gemusst.",
+     "right_example": "Ich musste gestern arbeiten.",
+     "type": "error"
+    },
+    {
+     "id": "b1_16",
+     "variant": "vocab",
+     "topic": "Faux-ami B1 : « eventuell » veut dire peut-être, pas éventuellement",
+     "wrong_example": "Eventuell komme ich später.",
+     "right_example": "Möglicherweise komme ich später.",
+     "type": "error",
+     "review": "« Eventuell komme ich später » utilise eventuell correctement (peut-être) : il faut un exemple où le calque de « éventuellement » fausse le sens"
+    },
+    {
+     "id": "b1_17",
+     "variant": "syntax",
+     "topic": "Le temps (TeKaMoLo) : Temporal avant Kausal, Modal, Lokal",
+     "wrong_example": "Ich fahre nach Berlin morgen mit dem Zug.",
+     "right_example": "Ich fahre morgen mit dem Zug nach Berlin.",
+     "type": "error"
+    },
+    {
+     "id": "b1_18",
+     "variant": "vocab",
+     "topic": "Verbringen vs ausgeben : dépenser du temps vs dépenser de l'argent",
+     "wrong_example": "Ich gebe viel Zeit im Internet aus.",
+     "right_example": "Ich verbringe viel Zeit im Internet.",
+     "type": "error"
+    },
+    {
+     "id": "b1_19",
+     "variant": "case",
+     "topic": "L'adjectif sans article (Nullartikel) : l'adjectif porte la marque forte",
+     "wrong_example": "Ich trinke gern kalte Kaffee.",
+     "right_example": "Ich trinke gern kalten Kaffee.",
+     "type": "error"
+    },
+    {
+     "id": "b1_20",
+     "variant": "syntax",
+     "topic": "La voix passive au présent (werden + Partizip II)",
+     "wrong_example": "Das Auto ist repariert von dem Mechaniker.",
+     "right_example": "Das Auto wird vom Mechaniker repariert.",
+     "type": "error"
+    },
+    {
+     "id": "b1_21",
+     "variant": "vocab",
+     "topic": "Sich erinnern an + Akkusatif : se souvenir de quelque chose",
+     "wrong_example": "Ich erinnere mich von diesem Tag.",
+     "right_example": "Ich erinnere mich an diesen Tag.",
+     "type": "error"
+    },
+    {
+     "id": "b1_22",
+     "variant": "syntax",
+     "topic": "Während (pendant que) : conjonction temporelle avec rejet du verbe",
+     "wrong_example": "Während ich koche, er liest.",
+     "right_example": "Während ich koche, liest er.",
+     "type": "error"
+    },
+    {
+     "id": "b1_23",
+     "variant": "vocab",
+     "topic": "Redemittel B1 (Sprechen) : donner son avis sans répéter « Ich denke »",
+     "wrong_example": "Ich denke, das ist gut.",
+     "right_example": "Meiner Meinung nach ist das sinnvoll.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Ich denke, das ist gut » est correct"
+     }
+    },
+    {
+     "id": "b1_24",
+     "variant": "case",
+     "topic": "Les pronoms relatifs au génitif : dessen et deren",
+     "wrong_example": "Der Mann, deren Auto kaputt ist, wartet.",
+     "right_example": "Der Mann, dessen Auto kaputt ist, wartet.",
+     "type": "error",
+     "changed": {
+      "from": [
+       "Die Frau, deren Auto kaputt ist...",
+       "Der Mann, dessen Auto kaputt ist..."
+      ],
+      "why": "« Die Frau, deren Auto kaputt ist » est correct : ce n'était pas une erreur"
+     }
+    },
+    {
+     "id": "b1_25",
+     "variant": "vocab",
+     "topic": "Brauchen + zu + Infinitiv : exprimer l'absence d'obligation avec nicht",
+     "wrong_example": "Du brauchst nicht kommen.",
+     "right_example": "Du brauchst nicht zu kommen.",
+     "type": "error"
+    }
+   ]
+  },
+  {
+   "level": "B2",
+   "title": "Précision, nuance et style académique (Goethe-Zertifikat B2 & telc B2)",
+   "topics": [
+    {
+     "id": "b2_01",
+     "variant": "case",
+     "topic": "Les prépositions du génitif (trotz, wegen, während, aufgrund) : le -s obligatoire",
+     "wrong_example": "Trotz dem Regen gehe ich spazieren.",
+     "right_example": "Trotz des Regens gehe ich spazieren.",
+     "type": "error"
+    },
+    {
+     "id": "b2_02",
+     "variant": "syntax",
+     "topic": "Les double-connecteurs : sowohl ... als auch / nicht nur ... sondern auch",
+     "wrong_example": "Er spricht nicht nur Deutsch, aber auch Englisch.",
+     "right_example": "Er spricht nicht nur Deutsch, sondern auch Englisch.",
+     "type": "error"
+    },
+    {
+     "id": "b2_03",
+     "variant": "syntax",
+     "topic": "Je ... desto / umso : la proportionnalité avec rejet puis inversion",
+     "wrong_example": "Je mehr ich lerne, desto ich verstehe.",
+     "right_example": "Je mehr ich lerne, desto besser verstehe ich.",
+     "type": "error"
+    },
+    {
+     "id": "b2_04",
+     "variant": "vocab",
+     "topic": "Nomen-Verb-Verbindungen (1) : remplacer entscheiden par eine Entscheidung treffen",
+     "wrong_example": "Wir müssen bald entscheiden.",
+     "right_example": "Wir müssen bald eine Entscheidung treffen.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Wir müssen bald entscheiden » est correct"
+     }
+    },
+    {
+     "id": "b2_05",
+     "variant": "vocab",
+     "topic": "Nomen-Verb-Verbindungen (2) : Kritik üben an, in Betracht ziehen, zur Verfügung stehen",
+     "wrong_example": "Er kritisiert das System.",
+     "right_example": "Er übt Kritik an dem System.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Er kritisiert das System » est correct"
+     }
+    },
+    {
+     "id": "b2_06",
+     "variant": "syntax",
+     "topic": "Le passif avec verbe de modalité (muss gemacht werden)",
+     "wrong_example": "Das Problem muss gelöst wird.",
+     "right_example": "Das Problem muss gelöst werden.",
+     "type": "error"
+    },
+    {
+     "id": "b2_07",
+     "variant": "syntax",
+     "topic": "Vorgangspassiv (action) vs Zustandspassiv (état résultant)",
+     "wrong_example": "Das Geschäft wird um 18 Uhr geschlossen (état).",
+     "right_example": "Das Geschäft ist ab 18 Uhr geschlossen.",
+     "type": "error",
+     "review": "les deux phrases sont correctes, la différence est de sens (action / état) : « (état) » entre parenthèses n'est pas montrable"
+    },
+    {
+     "id": "b2_08",
+     "variant": "case",
+     "topic": "Le Partizip I comme adjectif (action en cours) : die steigenden Preise",
+     "wrong_example": "Die gestiegenen Preise (en train de monter).",
+     "right_example": "Die steigenden Preise.",
+     "type": "error",
+     "review": "« Die gestiegenen Preise » est correct, la différence est de sens : la parenthèse n'est pas montrable"
+    },
+    {
+     "id": "b2_09",
+     "variant": "case",
+     "topic": "Le Partizip II comme adjectif (action terminée) : der unterschriebene Vertrag",
+     "wrong_example": "Der unterschreibende Vertrag (déjà signé).",
+     "right_example": "Der unterschriebene Vertrag.",
+     "type": "error",
+     "review": "« Der unterschreibende Vertrag » est bizarre mais la différence est de sens : la parenthèse n'est pas montrable"
+    },
+    {
+     "id": "b2_10",
+     "variant": "vocab",
+     "topic": "Sens subjectif des modaux (sollen / wollen) : rapporter une rumeur ou une prétention",
+     "wrong_example": "Man sagt, er ist sehr reich.",
+     "right_example": "Er soll sehr reich sein.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Man sagt, er ist sehr reich » est correct"
+     }
+    },
+    {
+     "id": "b2_11",
+     "variant": "vocab",
+     "topic": "Sens subjectif des modaux (müssen / dürfte / könnte) : degrés de certitude",
+     "wrong_example": "Es ist sicher, dass er krank ist.",
+     "right_example": "Er muss krank sein.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Es ist sicher, dass er krank ist » est correct"
+     }
+    },
+    {
+     "id": "b2_12",
+     "variant": "syntax",
+     "topic": "Indem vs dadurch, dass : exprimer le moyen au B2",
+     "wrong_example": "Man spart Energie mit Ausschalten des Lichts.",
+     "right_example": "Man spart Energie, indem man das Licht ausschaltet.",
+     "type": "error"
+    },
+    {
+     "id": "b2_13",
+     "variant": "syntax",
+     "topic": "Anstatt ... zu vs ohne ... zu : exprimer l'opposition ou l'absence",
+     "wrong_example": "Er ging, ohne er sagte Tschüss.",
+     "right_example": "Er ging, ohne Tschüss zu sagen.",
+     "type": "error"
+    },
+    {
+     "id": "b2_14",
+     "variant": "vocab",
+     "topic": "Redemittel B2 (Schreiben) : structurer une argumentation formelle (Einerseits ... andererseits)",
+     "wrong_example": "Auf einer Seite ist das gut, auf der anderen Seite ist das teuer.",
+     "right_example": "Einerseits ist das gut, andererseits ist das teuer.",
+     "type": "error",
+     "changed": {
+      "from": [
+       "Auf einer Seite... auf der anderen Seite...",
+       "Einerseits ... andererseits ..."
+      ],
+      "why": "des fragments (« ... ») à la place de phrases ; « auf einer Seite » est bien fautif (auf der einen Seite)"
+     }
+    },
+    {
+     "id": "b2_15",
+     "variant": "case",
+     "topic": "Prépositions B2 avec le datif : gegenüber, zufolge, entgegen",
+     "wrong_example": "Gegenüber den Bahnhof liegt das Hotel.",
+     "right_example": "Gegenüber dem Bahnhof liegt das Hotel.",
+     "type": "error"
+    },
+    {
+     "id": "b2_16",
+     "variant": "case",
+     "topic": "Innerhalb et außerhalb + Génitif (espace et temps)",
+     "wrong_example": "Innerhalb zwei Wochen.",
+     "right_example": "Innerhalb zweier Wochen.",
+     "type": "error"
+    },
+    {
+     "id": "b2_17",
+     "variant": "syntax",
+     "topic": "Le Konjunktiv I dans la presse (discours indirect B2 : er sei, er habe)",
+     "wrong_example": "Der Minister sagt, er ist nicht schuldig.",
+     "right_example": "Der Minister sagt, er sei nicht schuldig.",
+     "type": "error"
+    },
+    {
+     "id": "b2_18",
+     "variant": "vocab",
+     "topic": "Préfixes verbaux : ne pas confondre umfahren (contourner) et umfahren (renverser)",
+     "wrong_example": "Er hat das Schild umgefahren (contourner).",
+     "right_example": "Er hat die Baustelle umfahren.",
+     "type": "error",
+     "review": "« Er hat das Schild umgefahren » est correct (renverser) : les deux phrases sont justes, seule l'accentuation change"
+    },
+    {
+     "id": "b2_19",
+     "variant": "syntax",
+     "topic": "Le double infinitif au Perfekt avec les modaux (hat kommen müssen)",
+     "wrong_example": "Er hat nicht kommen gemusst.",
+     "right_example": "Er hat nicht kommen müssen.",
+     "type": "error"
+    },
+    {
+     "id": "b2_20",
+     "variant": "vocab",
+     "topic": "Faux-ami B2 : « konsequent » signifie cohérent/ferme, pas conséquent",
+     "wrong_example": "Das ist eine konsequente Summe.",
+     "right_example": "Das ist eine beträchtliche Summe.",
+     "type": "error",
+     "changed": {
+      "from": [
+       "Eine consequente Summe.",
+       "Eine beträchtliche Summe."
+      ],
+      "why": "« consequente » n'est pas de l'allemand : l'erreur est « konsequent » pris pour « conséquent »"
+     }
+    },
+    {
+     "id": "b2_21",
+     "variant": "vocab",
+     "topic": "Beitragen zu + Datif / führen zu + Datif : exprimer la cause et l'impact au B2",
+     "wrong_example": "Das führt für viele Probleme.",
+     "right_example": "Das führt zu vielen Problemen.",
+     "type": "error"
+    },
+    {
+     "id": "b2_22",
+     "variant": "syntax",
+     "topic": "Les alternatives au passif : sich lassen + Infinitiv / sein + zu + Infinitiv",
+     "wrong_example": "Das kann leicht gemacht werden.",
+     "right_example": "Das lässt sich leicht machen.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : « Das kann leicht gemacht werden » est correct"
+     }
+    },
+    {
+     "id": "b2_23",
+     "variant": "case",
+     "topic": "Les adjectifs substantivés : etwas Wichtiges, nichts Neues, der Angestellte",
+     "wrong_example": "Ich habe etwas wichtig gehört.",
+     "right_example": "Ich habe etwas Wichtiges gehört.",
+     "type": "error"
+    },
+    {
+     "id": "b2_24",
+     "variant": "syntax",
+     "topic": "L'ordre des pronoms : Accusatif avant Datif quand les deux sont des pronoms",
+     "wrong_example": "Ich gebe ihm es.",
+     "right_example": "Ich gebe es ihm.",
+     "type": "error"
+    },
+    {
+     "id": "b2_25",
+     "variant": "vocab",
+     "topic": "Redemittel B2 (Beschwerde / Réclamation) : formules polies mais fermes pour le telc/Goethe",
+     "wrong_example": "Ich bin nicht zufrieden und will mein Geld.",
+     "right_example": "Ich sehe mich gezwungen, eine Rückerstattung zu verlangen.",
+     "type": "upgrade",
+     "changed": {
+      "why": "type upgrade : la première phrase est correcte, juste peu formelle"
+     }
+    }
+   ]
+  }
+ ],
+ "types": {
+  "error": "la première phrase est de l'allemand FAUX : affichée ✗ puis corrigée ✓",
+  "upgrade": "la première phrase est correcte mais maladroite ou trop simple : « Correct mais moins naturel » puis « Ce qu'attend l'examinateur », jamais ✗"
+ }
+}

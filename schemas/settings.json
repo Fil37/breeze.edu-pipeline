@@ -7,7 +7,8 @@
     "breeze_(electronics)": "html",
     "breeze_(physics)": "html",
     "breeze_(math)": "html",
-    "breeze_(economics)": "html"
+    "breeze_(economics)": "html",
+    "breeze_(allemand)": "html"
   },
   "publisher": "direct",
   "youtube_quota_limit": 10000,
@@ -21,14 +22,23 @@
     "breeze_(electronics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
     "breeze_(physics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
     "breeze_(math)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"},
-    "breeze_(economics)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"}
+    "breeze_(economics)": {"voice_id": "5OnMHwgTFgvPVwE8jP6B", "name": "Anaïs - Instructor"},
+    "breeze_(allemand)": {"voice_id": "7eVMgwCnXydb3CikjV7a", "name": "Lea - German", "speed": 0.9, "language": "de", "edge": {"voice": "fr-FR-VivienneMultilingualNeural", "rate": "-8%", "foreign_rate": "-18%"}, "words": [300, 335], "words_per_sec": 2.75}
   },
   "background_music": true,
   "music_style_by_channel": {
     "breeze_(electronics)": "cinematic",
     "breeze_(physics)": "cinematic",
     "breeze_(math)": "ambient",
-    "breeze_(economics)": "ambient"
+    "breeze_(economics)": "ambient",
+    "breeze_(allemand)": "ambient"
+  },
+  "watermark_by_channel": {
+    "breeze_(electronics)": "assets/brand/breeze_electronics.png",
+    "breeze_(physics)": "assets/brand/breeze_physics.png",
+    "breeze_(math)": "assets/brand/breeze_math.png",
+    "breeze_(economics)": "assets/brand/breeze_economics.png",
+    "breeze_(allemand)": "assets/brand/breeze_b.png"
   },
   "music_style": "ambient",
   "sound_effects": true,

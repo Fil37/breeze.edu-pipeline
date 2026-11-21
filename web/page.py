@@ -202,3 +202,29 @@ def standup():
     return {"run_id": last["run_id"],
             "groups": [{"channel_id": channel, "name": names.get(channel, "Global" if channel == "global" else channel),
                         "theme": channel_theme(channel), "lines": lines} for channel, lines in groups.items()]}
+
+
+def costs(days=14):
+    """What the runs cost, from app/costs.py's instance/costs_history.json (it counts the voice too): the last
+    run (every channel of the last orchestrator run) with its AI and voice parts, and one row per day (runs,
+    LLM calls, tokens, AI $, voice $, total), newest first. None when nothing is recorded yet."""
+    history = [h for h in load_json(os.path.join(INSTANCE_DIR, "costs_history.json")) or []
+               if isinstance(h, dict) and isinstance(h.get("total"), dict) and h.get("finished_at")]
+    if not history:
+        return None
+    sum_up = lambda rows: {
+        "runs": len(rows), "llm_calls": sum(r["total"].get("llm_calls", 0) for r in rows),
+        "tokens": sum(r["total"].get("input_tokens", 0) + r["total"].get("output_tokens", 0) for r in rows),
+        "llm_cost": round(sum(r["total"].get("llm_cost", 0) for r in rows), 4),
+        "tts_cost": round(sum(r["total"].get("tts_cost", 0) for r in rows), 4),
+        "cost": round(sum(r["total"].get("cost", 0) for r in rows), 4)}
+    last = max(history, key=lambda h: h["finished_at"])
+    run = [h for h in history if h.get("orchestrator_run_id") == last.get("orchestrator_run_id")] if \
+        last.get("orchestrator_run_id") else [last]
+    by_day = {}
+    for h in history:
+        by_day.setdefault(h["finished_at"][:10], []).append(h)
+    return {"currency": last.get("currency", "USD"),
+            "last": {**sum_up(run), "run_id": last.get("orchestrator_run_id") or last.get("run_id"),
+                     "channels": [h["channel"] for h in run]},
+            "days": [{"day": day, **sum_up(rows)} for day, rows in sorted(by_day.items(), reverse=True)[:days]]}

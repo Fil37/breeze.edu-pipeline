@@ -58,6 +58,7 @@ import urllib.request
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # standalone runs
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the channel marks are relative to it
 
 from app.agent import channel_dir, finish, load_json, run_standalone, save_json, utc_now
 from app import provenance
@@ -68,7 +69,7 @@ from app.render import footage as film
 from app.render.subtitles import srt, subtitle_cues
 from app.render.fonts import font_face_css
 from app.breadboard import breadboard_data
-from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
+from app.layout_solver import (equation_heights, equation_pages, equation_details, EQUATION_DETAIL_W, TREE_LEAF, TREE_LEVEL, EQUATION_LINE, simple_size, CHAIN_BOX, CHAIN_GAP, CHAIN_ROW, TABLE_ROW, chain_size, table_widths, table_heights, FPGA_CELL, LOGIC_COL, PROGRAM_LINE, PROGRAM_TOP, PROGRAM_W, annotation_targets, logic_depths,
                                logic_size, orient_parts, place_divider, place_opamp, place_schematic, split_rails, target_first_timing, with_program)
 from app.render.soundtrack import soundtrack
 from models.visual_brief_schema import PHYS_PIECES, SIMPLE_PIECES, UNIT_FACTORS as UNIT_FACTORS_RENDER
@@ -81,6 +82,12 @@ from app.render.video import (END_FADE, END_HOLD, FPS, HEIGHT, PLACEHOLDER, TAIL
 from app.tts_manager import media_duration
 
 AGENT = "agent010"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "html_render", "version": "1.0", "objective": "Render each scene as a web page, frame by frame, with its voice-over",
+     "summary": "Playwright frames + ffmpeg; voice by ElevenLabs or edge-tts, German examples said apart; -16 LUFS."},
+]
 THEME = "light"          # the default when no channel theme is given: "light" or "dark" design tokens
 # Each channel's theme: its colours (design tokens), its animated background, its fonts and the style
 # of its titles. Fixed here, never from the LLM; the page checks every colour is a "#RRGGBB".
@@ -399,7 +406,8 @@ def table_data(state):
             total.append(f"{parsed[0][2]}{french_figure(sum(p[0] for p in parsed), decimals)}{(' ' + parsed[0][3]) if parsed[0][3] else ''}".strip())
         else:
             total.append("Total" if j == 0 else "")
-    return {"columns": columns, "rows": rows, "widths": table_widths(state), "row": TABLE_ROW, "total": total}
+    return {"columns": columns, "rows": rows, "widths": table_widths(state), "row": TABLE_ROW, "total": total,
+            "heights": table_heights(state)}
 
 
 PALETTE = ("#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899")
@@ -517,7 +525,40 @@ def simple_data(kind, state):
         out["pane"] = EQUATION_DETAIL_W if any(out["details"]) else 0
     elif kind == "POWER_SUPPLY":
         out.update(voltage=state.get("voltage", 12), limit=state.get("current_limit", 1), output=state.get("output") is True)
+    elif kind == "SENTENCE":
+        out.update(sentence_data(state, width))
     return out
+
+
+SENTENCE_STYLE = {    # role -> (colour, French label shown under the tile; None: no label)
+    "subject": ("#3B82F6", "sujet"), "verb": ("#EF4444", "verbe"), "conjunction": ("#8B5CF6", "conjonction"),
+    "object": ("#10B981", "complément"), "other": ("#64748B", None), "punct": ("#64748B", None),
+}
+SENTENCE_GAP = 18
+
+
+def sentence_data(state, width):
+    """SENTENCE: each word's tile width, worked out from its length so that the whole sentence (every word,
+    the longest it can get) fits on one line: the font shrinks from 46 px to 26 px at the least. The page
+    places the tiles from these widths, for any order (set_state "order"). Texts as text only."""
+    words = state["words"]
+    # the padding shrinks with the font, down to 22 px (run 7 of 2026-11-20: a 14-word B2 sentence stopped at 26 px
+    # with 40 px of padding a tile, 1731 px for 1600, « werden » past the frame's edge)
+    def tile(w, size):
+        if w.get("role") == "punct":
+            return round(0.34 * size * len(w["text"]) + 6)
+        return round(0.6 * size * len(w["text"]) + 40 * size / 46)
+    total = lambda size: sum(tile(w, size) for w in words) + SENTENCE_GAP * (len(words) - 1)
+    size = 46
+    while size > 22 and total(size) > width - 60:
+        size -= 2
+    return {"font": size, "gap": SENTENCE_GAP,
+            "words": [{"text": str(w["text"]), "role": w.get("role", "other"), "width": tile(w, size),
+                       "color": SENTENCE_STYLE[w.get("role", "other")][0], "label": SENTENCE_STYLE[w.get("role", "other")][1]}
+                      for w in words],
+            "order": list(state.get("order") or range(len(words))),
+            "translation": str(state.get("translation") or ""),
+            "label": str(state.get("label") or ""), "verdict": state.get("verdict")}
 
 
 def phys_data(kind, state):
@@ -1254,7 +1295,8 @@ PAGE_TEMPLATE = r"""<!doctype html>
   .wave { position:relative; width:1300px; }
   .tbl { position:relative; display:grid; border-radius:14px; overflow:hidden; border:2px solid var(--border); background:var(--card); }
   .tbl > div { display:flex; align-items:center; justify-content:center; padding:0 14px; font-size:26px; color:var(--text);
-               border-bottom:1px solid var(--border); border-right:1px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+               border-bottom:1px solid var(--border); border-right:1px solid var(--border); overflow:hidden;
+               text-align:center; line-height:1.15; overflow-wrap:anywhere; }   /* wraps, never cut (table_heights) */
   .tbl > div.head { font-weight:700; background:color-mix(in srgb, var(--accent) 18%, var(--card)); }
   .tbl > div.pick { background:color-mix(in srgb, var(--accent) 30%, var(--card)); }
   .tbl > div.sum { font-weight:700; border-top:3px solid var(--accent); }
@@ -1397,6 +1439,9 @@ PAGE_TEMPLATE = r"""<!doctype html>
                     min-width:64px; }
   .plan-item.now { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent); }
   /* Subtitles (D.subtitles): the line being said, at the bottom, readable on any background. */
+  /* the channel's mark, bottom right (the subtitles end at x 1740): 44 px, faint; over a film, a light halo */
+  #watermark { position:absolute; right:36px; bottom:28px; width:44px; height:44px; object-fit:contain; opacity:.45; pointer-events:none; }
+  .on-footage #watermark { opacity:.7; filter:drop-shadow(0 0 5px rgba(255, 255, 255, .75)); }
   #subs { position:absolute; left:50%; bottom:22px; transform:translateX(-50%); width:max-content; max-width:1560px; box-sizing:border-box;
           padding:10px 28px; border-radius:14px; background:rgba(15, 23, 42, .82); color:#F8FAFC; font-size:38px; font-weight:600;
           line-height:1.3; text-align:center; z-index:40; opacity:0; }
@@ -2121,6 +2166,7 @@ function buildTable(ent) {
   const z = ent.table, shape = el("div", "tbl"), p = {cells: [], total: []};
   shape.style.gridTemplateColumns = z.widths.map(w => `${w}px`).join(" ");
   shape.style.gridAutoRows = `${z.row}px`;
+  if (z.heights) shape.style.gridTemplateRows = z.heights.map(h => `${h}px`).join(" ");   // a long cell's row is taller
   z.columns.forEach(c => shape.append(el("div", "head", c)));
   z.rows.forEach(r => p.cells.push(r.map(c => { const d = el("div", "", c); shape.append(d); return d; })));
   p.total = z.total.map(c => { const d = el("div", "sum", c); d.hidden = true; shape.append(d); return d; });
@@ -2186,7 +2232,7 @@ function seekChain(e, t) {
   if (p.loop) p.loop.setAttribute("opacity", clamp((t - inAt(p.boxes.length - 1) - 0.6) / 0.4, 0, 1));
 }
 // The simple catalogue pieces (TIMELINE, FRACTION_BAR, PIE_CHART, UNIT_CONVERTER, TREE, SET_DIAGRAM,
-// GAME_MATRIX, BAR_CHART, EQUATION_STEPS, POWER_SUPPLY): worked out in Python (simple_data), drawn here in
+// GAME_MATRIX, BAR_CHART, EQUATION_STEPS, POWER_SUPPLY, SENTENCE): worked out in Python (simple_data), drawn here in
 // SVG, every text from the brief as textContent. Things come in one after the other: set_state {"step": n}
 // (or {"level": n} for a tree), else one every SIMPLE_STEP s from the pop.
 const SIMPLE_STEP = 0.8, SIMPLE_COLORS = ["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#06B6D4", "#EC4899"];
@@ -2328,6 +2374,31 @@ function buildSimple(ent) {
       }
       Object.assign(box.style, {left: "0px", width: `${z.pane - 40}px`, opacity: 0});
       shape.append(box); return box; });
+  } else if (z.kind === "SENTENCE") {
+    // word tiles on one line, each coloured by its role (sentence_data), its role named under it; the French
+    // meaning under the line. The tiles are placed in seekSimple from the order of the moment.
+    const y = 120, h = z.font + 34;
+    // over a film, a light card behind it (the German run 5 of 2026-11-20: the roles and the meaning, grey on the
+    // dark grass of the hook's park, could not be read); drawn only on-footage (CSS)
+    p.card = sv("rect", {x: 0, y: 0, width: z.width, height: z.height, rx: 24, opacity: 0}, s);
+    p.card.style.fill = "color-mix(in srgb, var(--card) 92%, transparent)";   // set here: no page CSS reaches it
+    p.words = z.words.map(w => { const g = sv("g", {opacity: 0}, s);
+      if (w.role !== "punct") {
+        sv("rect", {x: -w.width / 2, y: y - h / 2, width: w.width, height: h, rx: 14,
+                    fill: `color-mix(in srgb, ${w.color} 16%, var(--card))`, stroke: w.color, "stroke-width": 3}, g);
+      }
+      const word = txt(g, 0, y + z.font * 0.35, w.text, "middle", "big");
+      Object.assign(word.style, {fontSize: `${z.font}px`, fontWeight: 700});
+      if (w.label) { const lab = txt(g, 0, y + h / 2 + 34, w.label, "middle", "note"); lab.style.fill = w.color; }
+      return g; });
+    // its caption over the line and its verdict (a red cross, a green tick), to tell the wrong order from the right
+    // (always there: a later set_state may give it, or turn ✗ to ✓; seek writes it)
+    p.caption = txt(s, z.width / 2, 40, "", "middle", "note");
+    Object.assign(p.caption.style, {fontSize: "30px", fontWeight: 700});
+    p.caption.setAttribute("opacity", 0);
+    p.translation = txt(s, z.width / 2, z.height - 20, z.translation, "middle", "note");
+    Object.assign(p.translation.style, {fontSize: "30px", fontStyle: "italic"});
+    p.translation.setAttribute("opacity", 0);
   } else if (z.kind === "POWER_SUPPLY") {
     sv("rect", {x: 10, y: 10, width: z.width - 20, height: z.height - 60, rx: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 4}, s);
     sv("rect", {x: 30, y: 30, width: z.width - 60, height: 70, rx: 8, fill: "#0F2A1F"}, s);
@@ -2413,6 +2484,97 @@ function seekSimple(e, t) {
       const g = p.notes[i], on = g && g.page === page && last === i + 1;
       if (on && !box.placed) { box.style.top = `${clamp(g.y - box.offsetHeight / 2, 0, Math.max(0, z.height - box.offsetHeight))}px`; box.placed = true; }
       box.style.opacity = on ? ks[i + 1] : 0; });
+  } else if (z.kind === "SENTENCE") {
+    // the words slide from the order before to the order set last (SENTENCE_MOVE s); a word that jumps over
+    // others goes over them in an arc; a word left out fades away, a new one fades in at its place
+    const SENTENCE_MOVE = 1.0, n = z.words.length;
+    const SENTENCE_SMALL = new Set(["ich", "du", "er", "es", "wir", "ihr", "der", "die", "das", "den", "dem", "des",
+                                    "ein", "eine", "einen", "einem", "einer", "eines", "man"]);
+    const valid = o => Array.isArray(o) && o.length && o.every(i => Number.isInteger(i) && i >= 0 && i < n) && new Set(o).size === o.length;
+    // a later state carries the keys of the ones before (order and focus): keep only the real changes of order,
+    // else a focus set during a move would start the move again
+    const orders = [];
+    e.states.filter(st => st.at >= 0 && st.state && valid(st.state.order)).sort((a, b) => a.at - b.at).forEach(st => {
+      const last = orders.length ? orders[orders.length - 1].state.order : z.order;
+      if (st.state.order.join() !== last.join()) orders.push(st); });
+    const done = orders.filter(st => st.at <= t), cur = done.length ? done[done.length - 1] : null;
+    const now = cur ? cur.state.order : z.order, before = done.length > 1 ? done[done.length - 2].state.order : z.order;
+    const k = cur ? easeInOut(clamp((t - cur.at) / SENTENCE_MOVE, 0, 1)) : 1;
+    const place = order => { const xs = {};
+      const total = order.reduce((sum, i, j) => sum + z.words[i].width + (j && z.words[i].role !== "punct" ? z.gap : 0), 0);
+      let x = (z.width - total) / 2;
+      order.forEach((i, j) => { if (j && z.words[i].role !== "punct") x += z.gap; xs[i] = x + z.words[i].width / 2; x += z.words[i].width; });
+      return xs; };
+    const from = place(before), to = place(now), focus = lastState(e, t, "focus");
+    // capitals follow the place (the German run of 2026-11-16: "weil ich krank bin, bleibe Ich zu Hause"): the
+    // first word starts with a capital; a conjunction, a verb, a pronoun or an article inside the sentence does
+    // not ("Sie", the polite you, keeps its capital; nouns keep theirs). A clause alone ("weil ich krank bin",
+    // no comma: a piece of a sentence, not a sentence) keeps its small letter.
+    const SENTENCE_OPENERS = new Set(["weil", "dass", "wenn", "ob", "obwohl", "als", "bevor", "nachdem", "während",
+                                      "damit", "seit", "seitdem", "bis", "falls", "sodass", "da"]);
+    const clauseAlone = order => SENTENCE_OPENERS.has(z.words[order[0]].text.toLowerCase())
+      && !order.some(i => z.words[i].role === "punct" && z.words[i].text.trim() === ",");
+    const shown = (i, order) => { const w = z.words[i].text;
+      if (order[0] === i) return clauseAlone(order) ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1);
+      if (["conjunction", "verb"].includes(z.words[i].role) || SENTENCE_SMALL.has(w.toLowerCase()) && w !== "Sie")
+        return w.charAt(0).toLowerCase() + w.slice(1);
+      return w; };
+    // the word that travels furthest jumps over the others, even past one neighbour (the German run of
+    // 2026-11-16: "bin" went through "müde"); the others slide under it
+    let jumper = -1, far = 10;
+    Object.keys(to).forEach(i => { if (i in from && Math.abs(to[i] - from[i]) > far) { far = Math.abs(to[i] - from[i]); jumper = +i; } });
+    // the caption steps back while the words fly (the jumper's arc goes over it), then comes back
+    // its caption as set by now: a move that corrects the sentence turns ✗ to ✓ (the obwohl test of 2026-11-20: the
+    // caption kept the first state's ✗ over the corrected sentence); it changes while it steps back for the move
+    // the verdict changes with the words, at the middle of the move (run 6 of 2026-11-20: "✓ Forme correcte" over
+    // "auf dem Tisch", the word still on its way): before it, the caption and the meaning read the state before
+    const said = cur && k < 0.5 ? cur.at - 1e-3 : t;
+    if (p.caption) {
+      const label = lastState(e, said, "label") ?? z.label, verdict = lastState(e, said, "verdict") ?? z.verdict;
+      p.caption.textContent = (verdict === "wrong" ? "✗ " : verdict === "right" ? "✓ " : "") + (label || "");
+      p.caption.style.fill = verdict === "wrong" ? "#EF4444" : verdict === "right" ? "#10B981" : "var(--muted)";
+    }
+    if (p.caption) p.caption.setAttribute("opacity", ease((e.spawn || 0) + 0.2, 0.4) * (1 - 0.85 * Math.sin(Math.PI * k)));
+    p.card.setAttribute("opacity", FOOTAGE ? ease((e.spawn || 0) + 0.1, 0.4) : 0);   // over a film only
+    const steps = e.states.some(st => st.state && Number.isInteger(st.state.step));
+    p.words.forEach((g, i) => {
+      const rank = z.order.indexOf(i);       // the first order comes in word after word
+      // once a move has started, every word of the sentence before is in (the preview of 2026-11-16: the clause
+      // that moved was still coming in word after word, unseen while it moved)
+      const appear = rank < 0 || cur ? 1 : steps ? ease(inTurn(e, "step", rank)) : ease((e.spawn || 0) + 0.3 + rank * 0.25, 0.4);
+      let x, dy = 0, op;
+      if (i in from && i in to) {
+        x = from[i] + (to[i] - from[i]) * k; op = appear;
+        // the furthest goes highest; the others that move go over (to the right) or under (to the left), so a
+        // whole clause moving past another never runs through it (the same run: "bleibe" over "krank")
+        // lanes a tile's height (80 px) apart: the jumper 135 px up, the others 45 px up or down
+        if (i === jumper) dy = -135 * Math.sin(Math.PI * k);
+        else if (Math.abs(to[i] - from[i]) > 10) dy = (to[i] > from[i] ? -45 : 45) * Math.sin(Math.PI * k);
+      } else if (i in to) {      // comes in once the others have made room (the preview of 2026-11-16: weil over Deutsch)
+        const late = clamp((k - 0.5) * 2, 0, 1);
+        x = to[i]; op = (rank >= 0 && !cur ? appear : 1) * late; dy = -30 * (1 - late); }
+      else if (i in from) { x = from[i]; op = (1 - k) * appear; dy = 30 * k; }
+      else { x = z.width / 2; op = 0; }
+      const big = focus === i ? 1.12 : 1;
+      g.setAttribute("opacity", op);
+      // fixed decimals (no 1e-14); a word picked out grows around its tile's middle (y 120), not its top
+      g.setAttribute("transform", `translate(${x.toFixed(1)} ${(dy + 120).toFixed(1)}) scale(${big}) translate(0 -120)`);
+      const rect = g.querySelector("rect");
+      if (rect) rect.setAttribute("stroke-width", focus === i ? 6 : 3);
+      const label = g.querySelector("text"), text = shown(i, k < 0.5 && i in from ? before : now);
+      if (label && label.textContent !== text) label.textContent = text; });
+    // the French meaning under the line (the obwohl test of 2026-11-20: given, never shown, no action asked for it):
+    // when an action says it, then; else on its own once the words are in (a sentence built word by word: once
+    // its last step is). Under a wrong sentence it is the meaning meant: "Sens voulu : ...".
+    const timed = e.states.some(st => st.state && typeof st.state === "object" && "translation" in st.state);
+    const lastStep = e.states.filter(st => st.state && typeof st.state === "object" && "step" in st.state).pop();
+    const allIn = lastStep ? lastStep.at + 0.6 : (e.spawn || 0) + 0.3 + (now.length - 1) * 0.25 + 0.6;
+    const wrong = (lastState(e, said, "verdict") ?? z.verdict) === "wrong";
+    const meaning = z.translation ? (wrong ? "Sens voulu : " : "") + z.translation : "";
+    if (p.translation.textContent !== meaning) p.translation.textContent = meaning;
+    // an action may bring it sooner, never later (run 8 of 2026-11-20: set at 16 to 19 s, the scenes' ends)
+    const asked = timed ? stateTime(e, "translation") : null;
+    p.translation.setAttribute("opacity", ease(asked !== null ? Math.min(asked, allIn) : allIn, 0.5));
   } else if (z.kind === "POWER_SUPPLY") {
     // on from the start when its initial_state says so (every supply of the AOP run of 2026-11-07 read 0,00 V)
     const set = lastState(e, t, "output"), on = set === undefined ? z.output : set === true;
@@ -3416,6 +3578,7 @@ let SUBS = null;
 if (SUBS_SPACE) {
   SUBS = el("div"); SUBS.id = "subs"; stage.append(SUBS); stage.classList.add("with-subs");
 }
+if (D.watermark) { const mark = el("img"); mark.id = "watermark"; mark.src = D.watermark; stage.append(mark); }
 let PROGRESS = null;
 if (D.progress && D.progress.total > 0) {
   const box = el("div"), bars = el("div", "bars"); box.id = "progress";
@@ -3502,7 +3665,8 @@ for (const ent of D.entities) {
   if (ent.upright) pop.classList.add("flip");                            // the battery's on its left: its wires leave right
   // A curve's label is its legend, a meter's is in its header; a junction has none.
   // an AOP's "AOP" label: its symbol says it already, and under it the label sat on its 0 V lead
-  if (ent.label && !["CURVE_PLOT", "WIRE_BUS"].includes(ent.type) && !ent.instrument && !ent.annotation
+  // a SENTENCE's label is its caption, drawn over its line (the German run of 2026-11-16 showed it twice)
+  if (ent.label && !["CURVE_PLOT", "WIRE_BUS", "SENTENCE"].includes(ent.type) && !ent.instrument && !ent.annotation
       && !(ent.type === "OPAMP" && /^\s*(aop|ampli)/i.test(ent.label)))
     pop.append(el("div", "label", ent.label));
   box.append(pop);
@@ -5209,6 +5373,19 @@ window.seek = function (t) {
 // Layout needs the real size of every box, KaTeX formulas included: wait for the fonts.
 // Feasibility check on the real boxes, once everything is placed: what still overlaps, sits in the
 // title zone or leaves the frame. The renderer reports it in render_manifest.json.
+// A text cut by its box (the German run of 2026-11-16: two tables cut their cells, nothing reported it):
+// a table cell whose text is wider or taller than the cell.
+function cutTexts() {
+  const found = [];
+  for (const e of Object.values(E)) {
+    if (!e.box || !e.data || e.data.type !== "TABLE") continue;
+    e.box.querySelectorAll(".tbl > div").forEach(d => {
+      if (d.hidden) return;
+      if (d.scrollWidth > d.clientWidth + 1 || d.scrollHeight > d.clientHeight + 1)
+        found.push(`${e.data.id} cuts the text "${d.textContent.slice(0, 40)}": shorter cells (a few words each)`); });
+  }
+  return found;
+}
 function layoutConflicts() {
   const found = [], header = below(D.subtitle ? 200 : 150);
   const items = Object.values(E).filter(e => e.box && !e.inSide && !e.placedForMotion).map(e => ({id: e.data.id, r: boxOf(e),
@@ -5271,7 +5448,7 @@ function wireProblems() {
 }
 document.fonts.ready.then(() => {
   locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); shrinkToFit(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
-  window.layoutConflicts = [...layoutConflicts(), ...wireProblems()];
+  window.layoutConflicts = [...layoutConflicts(), ...wireProblems(), ...cutTexts()];
   buildCamera();
   window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });
@@ -5467,6 +5644,33 @@ def plan_page_data(plan, spoken, voice, total, style):
     return data
 
 
+
+def watermark(path, warnings):
+    """The channel's mark ("watermark_by_channel" in settings: a PNG with a transparent background, relative
+    to the project) as a data URI for the pages; None without one, or when the file cannot be read."""
+    if not path:
+        return None
+    full = path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
+    try:
+        with open(full, "rb") as f:
+            return "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
+    except OSError as exc:
+        warnings.append(f"watermark {path!r} not read: {exc}")
+        return None
+
+
+def foreign_voice(sound, storyboard):
+    """A channel teaching a language ("language": "de" in its voice_by_channel): its examples are said
+    apart, in that language (app/tts_manager.foreign_parts), the words of the video's SENTENCE pieces
+    counting as that language's. None otherwise."""
+    language = (sound or {}).get("language")
+    if not language:
+        return None
+    words = [str(w.get("text") or "") for scene in storyboard.get("scenes") or []
+             for e in (scene.get("visual_brief") or {}).get("entities") or [] if e.get("type") == "SENTENCE"
+             for w in (e.get("initial_state") or {}).get("words") or [] if isinstance(w, dict)]
+    return {"language": language, "words": words}
+
 def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True, sound=None):
     """1. every voice-over, 2. every picture in one browser session, 3. join and concatenate, and the
     subtitles in folder/subtitles.srt (burnt into the picture too, unless burn_subtitles is False).
@@ -5491,7 +5695,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
             audio_path = os.path.join(temp_dir, name + ".mp3")
             spoken = []                    # when each word is said: the actions' cues are timed on it
             engine = {}
-            voice = generate_voice(narration, audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"))
+            voice = generate_voice(narration, audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"),
+                                   foreign_voice(sound, storyboard), (sound or {}).get("edge"))
             jobs.append({"name": name, "scene": scene, "source": source, "audio": audio_path, "voice": voice, "spoken": spoken,
                          "subtitles": subtitle_cues(narration, spoken, voice, plain_math),
                          "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, name + "_visual.mp4"),
@@ -5502,7 +5707,8 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
         if plan:                           # the plan, after the hook
             audio_path = os.path.join(temp_dir, "plan.mp3")
             spoken, engine = [], {}
-            voice = generate_voice(plan["narration"], audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"))
+            voice = generate_voice(plan["narration"], audio_path, spoken, engine, (sound or {}).get("voice_id"), (sound or {}).get("speed"),
+                                   foreign_voice(sound, storyboard), (sound or {}).get("edge"))
             jobs.insert(PLAN_AFTER, {"name": "plan", "plan": plan, "audio": audio_path, "voice": voice, "spoken": spoken,
                                      "subtitles": subtitle_cues(plan["narration"], spoken, voice, plain_math),
                                      "total": voice + TAIL_PAUSE, "visual": os.path.join(temp_dir, "plan_visual.mp4"),
@@ -5526,6 +5732,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                 job["entry"]["footage"] = film.credit(clip)
             except Exception as exc:       # no clip found, network, ffmpeg: the scene keeps its drawing alone
                 warnings.append(f"{job['name']}: no footage for {wanted!r}: {exc}")
+        mark = watermark((sound or {}).get("watermark"), warnings)
         # 2. Pictures: one page per scene, one screenshot per frame.
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
@@ -5538,6 +5745,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                     html_path = os.path.join(temp_dir, job["name"] + ".html")
                     if job.get("plan"):
                         data = plan_page_data(job["plan"], job["spoken"], job["voice"], job["total"], style)
+                        data["watermark"] = mark
                         if burn_subtitles:
                             data["subtitles"] = job["subtitles"]
                         with open(html_path, "w", encoding="utf-8") as f:
@@ -5559,6 +5767,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                                                          for a in job["scene"]["visual_brief"].get("actions") or [])
                     if burn_subtitles:
                         data["subtitles"] = job["subtitles"]
+                    data["watermark"] = mark
                     if job.get("footage"):
                         data["footage"] = job["footage"]
                     if job is jobs[-1]:
@@ -5626,7 +5835,10 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     sound = {"channel": channel_id, "music": settings.get("background_music", True), "effects": settings.get("sound_effects", True),
              "style": settings.get("music_style_by_channel", {}).get(channel_id) or settings.get("music_style", "ambient"),
              "voice_id": str((settings.get("voice_by_channel", {}).get(channel_id) or {}).get("voice_id") or "").strip() or None,
-             "speed": (settings.get("voice_by_channel", {}).get(channel_id) or {}).get("speed") or VOICE_SPEEDS.get(channel_id)}
+             "speed": (settings.get("voice_by_channel", {}).get(channel_id) or {}).get("speed") or VOICE_SPEEDS.get(channel_id),
+             "language": (settings.get("voice_by_channel", {}).get(channel_id) or {}).get("language"),
+             "edge": (settings.get("voice_by_channel", {}).get(channel_id) or {}).get("edge"),
+             "watermark": settings.get("watermark_by_channel", {}).get(channel_id)}
     try:
         if settings.get("dry_run", True):
             with open(video_path, "wb") as f:

@@ -19,6 +19,7 @@ HEALTH: not_healthy if total_duration_sec > 200 or < 60, the scenes still have f
         critical if outline.json is missing, llm_call fails, or scenes[] is empty.
 """
 
+import json
 import os
 import re
 import sys
@@ -27,14 +28,33 @@ import unicodedata
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # standalone runs
 
 from app.agent import channel_dir, find_route, finish, llm_call, load_json, parse_llm_json, run_standalone, save_json
+from app.language_examples import foreign_quotes, tokens
 from app import provenance
 from app.qa_feedback import feedback_section
 
 AGENT = "agent003"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "narration_script", "version": "1.0", "objective": "Write the spoken narration, scene by scene",
+     "summary": "Pace and length per channel; acronyms said in full; one example per scene for German."},
+]
 MIN_SCENE_WORDS = 15      # below this a scene's audio is too short for its animations
 WORDS_PER_SEC = 3.1       # the narrator's pace (ElevenLabs at speed 1.12: 3.0 to 3.3 measured on the run of 2026-11-02)
 MIN_WORDS = 280           # in all the scenes: under this the video is shorter than 90 s at that pace
 MAX_WORDS = 520           # ... and over this, longer than about 170 s
+DEFAULT_SPEED = 1.12      # the ElevenLabs speed WORDS_PER_SEC was measured at (tts_manager.ELEVENLABS_SETTINGS)
+
+
+def channel_pace(settings, channel_id):
+    """(words a second, least words, most words) at the channel's voice speed: a slower voice (the German
+    channel speaks at 0.9, for learners to hear the pronunciation) says fewer words in the same time."""
+    voice = settings.get("voice_by_channel", {}).get(channel_id) or {}
+    speed = voice.get("speed") or DEFAULT_SPEED
+    factor = float(speed) / DEFAULT_SPEED
+    if isinstance(voice.get("words"), list) and len(voice["words"]) == 2:     # the channel's own length
+        return voice.get("words_per_sec") or round(WORDS_PER_SEC * factor, 1), int(voice["words"][0]), int(voice["words"][1])
+    return round(WORDS_PER_SEC * factor, 1), round(MIN_WORDS * factor), round(MAX_WORDS * factor)
 # What the animation can show, for a rewrite after the QA found the narration asked for the impossible.
 DRAWABLE = ("Write narration whose key visual moments the animation can show: electric circuits, graphs and "
             "curves (orbits and circles too), force and velocity arrows, formulas, counters, icons of everyday "
@@ -165,6 +185,97 @@ This video is a COURSE on several things, not one idea from one angle:
 # Physics and maths (routes.json domain): the key relation of the topic is said, so it can be written
 # (the standing waves of 2026-11-05 had none: all words, no formula on screen).
 FORMULA_DOMAINS = ("math", "physics_math")
+# German taught in French (routes.json domain "language"): the examples are said in German, then in French.
+LANGUAGE_RULES = """
+- German taught to French speakers: explain in French; every example is a short, correct German sentence
+  written exactly as it is said ("Ich lerne Deutsch, weil ich nach Berlin gehe."), followed by its
+  French meaning. Build each rule on an example the viewer sees change: first the plain sentence, then
+  the same sentence transformed. Name the conjugated verb and where it goes ("le verbe conjugué, gehe,
+  part à la fin"). Each scene has its own example, the one its point needs: never the same German
+  sentence in two scenes (an earlier one may come back only transformed, or in the last scene's recap);
+  a scene that names dass or wenn gives an example with it ("Ich weiß, dass du müde bist." : je sais que
+  tu es fatigué). A wrong sentence is said as wrong ("l'erreur fréquente : ..."), never as a plain example.
+- Every German word or sentence in the narration is written between « » (« Obwohl ich müde bin », « bin »,
+  « trotzdem »): the voice says what is between « » in German, the rest in French. A whole German sentence
+  is NOT translated aloud: its French meaning is written under it on screen; say a meaning only when it IS the
+  point (a false friend: « bekommen » veut dire recevoir, pas devenir). The voice explains the error, it does
+  not read the subtitles of the examples.
+- The wrong sentence is really wrong German, not a correct sentence with another meaning: « Ich gehe im
+  Park » is correct (je me promène dans le parc), so it is never "the error"; for the two-case prepositions,
+  use a verb of placing or going to a place (« Ich lege das Buch auf dem Tisch » is the error, « auf den
+  Tisch » the right one).
+- No comparison with English (« ressemble à l'anglais become »): the viewer learns German from French.
+- Never describe a drawing (« un point bleu », « une flèche rouge »): the screen shows the German sentences
+  themselves; the memo is a sentence to remember, not a picture.
+"""
+# The language channel's contract (agent002 "format": "exam_error", its "acts"): one scene per act.
+EXAM_ERROR_RULES = """
+- EXACTLY FIVE scenes, one per act of the outline's "acts", in that order (scene_id 1 to 5), each its own
+  example: 1. the exam error (« the wrong sentence » next to « the right one », what it costs at the Goethe
+  or telc exam); 2. the French trap (the French sentence copied word for word, why the reflex is logical);
+  3. the mechanism (by the outline's "kind": syntax, the words that move; cases, the article or ending that
+  changes and the question that decides it; vocabulary, the wrong word replaced by the right one); 4. the
+  B2 version (a plain B1 sentence, then the B2 one an examiner rewards); 5. the memo for the exam day (the
+  one image to remember, a closing sentence wishing good luck for the exam).
+- The plan has one part per scene after the hook (scenes 2 to 5, the memo too), in everyday words (the
+  episode a1_01 of 2026-11-20 announced three of the four: its plan was dropped, the video had none).
+"""
+# An episode of the programme (agent001 "curriculum"): its pair, its level, and the video's ending.
+EPISODE_RULES = """
+- This is episode {id}, level {level}. Scene 1 says the curriculum's pair word for word: « {wrong} » {type_said},
+  then « {right} ». {level_rule}
+- The LAST scene ends, after the memo, in three short sentences: the one reflex to keep from this lesson; {teaser};
+  then « Abonnez-vous pour ne pas rater la suite du programme jusqu'au B2. »
+"""
+TYPE_SAID = {"error": "(the error)", "upgrade": "(correct but less natural: NEVER called an error)"}
+
+
+def episode_rules(outline):
+    """The prompt section for an episode of the programme, "" for any other video."""
+    episode, following = outline.get("episode"), outline.get("next_episode")
+    if not episode:
+        return ""
+    level = episode.get("level", "")
+    if not following:
+        teaser = "a sentence saying the programme is complete"
+    elif outline.get("level_change"):
+        teaser = (f"a sentence celebrating the end of level {level} and announcing that the next video starts "
+                  f"level {following['level']} with « {following['topic']} »")
+    else:
+        teaser = (f"one question that makes the viewer want the next episode, on its trap: « {following['topic']} » "
+                  f"(« Dans le prochain épisode, ... »)")
+    level_rule = ("Never mention B1, B2 or a later level: the viewer is at " + level + "."
+                  if level in ("A1", "A2") else "")
+    return EPISODE_RULES.format(id=episode["id"], level=level, wrong=episode["wrong_example"], right=episode["right_example"],
+                                type_said=TYPE_SAID.get(episode.get("type"), TYPE_SAID["error"]), level_rule=level_rule,
+                                teaser=teaser)
+
+
+def episode_problems(scenes, outline):
+    """What an episode's script must hold (the programme of 2026-11-20): the pair in scene 1, no higher level
+    named at A1/A2, the ending (the next episode, the call to subscribe)."""
+    episode = outline.get("episode")
+    if not episode or not scenes:
+        return []
+    problems, first, last = [], str(scenes[0].get("narration_text") or ""), str(scenes[-1].get("narration_text") or "")
+    said = [tokens(q) for _, _, q in foreign_quotes(first, "de", tokens(episode["wrong_example"] + " " + episode["right_example"]))]
+    for name in ("wrong_example", "right_example"):
+        if tokens(episode[name]) not in said:
+            problems.append(f"scene 1 does not say « {episode[name]} » word for word, between « »: it is the episode's "
+                            f"{'error' if name == 'wrong_example' else 'right sentence'}")
+    if episode.get("level") in ("A1", "A2"):
+        # the call to subscribe names the programme's goal ("jusqu'au B2"): the only place a higher level is said
+        aside = lambda text: re.sub(r"[^.!?]*abonn[^.!?]*[.!?]?", "", str(text or ""), flags=re.IGNORECASE)
+        higher = [s.get("scene_id") for s in scenes if re.search(r"\b(B1|B2|C1)\b", aside(s.get("narration_text")))]
+        higher += ["plan"] if re.search(r"\b(B1|B2|C1)\b", json.dumps(outline.get("plan") or "")) else []
+        if higher:
+            problems.append(f"scenes {higher} name a level above {episode['level']}: the viewer is at {episode['level']}, "
+                            f"say « une phrase plus riche », never B1 / B2")
+    if "abonn" not in last.lower():
+        problems.append("the last scene does not end with « Abonnez-vous pour ne pas rater la suite du programme jusqu'au B2. »")
+    if outline.get("next_episode") and not re.search(r"prochain|prochaine|suite|niveau", last, re.IGNORECASE):
+        problems.append("the last scene does not announce the next episode")
+    return problems
 FORMULA_RULES = """
 - Physics and maths: say the KEY RELATION of the topic at least once, in words as a teacher says it,
   with the values of the example ("la longueur d'onde vaut deux fois la longueur de la corde divisée par
@@ -181,6 +292,8 @@ RETRY_NOTE = """
 
 Your previous answer has these problems; rewrite it without them (same JSON shape):
 {problems}"""
+LONG_NOTE = ("the scenes have {words} words in all: the channel's videos last about two minutes; write at most "
+             "{most} words (one example per scene, no French meaning said for a single word: it is on screen)")
 SHORT_NOTE = ("the scenes have {words} words in all: at about {pace} words per second the video lasts under "
               "90 seconds; write at least {least} words (more explanation and the example worked through in "
               "each scene, not more scenes)")
@@ -222,10 +335,34 @@ def word_count(scenes):
     return sum(len(str(s.get("narration_text", "")).split()) for s in scenes)
 
 
-def script_problems(answer):
-    """(acronyms used before being said in full, the scenes' word count): what a retry is asked to fix."""
+def repeated_examples(scenes, language="de"):
+    """A language channel: the same German sentence said in two scenes (the German run of 2026-11-16:
+    « weil ich krank bin » in scenes 1, 3, 4 and 5, one example all along); the last scene, a recap, may
+    say an earlier one again. Sentences of 3 words or more."""
+    where = {}
+    for scene in scenes[:-1]:
+        for _, _, quote in foreign_quotes(scene.get("narration_text"), language):
+            if len(tokens(quote)) >= 3:
+                where.setdefault(tokens(quote), []).append(str(scene.get("scene_id")))
+    return [f"scenes {sorted(set(ids))} all say « {' '.join(said)} »: give each scene its own example, the one its "
+            f"point needs (another verb, a sentence with dass or wenn where the scene names them, the clause in front); "
+            f"an earlier sentence comes back only transformed" for said, ids in where.items() if len(set(ids)) > 1]
+
+
+def acts_problems(scenes, acts):
+    """The language channel's five acts: one scene each (the contract of 2026-11-20); [] for other formats."""
+    if not acts or len(scenes) == len(acts):
+        return []
+    return [f"{len(scenes)} scenes: the video has EXACTLY {len(acts)}, one per act in this order: " + "; ".join(
+        f"{i}. {act}" for i, act in enumerate(acts, start=1))]
+
+
+def script_problems(answer, domain=None, acts=None, outline=None):
+    """(problems: acronyms used before being said in full, a language channel's repeated examples and acts;
+    the scenes' word count): what a retry is asked to fix."""
     scenes = answer.get("scenes") or []
-    return undefined_acronyms(scenes, answer.get("plan")), word_count(scenes)
+    return (undefined_acronyms(scenes, answer.get("plan")) + (repeated_examples(scenes) if domain == "language" else [])
+            + acts_problems(scenes, acts) + episode_problems(scenes, outline or {}), word_count(scenes))
 
 
 def run(channel_id: str, settings: dict, routes: list) -> dict:
@@ -241,18 +378,27 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         if qa_feedback:
             print(f"--- {AGENT}: QA feedback (revision {qa_feedback['revision']}): {qa_feedback['blocking_issues']} "
                   f"blocking issue(s): added to the prompt", file=sys.stderr, flush=True)
-        prompt = PROMPT.format(outline=outline, pace=WORDS_PER_SEC, least=MIN_WORDS, most=MAX_WORDS).replace(
+        pace, least, most = channel_pace(settings, channel_id)
+        domain = (find_route(routes, channel_id) or {}).get("domain")
+        prompt = PROMPT.format(outline=outline, pace=pace, least=least, most=most).replace(
             "\nAnswer with JSON only", qa_section + {"project": PROJECT_RULES, "problem": PROBLEM_RULES, "course": COURSE_RULES}.get(outline.get("format"), "")
             + (FORMULA_RULES if (find_route(routes, channel_id) or {}).get("domain") in FORMULA_DOMAINS else "")
+            + (LANGUAGE_RULES if (find_route(routes, channel_id) or {}).get("domain") == "language" else "")
+            + (EXAM_ERROR_RULES if outline.get("format") == "exam_error" else "")
+            + episode_rules(outline)
             + "\nAnswer with JSON only", 1)
         answer = parse_llm_json(llm_call(prompt))
-        acronyms, words = script_problems(answer)
-        if acronyms or words < MIN_WORDS:   # once more, told what: a viewer never lost on a word, nor rushed
-            notes = acronyms + ([SHORT_NOTE.format(words=words, pace=WORDS_PER_SEC, least=MIN_WORDS)] if words < MIN_WORDS else [])
+        acronyms, words = script_problems(answer, domain, outline.get("acts"), outline)
+        # a channel with its own length (the German run 5 of 2026-11-20: 419 words for 270 to 330) is held to it
+        capped = isinstance((settings.get("voice_by_channel", {}).get(channel_id) or {}).get("words"), list)
+        too_long = capped and words > most
+        if acronyms or words < least or too_long:   # once more, told what: a viewer never lost on a word, nor rushed
+            notes = acronyms + ([SHORT_NOTE.format(words=words, pace=pace, least=least)] if words < least else []) \
+                + ([LONG_NOTE.format(words=words, most=most)] if too_long else [])
             print(f"--- {AGENT}: asked again: {notes}", file=sys.stderr, flush=True)
             again = parse_llm_json(llm_call(prompt + RETRY_NOTE.format(problems="\n".join(notes))))
-            left, more = script_problems(again)
-            shortfall = lambda n: max(0, MIN_WORDS - n)
+            left, more = script_problems(again, domain, outline.get("acts"), outline)
+            shortfall = lambda n: max(0, least - n) + (max(0, n - most) if capped else 0)
             if again.get("scenes") and len(left) <= len(acronyms) and (len(left), shortfall(more)) < (len(acronyms), shortfall(words)):
                 answer, acronyms, words = again, left, more
     except (RuntimeError, ValueError) as exc:
@@ -270,10 +416,14 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         "total_duration_sec": sum(float(s.get("duration_sec", 0)) for s in scenes),
         "word_count": word_count(scenes),
     }
+    for key in ("episode", "next_episode", "level_change"):    # the storyboard and the ending read them (agent004, agent010)
+        if outline.get(key) is not None:
+            script[key] = outline[key]
     save_json(output_path, script)
     provenance.register_artifact(run_id, channel_id, "script.json", AGENT)
 
-    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 and not acronyms and words >= MIN_WORDS else "not_healthy"
+    least = channel_pace(settings, channel_id)[1]
+    status = "healthy" if 60 <= script["total_duration_sec"] <= 200 and not acronyms and words >= least else "not_healthy"
     short = [s.get("scene_id") for s in scenes if len(str(s.get("narration_text", "")).split()) < MIN_SCENE_WORDS]
     return finish(channel_id, AGENT, "script", status, output_path,
                   data={"scenes": len(scenes), "total_duration_sec": script["total_duration_sec"],

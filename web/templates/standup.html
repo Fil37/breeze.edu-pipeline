@@ -1,27 +1,158 @@
 {% extends "base.html" %}
-{% block title %}Standup{% endblock %}
+{% block title %}{{ _('Standup') }}{% endblock %}
 {% block content %}
-<section class="hero">
+{#- The kit's supervision: costs (app/costs.py's history: AI and voice), each agent's health over time, the open
+    incidents (closed here, CSRF-checked), the recent errors; then each channel at the last run. -#}
+{% set health = supervision.agents %}
+{% set well = health | selectattr("state", "equalto", "healthy") | list | length %}
+<div class="page-head">
   <div>
-    <h1>Standup</h1>
-    {% if run_id %}<p class="muted">Last run <code>{{ run_id }}</code>: what each agent did, channel by channel.</p>{% endif %}
+    <h1>{{ _('Standup') }}</h1>
+    {% if run_id %}<p class="muted">{{ _('Last run') }} <code>{{ run_id }}</code> · {{ _('What each agent did, channel by channel.') }}</p>{% endif %}
   </div>
-</section>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">{{ _('Cost of the last run') }}</div>
+    <div class="value">{% if costs %}${{ '%.3f' | format(costs.last.cost) }}{% else %}—{% endif %}</div>
+    <div class="sub">{% if costs %}{{ _('AI') }} ${{ '%.3f' | format(costs.last.llm_cost) }} · {{ _('voice') }} ${{ '%.3f' | format(costs.last.tts_cost) }}{% else %}{{ _('No cost recorded yet.') }}{% endif %}</div></div>
+  <div class="tile {{ 'good' if well == health | length else ('bad' if health | selectattr('state', 'equalto', 'critical') | list else 'warn') }}">
+    <div class="label">{{ _('Agents') }}</div><div class="value">{{ well }}/{{ health | length }}</div><div class="sub">{{ _('healthy') }}</div></div>
+  <div class="tile {{ 'bad' if supervision.incidents else 'good' }}"><div class="label">{{ _('Incidents') }}</div>
+    <div class="value">{{ supervision.incidents | length }}</div><div class="sub">{{ _('open') }}</div></div>
+  <div class="tile {{ 'warn' if supervision.approvals else 'good' }}"><div class="label">{{ _('Approvals') }}</div>
+    <div class="value">{{ supervision.approvals | length }}</div><div class="sub">{{ _('waiting for you') }}</div></div>
+</div>
+
+<div class="dash">
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Agent health') }}</h2><span class="count">{{ well }}/{{ health | length }}</span></div>
+    <ul class="list">
+      {% for a in health %}
+      <li><span class="badge {{ a.state if a.state in ('healthy', 'degraded', 'critical') else 'plain' }}">{{ _(a.state) }}</span>
+        <strong>{{ a.name }}</strong><span class="small faint">{{ a.detail or a.id }}</span></li>
+      {% endfor %}
+    </ul>
+    <p class="hint">{{ _("Closing an incident does not change the agent's health: it heals at its next good run.") }}</p>
+  </section>
+
+  <section class="panel" id="incidents">
+    <div class="panel-title"><h2>{{ _('Incidents') }}</h2><span class="count">{{ supervision.incidents | length }}</span></div>
+    {% if supervision.incidents %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>#</th><th>Agent</th><th>{{ _('Reason') }}</th><th></th></tr></thead>
+      <tbody>
+      {% for i in supervision.incidents %}
+      <tr><td>{{ i.id }}</td><td>{{ i.name }}<br><span class="badge failed">{{ i.error_category }}</span></td>
+        <td class="small prose">{{ i.message }}<br><span class="faint">{{ i.created_at }}</span></td>
+        <td><form method="post" action="{{ url_for('incident_close', incident_id=i.id) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button name="status" value="resolved" class="good small">{{ _('Resolved') }}</button>
+          <button name="status" value="ignored" class="ghost small">{{ _('Ignore') }}</button>
+        </form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="empty small"><span class="big">✅</span>{{ _('No open incident.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Costs by day') }}</h2></div>
+    {% if costs %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Day') }}</th><th>{{ _('Runs') }}</th><th>{{ _('Calls') }}</th><th>{{ _('Tokens') }}</th>
+        <th>{{ _('AI') }} $</th><th>{{ _('voice') }} $</th><th>{{ _('Total') }}</th></tr></thead>
+      <tbody>
+      {% for d in costs.days %}
+      <tr><td>{{ d.day }}</td><td>{{ d.runs }}</td><td>{{ d.llm_calls }}</td><td>{{ '{:,}'.format(d.tokens) }}</td>
+        <td>{{ '%.4f' | format(d.llm_cost) }}</td><td>{{ '%.4f' | format(d.tts_cost) }}</td><td><b>{{ '%.4f' | format(d.cost) }}</b></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<p class="empty small">{{ _('No cost recorded yet.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Recent errors') }}</h2><span class="count">{{ supervision.errors | length }}</span></div>
+    {% if supervision.errors %}
+    <ul class="list">
+      {% for e in supervision.errors %}
+      <li><span class="badge failed">{{ e.code }}</span><span class="small prose"><b>{{ e.agent_id }}</b> · {{ e.message }}</span>
+        <span class="small faint">{{ e.created_at }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty small"><span class="big">✅</span>{{ _('No error.') }}</p>{% endif %}
+  </section>
+
+  {#- the kit's 2.0 panels (socle dashboard()): every button a POST with the CSRF token #}
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Runs in progress') }}</h2><span class="count">{{ supervision.runs_active | length }}</span></div>
+    {% if supervision.runs_active %}
+    <ul class="list">{% for r in supervision.runs_active %}<li><span class="badge running">{{ _(r.status) }}</span><strong>{{ r.title or r.run_id }}</strong><span class="small faint">{{ r.created_at[:16].replace('T', ' ') }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="empty small"><span class="big">☕</span>{{ _('Nothing running.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2" id="approvals">
+    <div class="panel-title"><h2>{{ _('Pending approvals') }}</h2><span class="count">{{ supervision.approvals | length }}</span>
+      <form method="post" action="{{ url_for('propose_skills') }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="ghost small">{{ _('Propose skill activations') }}</button></form></div>
+    {% if supervision.approvals %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Action') }}</th><th>{{ _('Target') }}</th><th>{{ _('Parameters') }}</th><th>{{ _('Decision') }}</th></tr></thead>
+      <tbody>{% for a in supervision.approvals %}<tr><td><strong>{{ a.action }}</strong></td><td><code>{{ a.target }}</code></td>
+        <td class="small prose">{% for k, v in a.parameters.items() %}<b>{{ k }}</b> {{ v if v is not string or v | length < 24 else v[:12] ~ '…' }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+        <td><form method="post" action="{{ url_for('approval_decide', approval_id=a.approval_id) }}" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button name="decision" value="approve" class="good small">{{ _('Approve') }}</button>
+          <button name="decision" value="reject" class="ghost small">{{ _('Reject') }}</button></form></td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="empty small"><span class="big">🗂</span>{{ _('No pending approval.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Skills') }}</h2><span class="count">{{ supervision.skills | length }}</span></div>
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Skill') }}</th><th>Agent</th><th>{{ _('Status') }}</th></tr></thead>
+      <tbody>{% for k in supervision.skills %}<tr><td><strong>{{ k.skill_id }}</strong> v{{ k.version }}<br><span class="small faint">{{ k.objective or '' }}</span></td>
+        <td>{{ k.agent_id }}</td><td><span class="badge {{ 'active' if k.status == 'active' else ('proposed' if k.status in ('proposed', 'validated') else 'plain') }}">{{ _(k.status) }}</span></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Quality checks') }}</h2></div>
+    {% if supervision.checks %}
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Check') }}</th><th>{{ _('Outcome') }}</th><th>{{ _('Count') }}</th></tr></thead>
+      <tbody>{% for c in supervision.checks %}<tr><td title="{{ c.origin_case }}"><strong>{{ c.check_id }}</strong><br><span class="small faint">{{ c.name }}</span></td>
+        <td><span class="badge {{ {'pass': 'pass', 'corrected': 'corrected', 'kept_despite': 'failed'}.get(c.outcome, 'plain') }}">{{ _(c.outcome) }}</span></td><td>{{ c.count }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="empty small">{{ _('No check recorded yet.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel span-2">
+    <div class="panel-title"><h2>{{ _('Backups and disk') }}</h2></div>
+    {% if supervision.backups %}<ul class="list">{% for b in supervision.backups[:5] %}<li><span class="badge ok">ok</span><strong>{{ b.name }}</strong><span class="small faint">{{ b.size_kb }} KB</span></li>{% endfor %}</ul>
+    {% else %}<p class="empty small">{{ _('No backup yet.') }}</p>{% endif %}
+    {% if supervision.disk %}<dl class="facts mt-12">{% for k, v in supervision.disk.items() %}<div><dt>{{ _(k) }}</dt><dd>{{ '%.2f' | format(v / 1e9) }} GB</dd></div>{% endfor %}</dl>{% endif %}
+  </section>
+</div>
+
 {% if run_id %}
-<div class="standup">
+<h2 class="mt-20">{{ _('Channels at the last run') }}</h2>
+<div class="dash">
   {% for g in groups %}
-  <section class="panel" style="--ch: {{ g.theme.accent }}">
-    <h2 lang="fr">{{ g.name }}</h2>
-    <ul>
+  <section class="panel">
+    <div class="panel-title"><h2 lang="fr" class="who">{% if g.channel_id and has_logo(g.channel_id) %}<img class="ch-logo sm" src="/logo/{{ g.channel_id | quote }}" alt="" width="28" height="28">{% endif %}{{ g.name }}</h2><span class="count">{{ g.lines | length }}</span></div>
+    <ul class="list">
       {% for line in g.lines %}
-      <li class="step st-{{ line.status }}"><span class="dot"></span><span>{{ line.text }}
-        {% if line.error %}<span class="error">{{ line.error }}</span>{% endif %}</span></li>
+      <li><span class="badge {{ line.status | badge }}">{{ line.status | status }}</span>
+        <span>{{ line.text }}{% if line.error %}<span class="error">{{ line.error }}</span>{% endif %}</span></li>
       {% endfor %}
     </ul>
   </section>
   {% endfor %}
 </div>
 {% else %}
-<p class="panel muted">No run yet. Start one with <code>./run</code>.</p>
+<p class="panel empty"><span class="big">🎬</span>{{ _('No run yet. Start one with') }} <code>./run</code>.</p>
 {% endif %}
 {% endblock %}

@@ -19,6 +19,12 @@ from app.agent import (SCHEMAS_DIR, channel_dir, find_route, finish, llm_call, l
 from app import provenance
 
 AGENT = "agent007"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "youtube_metadata", "version": "1.0", "objective": "Write the title, description, chapters and tags",
+     "summary": "French metadata from the script; chapters from the render's timings."},
+]
 MAX_TITLE = 70
 MAX_DESCRIPTION = 5000
 

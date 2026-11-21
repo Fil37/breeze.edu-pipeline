@@ -49,6 +49,12 @@ from models.visual_brief_schema import (COMPONENT_PORTS, ComponentType, SceneVis
                                         emphasis_problem, move_problem)
 
 AGENT = "agent005"
+# What this agent can do (the studio kit's skills, registered by agent000 at start: "proposed" until the
+# user approves their activation on the standup).
+SKILLS = [
+    {"skill_id": "education_qa", "version": "1.0", "objective": "Review accuracy, simplicity and clarity of the video",
+     "summary": "Pass, or reject to agent003/agent004 with blocking issues; domain rules per channel."},
+]
 PASS_SCORE = 7             # a score at this level passes, with a warning; below it fails
 SWITCH_LEAD_SEC = 0.6      # an inserted "close the switch" comes this long before the flow
 LAMP_DELAY_SEC = 0.5       # a lamp lights up this long after current starts through it
@@ -77,15 +83,33 @@ DOMAIN_RULES = {
 - A price increase comes from a rightward demand shift or a leftward supply shift.
 - A balance scale tilts toward the heavier factor (e.g. more money supply -> lower purchasing power).""",
 }
+DOMAIN_RULES["language"] = """GERMAN FOR FRENCH SPEAKERS (B1/B2):
+- Every German example is correct German (spelling, capital nouns, endings, case after the preposition)
+  and its French meaning is faithful.
+- Word order: in a main clause the conjugated verb is in second position; after a subordinating
+  conjunction (weil, dass, wenn, ob, als, obwohl...) it goes to the very end of the clause, with a comma
+  before the conjunction; with a modal or a compound tense the conjugated verb is last, after the
+  infinitive / participle; after "denn", "und", "aber", "oder" the order does not change.
+- A German sentence on screen is a SENTENCE piece whose words, roles and orders match the narration
+  (the verb tile is the conjugated verb); never a formula or a chain of boxes for a sentence.
+- A SENTENCE shows the rule HAPPENING: its first "order" is the sentence BEFORE the change (the main
+  clause alone, the subordinate clause without its verb yet, the wrong order of a French speaker) and a
+  set_state {"order": [...]} makes it right. That first order is NOT an error: never "correct" it into
+  the final sentence (the German run of 2026-11-16: three scenes lost their move that way); only the
+  LAST order of each SENTENCE must be correct German. Capitals are set by the program from the place
+  (a word moved to the front gets one): never report them.
+- A sentence shown as THE ERROR (verdict "wrong", "Erreur fréquente") is really wrong German, never a
+  correct sentence with another meaning (the German run 5 of 2026-11-20: « Ich gehe im Park », correct for
+  "je me promène dans le parc", shown as the error): report it as blocking, with a truly wrong one."""
 DOMAIN_GROUPS = {"electronics": ["electronics"], "physics_math": ["physics", "math"], "math": ["math"],
-                 "economics": ["economics"]}
+                 "economics": ["economics"], "language": ["language"]}
 
 ACTIONS = ("spawn", "set_state", "start_flow", "stop_flow", "fade_out", "set_value", "measure", "move_along", "move", "zoom_in", "zoom_out", "connect",
            "emphasize")
 STATE_KEYS = ("on", "closed", "active", "reading", "spinning", "highlighted", "dimmed", "level", "floating", "go",
               "show", "focus", "points", "forces", "relative", "stretch", "spin", "sun", "mode", "configure",
-              "run", "reconfigure", "bounce", "tunnel", "zoom", "wire", "high", "hot", "step", "mark", "energy", "parts", "fill", "row", "column", "total", "sum", "level", "path", "best", "nash", "output", "cc", "voltage", "axes", "project", "move", "strobe", "vectors", "graphs", "balance", "graph", "period", "force", "speed", "areas", "ratio", "count", "details")
-INITIAL_STATE_KEYS = STATE_KEYS + ("label", "text", "direction", "max", "func", "latex", "axes", "x_range",
+              "run", "reconfigure", "bounce", "tunnel", "zoom", "wire", "high", "hot", "step", "mark", "energy", "parts", "fill", "row", "column", "total", "sum", "level", "path", "best", "nash", "output", "cc", "voltage", "axes", "project", "move", "strobe", "vectors", "graphs", "balance", "graph", "period", "force", "speed", "areas", "ratio", "count", "details", "order", "translation")
+INITIAL_STATE_KEYS = STATE_KEYS + ("words", "verdict", "label", "text", "direction", "max", "func", "latex", "axes", "x_range",
                                    "y_range", "x_label", "y_label", "length", "size", "target", "kind",
                                    "x_func", "y_func", "t_min", "t_max", "anchor", "icon", "symbol", "tone", "value", "unit",
                                    "distance", "distance_unit", "runners", "total", "per", "groups", "rest", "inputs", "gates",

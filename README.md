@@ -61,12 +61,37 @@ each agent at the last run. A channel's page has the video player with its plan:
 to it, and the scene being played is lit. It also shows the QA's verdict and issues, the last 10 runs,
 the published videos, the QA rejections and the topics. The standup lists each agent's result for the
 last run, channel by channel. Each channel keeps its video theme's accent colour (from agent010's
-`THEMES`); the pages are dark, or light when the system asks for it. Files: `web/app.py` (routes; the
+`THEMES`). The look is the studio kit's (`~/ProjetPerso/studio-kit`, v1.0: warm paper or graphite, one lime
+signature, one colour per state, Inter and Space Grotesk): the theme follows the system, or ☀ / ☾ in the side
+bar (cookie `theme`); English, or French with EN / FR (cookie `lang`); a Content-Security-Policy with a nonce per
+request, no inline style (each channel's accent is a class `.ch-<id>`). Files: `web/app.py` (routes; the
 video comes from `/video/<channel_id>`, only for a channel of `routes.json`), `web/page.py` (reads
 `breeze.db` and `instance/<channel_id>/*.json`, writes nothing), `web/templates/` (`base.html`,
 `dashboard.html`, `channel.html`, `standup.html`, `partials/`), `static/css/breeze_master.css`,
-`static/js/breeze.js`, `static/images/favicon.svg`; the fonts come from `assets/fonts/` (`/fonts/...`).
+`static/js/breeze.js`, `static/images/favicon.svg`; the fonts sit beside the stylesheet (`static/css/*.ttf`, OFL).
 The previous version is in `archive/web_v1/`. Check: `python tests/test_web.py`.
+
+**Supervision** (the standup page, on the studio kit's socle `app/supervision.py`, copied as is from
+`~/ProjetPerso/studio-kit/socle/`): at the end of each channel's run, agent000 hands its reports to
+`app/run_supervision.py`. An agent in failure whose cause is a defect or a configuration (software_failure,
+timeout, misconfiguration, access_denied) opens an incident; a QA refusal, a topic repeated or a renderer
+limitation does not. Errors and warnings go to `events`; each agent's health goes `degraded` with an incident
+and back to `healthy` at its next good run; closing an incident ("Resolved" / "Ignore" on the standup, checked
+against the browser's CSRF cookie) never changes it. Tables `llm_calls`, `agent_health`, `incidents`, `events`
+in `instance/breeze.db`; the secrets of `.env` are removed from every stored text. The costs shown (last run, AI
+and voice, by day) stay `app/costs.py`'s (`instance/costs_history.json`): it counts the voice, the socle does
+not. Socle 2.0 (2026-11-20): each agent declares its `SKILLS` (registered "proposed" at start; activated only by an
+approval: "Propose skill activations", then Approve / Reject on the standup). **A publication waits for the user**:
+agent008 only asks (`publish_video`, target `<channel>:<platform>`, the video's and metadata's sha256); the video
+goes up when it is approved on the standup, by agent008's handler, and only if it is still the one approved; with
+no handler nothing is applied. breeze's named checks (`CHECKS` in `app/run_supervision.py`, each with the real case
+that made it) get their outcomes (pass / corrected / kept_despite) from the agents' rows. At start, agent000 runs
+the startup checks (LLM key, ffmpeg and Playwright, YouTube keys when publishing: the only place that sets an agent
+"critical"), closes runs left "running" by a dead process, backs `breeze.db` up once a day to `~/breeze_backups`
+(with `schemas/settings.json`, never `.env`) and marks its run in `sup_runs`; the table `runs` and the reports stay
+the source of the agents' states. Run the tests with `python tests/run_tests.py`: it refuses to start while a real
+run is in progress.
+Check: `python tests/test_run_supervision.py`, `python tests/test_supervision.py`.
 
 `--channel` runs that channel only, even if `routes.json` disables it. `--skip-agents` takes a
 comma-separated list of agents that are never called, e.g. to test the QA -> agent004 -> agent010

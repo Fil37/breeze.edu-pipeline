@@ -457,3 +457,6 @@ button.seek.now { border-color: color-mix(in srgb, var(--ch) 60%, transparent); 
 .prose { white-space: normal; }
 .error { display: block; margin-top: 3px; font-size: .78rem; color: var(--bad); overflow-wrap: anywhere; }
 .brand .logo svg .b { fill: none; stroke: var(--hero-accent); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+
+.form-grid .span-3 { grid-column: span 3; }
+@media (max-width: 760px) { .form-grid .span-3 { grid-column: auto; } }

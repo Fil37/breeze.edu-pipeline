@@ -464,6 +464,14 @@ ends are on screen; `start_flow` closes any open switch on its path first.
   and an underlined word, drawn by the program. The icon is an OBJECT icon (in relief) or a Lucide name; an
   unknown one is sent back with close names. Chosen on 2026-11-21 over letting the LLM draw its own SVG, by an
   A/B trial on the same scripts (more readable, cheaper, better QA): the LLM still never gives drawing code.
+- **A place and what flows where (`LANDSCAPE`):** the water cycle (sea, cloud, mountain, river, soil,
+  groundwater) or a volcano in cross-section (chamber, conduit, crater, lava, ash plume), drawn by the
+  program with its 3D markers in place (sun, cloud, trees); the LLM gives only the flows (from a place to
+  another, a kind, a label), which draw themselves one by one with things moving along them; `{"erupt":
+  true}` makes the volcano erupt. Their labels are placed off the names. Added on 2026-11-21 because 3D
+  objects and cards side by side "did not speak". With it, agent004 sends back 3 OBJECTs or more that
+  nothing links, a CARD_SCENE beside a chart, a GAUGE in a unit no dial reads (mm, L, %, J) and a text
+  repeating a resistor's bands (the program also drops such a label from the REAL_PART).
 - **Real parts (electronics channel only):** `REAL_PART` shows one part as it looks in the hand (resistor,
   LED, capacitors, transistor, diode, batteries, potentiometer, switch, push button, motor, LDR, Arduino Uno,
   breadboard), from the Fritzing parts library (`assets/fritzing/`, CC BY-SA 3.0, `app/render/fritzing.py`).

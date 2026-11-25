@@ -135,10 +135,41 @@ app.jinja_env.filters["status"] = lambda status: translate(page.STATUS_LABELS.ge
 
 
 CSRF_COOKIE = "csrf"
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+
+
+def trusted_hosts():
+    """HOST_GUARD (2026-11-25, Secure Agents found HOST_NOT_CHECKED on port 5000): the site answers only to
+    localhost, 127.0.0.1 and the exact names of TRUSTED_EXTRA_HOSTS (your Tailscale address, from the environment
+    or the project's .env, never committed). Any other Host header is refused, so a web page opened on this PC
+    cannot drive the site by DNS rebinding."""
+    raw = os.environ.get("TRUSTED_EXTRA_HOSTS")
+    env = os.path.join(BASE_DIR, ".env")
+    if raw is None and os.path.isfile(env):
+        with open(env, encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("TRUSTED_EXTRA_HOSTS="):
+                    raw = line.split("=", 1)[1].strip().strip('"').strip("'")
+    extra = {h.strip().lower().rstrip(".") for h in (raw or "").split(",") if h.strip()}
+    return LOCAL_HOSTS | {h for h in extra if HOSTNAME.fullmatch(h)}
+
+
+TRUSTED_HOSTS = trusted_hosts()
+
+
+def host_name(host):
+    """'name:port' -> 'name'; '[::1]:5000' -> '[::1]'."""
+    host = (host or "").lower()
+    if host.startswith("["):
+        return host.split("]", 1)[0] + "]"
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
 
 
 @app.before_request
 def prepare():
+    if host_name(request.host) not in TRUSTED_HOSTS:
+        abort(400)
     g.lang = request.cookies.get("lang") if request.cookies.get("lang") in ("en", "fr") else "en"
     g.csp_nonce = secrets.token_urlsafe(16)
     token = request.cookies.get(CSRF_COOKIE, "")
@@ -179,8 +210,11 @@ def security(response):
     """The kit's policy: nothing inline without the request's nonce; videos and fonts from here only."""
     nonce = g.get("csp_nonce", "")
     response.headers["Content-Security-Policy"] = (f"default-src 'self'; img-src 'self' data:; media-src 'self'; "
-                                                   f"style-src 'self' 'nonce-{nonce}'; script-src 'self' 'nonce-{nonce}'")
+                                                   f"style-src 'self' 'nonce-{nonce}'; script-src 'self' 'nonce-{nonce}'; "
+                                                   "frame-ancestors 'none'; object-src 'none'; base-uri 'none'")
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"                 # HEADER_FRAME: no clickjacking from another site
+    response.headers["Referrer-Policy"] = "same-origin"
     if g.get("csrf_new"):
         response.set_cookie(CSRF_COOKIE, g.csrf, httponly=True, samesite="Strict", max_age=86400)
     return response
@@ -404,4 +438,5 @@ def font(name):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # FLASK_DEBUG (2026-11-25): never debug=True, its console runs Python code and port 5000 goes through Tailscale.
+    app.run(host="127.0.0.1", port=5000, debug=False)

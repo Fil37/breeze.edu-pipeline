@@ -1412,10 +1412,10 @@ PAGE_TEMPLATE = r"""<!doctype html>
   /* PORTRAIT (TikTok, 1080 x 1920): the drawing, laid out as in the video, is framed, enlarged and centred
      by portraitLayout(); titles and subtitles follow the phone's width. */
   #portrait { position:absolute; left:0; top:0; transform-origin:0 0; }
-  body.portrait #title { top:150px; padding:0 60px; box-sizing:border-box; line-height:1.15; }
+  body.portrait #title { top:150px; padding:0 140px; box-sizing:border-box; line-height:1.15; }   /* clear of the logo, centred */
   body.portrait #subtitle { padding:0 60px; box-sizing:border-box; }
   body.portrait #subs { bottom:390px; font-size:52px; max-width:960px; width:auto; white-space:normal; }
-  body.portrait #watermark { right:auto; left:50%; transform:translateX(-50%); bottom:290px; width:84px; height:84px; opacity:.85; }
+  body.portrait #watermark { right:40px; top:150px; bottom:auto; width:84px; height:84px; opacity:.85; }   /* under TikTok's search */
   .zoom-frame { position:absolute; border:5px dashed var(--accent); border-radius:18px; pointer-events:none; opacity:0; }
   /* The theme's background (built by buildBackground from D.style.background, moved by seek(t)): its
      colour, a grid or stars, soft glows, a vignette. The tokens come from D.style.tokens. */
@@ -5888,7 +5888,7 @@ function portraitLayout() {
   const holder = el("div"); holder.id = "portrait";
   Object.assign(holder.style, {width: `${D.width}px`, height: `${D.height}px`});
   stage.insertBefore(holder, title); holder.append(WORLD);
-  // the channel's logo stays a fixed size, centred under the subtitles: never enlarged with the drawing
+  // the channel's logo stays a fixed size, top right (the user's choice): never enlarged with the drawing
   const mark = document.getElementById("watermark");
   if (mark) stage.append(mark);
   if (!box) return;

@@ -9,6 +9,8 @@ network, nor touches the real instance: cookies, records and the supervision bas
      hashtags; TikTok asking to log in again remembered as "rejected", the error without any cookie value
   4. agent008: TikTok receives video_vertical.mp4, asks for approval only with usable cookies, publishes the
      approved vertical video only if it is still the one approved
+  5. the site (PUBLISH_BUTTON): a channel's page shows the vertical video and one "ask to publish" button per
+     platform; the button only asks agent008 (approval intercepted here), with CSRF, only for the route's platforms
 Prints PASS or FAIL per case.
 
   .venv/bin/python app/tests/test_tiktok.py
@@ -181,6 +183,30 @@ def case_agent008():
     return report("4. agent008: the vertical video to TikTok, approval only with usable cookies, sha256 checked", problems)
 
 
+def case_site():
+    import re
+    from app.web import app as web
+    from app.web import page
+    problems, asked = [], []
+    a008.request_publication = lambda channel, platform, path, metadata: asked.append(platform) or 1
+    a008.channel_dir = lambda channel: str(TMP / channel)
+    folder = TMP / CHANNEL
+    page.INSTANCE_DIR = str(TMP)                                        # this test's channel folder, not the real one
+    page.video_path = lambda channel, vertical=False: str(folder / ("video_vertical.mp4" if vertical else "video.mp4"))
+    web.app.config["TESTING"] = True
+    client = web.app.test_client()
+    html = client.get(f"/channel/{CHANNEL}").get_data(as_text=True)
+    if 'id="publish"' not in html or "format=vertical" not in html or html.count('class="publish-form"') < 2:
+        problems.append("the channel page has no publish panel, vertical video or buttons")
+    token = re.search(r'name="csrf" value="([^"]+)"', html)
+    if client.post(f"/publish/{CHANNEL}/tiktok").status_code != 400:
+        problems.append("a publish request without CSRF accepted")
+    if token and client.post(f"/publish/{CHANNEL}/facebook", data={"csrf": token.group(1)}).status_code != 404:
+        problems.append("a platform outside the route accepted")
+    return report("5. the site: vertical video and publish buttons on the channel page, CSRF, route platforms only",
+                  problems)
+
+
 if __name__ == "__main__":
-    results = [case_cookies(), case_watch(), case_publish(), case_agent008()]
+    results = [case_cookies(), case_watch(), case_publish(), case_agent008(), case_site()]
     sys.exit(0 if all(results) else 1)

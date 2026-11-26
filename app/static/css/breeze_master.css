@@ -460,3 +460,8 @@ button.seek.now { border-color: color-mix(in srgb, var(--ch) 60%, transparent); 
 
 .form-grid .span-3 { grid-column: span 3; }
 @media (max-width: 760px) { .form-grid .span-3 { grid-column: auto; } }
+
+/* the channel page's publish panel (2026-11-26): the vertical video beside the publish buttons */
+.publish-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.vertical-player video { width: 270px; aspect-ratio: 9 / 16; height: auto; background: #000; border-radius: var(--radius, 12px); }
+.publish-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; }

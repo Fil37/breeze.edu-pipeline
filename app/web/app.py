@@ -255,8 +255,35 @@ def channel(channel_id):
     if data is None:
         abort(404)
     runs = [r for r in web_runs() if r["channel"] == data["route"]["channel_id"]][:5]
+    from app import tiktok
+    settings = page.load_json(os.path.join(page.SCHEMAS_DIR, "settings.json")) or {}
+    accounts = {a["channel_id"]: a for a in tiktok.accounts(settings)}
     return render_template("breeze_page.html", active="channel", web_runs=runs, busy=busy_reason(),
-                           run_message=request.args.get("run"), **data)
+                           run_message=request.args.get("run"), publish_message=request.args.get("publish"),
+                           tiktok_account=accounts.get(data["route"]["channel_id"]), **data)
+
+
+@app.route("/publish/<path:channel_id>/<platform>", methods=["POST"])
+def publish_request(channel_id, platform):
+    """PUBLISH_BUTTON (2026-11-26, the user did not find how to publish on TikTok): asks agent008 for this channel's
+    publication on one platform. Nothing is uploaded here: agent008 asks for the user's approval (standup), or says
+    why it cannot (no cookies, disabled platform, no video...). CSRF-checked; only the route's own platforms."""
+    check_csrf()
+    from app.agent import agent008_platformpublisher as a008
+    channel_id = unquote(channel_id)
+    route = page.find_route(page.routes(), channel_id)
+    if route is None or platform not in (route.get("publish_platforms") or []) or platform not in a008.VIDEO_FILE:
+        abort(404)
+    folder = os.path.join(page.INSTANCE_DIR, channel_id)
+    video_file = os.path.join(folder, a008.VIDEO_FILE[platform])
+    metadata = page.load_json(os.path.join(folder, "metadata.json"))
+    if not metadata:
+        message = "no metadata.json: run the chain first"
+    else:
+        settings = page.load_json(os.path.join(page.SCHEMAS_DIR, "settings.json")) or {}
+        status, error = a008.publish_one(channel_id, platform, settings, video_file, metadata, {})
+        message = error or "done"
+    return redirect(url_for("channel", channel_id=channel_id, publish=f"{platform}: {message}") + "#publish")
 
 
 # ---- runs started from the site
@@ -415,7 +442,7 @@ def incident_close(incident_id):
 
 @app.route("/video/<path:channel_id>")
 def video(channel_id):
-    path = page.video_path(unquote(channel_id))
+    path = page.video_path(unquote(channel_id), vertical=request.args.get("format") == "vertical")
     if path is None:
         abort(404)
     return send_file(path, mimetype="video/mp4", conditional=True)     # range requests: the player can seek

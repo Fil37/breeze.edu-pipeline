@@ -83,11 +83,12 @@ def agent_statuses(conn, run_id, channel_id):
     return [{"agent": name, "name": AGENT_NAMES.get(name, name), "status": found.get(name, "not_run")} for name in order]
 
 
-def video_path(channel_id):
-    """app/instance/<channel_id>/video.mp4 for a channel of routes.json, if it exists; else None."""
+def video_path(channel_id, vertical=False):
+    """app/instance/<channel_id>/video.mp4 (video_vertical.mp4: the TikTok one) for a channel of routes.json, if it
+    exists; else None."""
     if find_route(routes(), channel_id) is None:
         return None
-    path = os.path.join(INSTANCE_DIR, channel_id, "video.mp4")
+    path = os.path.join(INSTANCE_DIR, channel_id, "video_vertical.mp4" if vertical else "video.mp4")
     return path if os.path.isfile(path) else None
 
 
@@ -110,6 +111,7 @@ def latest(channel_id):
               for i in qa.get("issues", []) if isinstance(i, dict)]
     return {
         "video": bool(path),
+        "vertical": bool(video_path(channel_id, vertical=True)),
         "rendered_at": (manifest.get("rendered_at") or "")[:16].replace("T", " "),
         "duration": manifest.get("duration"),
         "voice_engine": manifest.get("voice_engine"),

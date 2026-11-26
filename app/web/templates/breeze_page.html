@@ -55,6 +55,7 @@
     <a href="#video" aria-current="page">{{ _('Video') }}</a>
     {% if latest.qa %}<a href="#quality">{{ _('Quality') }}</a>{% endif %}
     <a href="#runs">{{ _('Runs') }} <span class="count">{{ runs | length }}</span></a>
+    <a href="#publish">{{ _('Publish') }}</a>
     <a href="#published">{{ _('Published videos') }}</a>
     <a href="#rejections">{{ _('QA rejections') }} <span class="count">{{ rejections | length }}</span></a>
     {% if topics %}<a href="#topics">{{ _('Topics') }}</a>{% endif %}
@@ -137,6 +138,34 @@
       </tbody>
     </table></div>
     {% else %}<p class="muted">{{ _('No run yet.') }}</p>{% endif %}
+  </section>
+
+  <section class="panel" id="publish">
+    <div class="panel-title"><h2>{{ _('Publish') }}</h2></div>
+    {% if publish_message %}<p class="note">{{ publish_message }}</p>{% endif %}
+    <p class="muted small">{{ _('A publication is first asked here, then approved on the standup: only then is the video uploaded, private.') }}</p>
+    <div class="publish-row">
+      {% if latest.vertical %}
+      <div class="player vertical-player">
+        <video src="/video/{{ route.channel_id | quote }}?format=vertical" controls preload="metadata" playsinline></video>
+        <p class="muted small">{{ _('Vertical version (TikTok), 1080 × 1920') }}</p>
+      </div>
+      {% endif %}
+      <div>
+        {% for platform in route.publish_platforms %}
+        <form method="post" action="/publish/{{ route.channel_id | quote }}/{{ platform }}" class="publish-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="small"{% if platform == 'tiktok' and not latest.vertical %} disabled{% endif %}>
+            {{ _('Ask to publish on') }} {{ 'TikTok' if platform == 'tiktok' else 'YouTube' }}</button>
+          {% if platform == 'tiktok' %}
+            {% if not latest.vertical %}<span class="small muted">{{ _('no vertical video yet') }}</span>
+            {% elif tiktok_account %}<span class="badge {{ 'ok' if tiktok_account.state == 'ok' else ('warning' if tiktok_account.state in ('missing', 'expiring') else 'failed') }}">{{ _(tiktok_account.state) }}</span>
+              <span class="small">{{ tiktok_account.label }} · {{ _(tiktok_account.text) }}{% if tiktok_account.state == 'missing' %} — <code>app/instance/secrets/{{ tiktok_account.file }}</code>{% endif %}</span>{% endif %}
+          {% endif %}
+        </form>
+        {% endfor %}
+      </div>
+    </div>
   </section>
 
   <section class="panel" id="published">

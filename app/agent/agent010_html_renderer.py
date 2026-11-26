@@ -1409,6 +1409,12 @@ PAGE_TEMPLATE = r"""<!doctype html>
   #stage { position:relative; width:100%; height:100%; }
   /* the camera (zoom_in / zoom_out): every drawn thing, not the titles, subtitles or background */
   #world { position:absolute; inset:0; transform-origin:0 0; }
+  /* PORTRAIT (TikTok, 1080 x 1920): the drawing, laid out as in the video, is framed, enlarged and centred
+     by portraitLayout(); titles and subtitles follow the phone's width. */
+  #portrait { position:absolute; left:0; top:0; transform-origin:0 0; }
+  body.portrait #title { top:150px; padding:0 60px; box-sizing:border-box; line-height:1.15; }
+  body.portrait #subtitle { padding:0 60px; box-sizing:border-box; }
+  body.portrait #subs { bottom:390px; font-size:52px; max-width:960px; width:auto; white-space:normal; }
   .zoom-frame { position:absolute; border:5px dashed var(--accent); border-radius:18px; pointer-events:none; opacity:0; }
   /* The theme's background (built by buildBackground from D.style.background, moved by seek(t)): its
      colour, a grid or stars, soft glows, a vignette. The tokens come from D.style.tokens. */
@@ -5823,10 +5829,76 @@ function wireProblems() {
   }
   return found;
 }
+// PORTRAIT (2026-11-26): the vertical (TikTok) frame. The scene is laid out exactly as for the video, in
+// D.width x D.height; then the drawing (#world, with its wires and instruments) is framed on what it really
+// occupies, enlarged to the phone's width (vector: no blur) and centred between the titles and the subtitles.
+// The camera keeps working inside it. TikTok's tabs (top) and description (bottom) are left free.
+const PORTRAIT_MAX = 2.2;
+function drawnBox() {
+  const skip = new Set(["watermark", "progress"]);
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  const room = stage.getBoundingClientRect();
+  const take = (x0, y0, x1, y1) => { if (x1 - x0 < 1 || y1 - y0 < 1) return; l = Math.min(l, x0); t = Math.min(t, y0); r = Math.max(r, x1); b = Math.max(b, y1); };
+  for (const child of WORLD.children) {
+    if (skip.has(child.id) || child.classList.contains("zoom-frame")) continue;
+    if (child.tagName.toLowerCase() === "svg") {          // #wires, #overlay: full-stage layers, measured by content
+      for (const shape of child.querySelectorAll("path, line, polyline, circle, rect, text")) {
+        if (shape.closest("defs")) continue;                  // gradients, filters: not drawn where they sit
+        const q = shape.getBoundingClientRect();
+        if (q.right - room.left <= 20 && q.bottom - room.top <= 20) continue;   // a marker parked at the origin
+        take(q.left - room.left, q.top - room.top, q.right - room.left, q.bottom - room.top);
+      }
+      continue;
+    }
+    const q = child.getBoundingClientRect();
+    take(q.left - room.left, q.top - room.top, q.right - room.left, q.bottom - room.top);
+  }
+  return Number.isFinite(l) ? {l, t, r, b} : null;
+}
+// In portrait the instrument column goes UNDER the drawing, before the wires and the probes' cords are
+// drawn, so every cord still runs from the instrument's jack to its pin.
+function portraitSide() {
+  if (!D.portrait || !side || !side.children.length || !side.parentNode) return;
+  let l = Infinity, r = -Infinity, b = -Infinity;
+  const room = stage.getBoundingClientRect();
+  for (const node of stage.querySelectorAll(".entity")) {
+    if (side.contains(node)) continue;
+    const q = node.getBoundingClientRect();
+    if (q.width < 1 || q.height < 1) continue;
+    l = Math.min(l, q.left - room.left); r = Math.max(r, q.right - room.left); b = Math.max(b, q.bottom - room.top);
+  }
+  if (!Number.isFinite(l)) return;
+  const width = side.getBoundingClientRect().width;
+  Object.assign(side.style, {left: `${Math.round((l + r) / 2 - width / 2)}px`, top: `${Math.round(b + 60)}px`});
+  locateSideItems();                    // the instruments' positions, read again: the cords start from there
+}
+function portraitLayout() {
+  if (!D.portrait) return;
+  document.body.classList.add("portrait");
+  const W = D.portrait.width, H = D.portrait.height;
+  const title = document.getElementById("title"), subtitle = document.getElementById("subtitle");
+  let below = title.offsetTop + title.offsetHeight;
+  if (subtitle && subtitle.textContent.trim()) {
+    subtitle.style.top = `${below + 14}px`;
+    below = subtitle.offsetTop + subtitle.offsetHeight;
+  }
+  const area = {l: 40, r: W - 40, t: below + 50, b: H - 390 - 170};     // above the subtitles and TikTok's caption
+  const box = drawnBox();
+  const holder = el("div"); holder.id = "portrait";
+  Object.assign(holder.style, {width: `${D.width}px`, height: `${D.height}px`});
+  stage.insertBefore(holder, title); holder.append(WORLD);
+  if (!box) return;
+  const bw = box.r - box.l, bh = box.b - box.t;
+  const k = Math.min((area.r - area.l) / bw, (area.b - area.t) / bh, PORTRAIT_MAX);
+  const x = area.l + ((area.r - area.l) - bw * k) / 2, y = area.t + ((area.b - area.t) - bh * k) / 2;
+  holder.style.transform = `translate(${x}px, ${y}px) scale(${k}) translate(${-box.l}px, ${-box.t}px)`;
+  window.portraitScale = k;
+}
 document.fonts.ready.then(() => {
-  locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); shrinkToFit(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
+  locateSideItems(); layoutZones(); fitToRoom(); spreadOut(); shrinkToFit(); portraitSide(); anchorVectors(); drawWires(); placeVectorLabels(); placeAnnotations(); buildFlows(); buildProbes();
   window.layoutConflicts = [...layoutConflicts(), ...wireProblems(), ...cutTexts()];
   buildCamera();
+  portraitLayout();
   window.seek(0); hideCoveredTicks(); window.sceneReady = true;
 });
 </script></body></html>

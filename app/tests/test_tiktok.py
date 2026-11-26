@@ -7,7 +7,8 @@ network, nor touches the real instance: cookies, records and the supervision bas
   2. COOKIE_WATCH: one incident per account needing fresh cookies, not twice, none for a valid or absent file
   3. a publication: refused without cookies or too soon after the last one; posted private with the title and
      hashtags; TikTok asking to log in again remembered as "rejected", the error without any cookie value
-  4. agent008: TikTok receives video_vertical.mp4, asks for approval only with usable cookies, publishes the
+  4. agent008: never a video whose QA left a blocking error (QA_GATE); TikTok receives video_vertical.mp4, asks
+     for approval only with usable cookies, publishes the
      approved vertical video only if it is still the one approved
   5. the site (PUBLISH_BUTTON): a channel's page shows the vertical video and one "ask to publish" button per
      platform; the button only asks agent008 (approval intercepted here), with CSRF, only for the route's platforms
@@ -153,10 +154,17 @@ def case_agent008():
     (folder / "video.mp4").write_bytes(b"h" * 4096)
     (folder / "video_vertical.mp4").write_bytes(b"v" * 4096)
     (folder / "metadata.json").write_text('{"title": "AOP"}', encoding="utf-8")
+    (folder / "qa.json").write_text('{"verdict": "pass", "blocking_count": 1, "issues": [{"severity": "blocking", '
+                                    '"text": "période presque constante"}]}', encoding="utf-8")
     a008.channel_dir, a008.request_publication = (lambda channel: str(folder)), \
         (lambda channel, platform, path, metadata: asked.append((platform, os.path.basename(path))) or 7)
     if a008.VIDEO_FILE.get("tiktok") != "video_vertical.mp4":
         problems.append(f"TikTok does not receive the vertical video: {a008.VIDEO_FILE}")
+    status, error = a008.publish_one(CHANNEL, "tiktok", settings_for(cookies("q1.txt")), str(folder / "video_vertical.mp4"),
+                                     {"title": "AOP"}, {})
+    if asked or "blocking error" not in str(error):                    # QA_GATE: a video with a blocking error
+        problems.append(f"a video with a blocking QA error offered for publication: {asked} {error}")
+    (folder / "qa.json").write_text('{"verdict": "pass", "blocking_count": 0, "issues": []}', encoding="utf-8")
     publication = {}
     status, error = a008.publish_one(CHANNEL, "tiktok", settings_for(TMP / "none.txt"), str(folder / "video_vertical.mp4"),
                                      {"title": "AOP"}, publication)

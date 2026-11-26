@@ -567,8 +567,10 @@ def fix_circuits(brief, corrections):
 
 # ---------------------------------------------------------------- issue severity (observation mode)
 
-# Every issue in qa.json gets a "severity". OBSERVATION MODE: it is written, counted
-# (blocking_count, corrected_count, informative_count) and never changes the verdict.
+# Every issue in qa.json gets a "severity", written and counted (blocking_count, corrected_count,
+# informative_count). BLOCKING_REJECTS (2026-11-26, the user): a "blocking" issue left uncorrected rejects the
+# video in strict mode, whatever the scores (before, observation only: the physics video of 2026-11-26 passed with
+# "presque constante" said of the ideal spring's period, which is exactly constant).
 #   "corrected"   the issue was found, then corrected here: every patch the LLM names for it
 #                 ("patches": indexes into its own patch list) was applied (validated, not dropped).
 #                 An issue that names no patch is corrected when a change in its scene (an applied
@@ -587,6 +589,8 @@ STYLE_WORDS = re.compile(r"clarifi|pourrait|suggestion|stylist|lisibilit|reformu
                          re.IGNORECASE)
 SCENE_IN_TEXT = re.compile(r"sc[eè]ne\s*(\w+)", re.IGNORECASE)
 TITLE_WORDS = re.compile(r"titre|title", re.IGNORECASE)
+SAID_WORDS = re.compile(r"narration|script|voix|dit |dit «|annonce|phrase|formul", re.IGNORECASE)   # BLOCKING_REJECTS
+SHOWN_WORDS = re.compile(r"montr|affich|dessin|schéma|visuel|image|à l'écran|entit|storyboard", re.IGNORECASE)
 
 
 def issue_severities(raw_issues, applied, rule_corrections, briefs):
@@ -698,17 +702,22 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
 
     # The verdict is decided by code, not by the LLM.
     all_pass = all(score >= PASS_SCORE for score in scores.values())
-    verdict = "pass" if all_pass or not settings.get("qa_strict_mode", True) else "reject"
-    # Only a script the LLM calls wrong goes back to agent003; any other reject redoes the visuals.
+    blocking = [i for i in issues if i["severity"] == "blocking"]
+    verdict = "pass" if (all_pass and not blocking) or not settings.get("qa_strict_mode", True) else "reject"
+    # Only a script the LLM calls wrong goes back to agent003; any other reject redoes the visuals. A reject for
+    # blocking issues only: to agent003 when one of them is about what is said (the narration, the script).
     reject_to = "agent003" if answer.get("reject_to") == "agent003" else "agent004"
+    if all_pass and blocking and any(SAID_WORDS.search(i["text"]) and not SHOWN_WORDS.search(i["text"]) for i in blocking):
+        reject_to = "agent003"
     unsupported = [str(u) for u in answer.get("unsupported") or []]
     qa = {
         "verdict": verdict,                    # can we go on? (unchanged: the pipeline acts on it)
         "status": score_status(scores),        # is it sound, or passed with a warning? (informative)
         "scores": scores,
-        "rejection_notes": answer.get("rejection_notes", "") if verdict == "reject" else "",
+        "rejection_notes": (answer.get("rejection_notes") or "; ".join(i["text"] for i in blocking)[:1500])
+                           if verdict == "reject" else "",
         "reject_to": reject_to if verdict == "reject" else None,
-        "issues": issues,                      # each with its "severity" (observation: no effect on the verdict)
+        "issues": issues,                      # each with its "severity" (a blocking one rejects: BLOCKING_REJECTS)
         **{f"{severity}_count": sum(i["severity"] == severity for i in issues) for severity in SEVERITIES},
         "corrections": corrections,
         "unsupported": unsupported,

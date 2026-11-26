@@ -119,6 +119,18 @@ def upload_via_uploadpost(channel_id, platform, video_path, metadata):
     return answer.get("video_id"), answer.get("url")
 
 
+def qa_problem(folder):
+    """QA_GATE (2026-11-26): why this video cannot go out, or None. Its qa.json must say "pass" with no blocking
+    issue left (the physics video of 2026-11-26 had passed with one, before BLOCKING_REJECTS)."""
+    qa = load_json(os.path.join(folder, "qa.json")) or {}
+    if qa.get("verdict") != "pass":
+        return f"the QA did not pass this video (verdict {qa.get('verdict')!r})"
+    if qa.get("blocking_count"):
+        texts = [i.get("text", "") for i in qa.get("issues") or [] if isinstance(i, dict) and i.get("severity") == "blocking"]
+        return f"the QA left {qa['blocking_count']} blocking error(s): {'; '.join(texts)[:300]}"
+    return None
+
+
 def publish_one(channel_id, platform, settings, video_path, metadata, publication):
     """Fill `publication` in place and return (status, error)."""
     if platform not in settings.get("enabled_platforms", []):
@@ -129,6 +141,9 @@ def publish_one(channel_id, platform, settings, video_path, metadata, publicatio
         return "not_healthy", "no real video to upload"
     if platform not in VIDEO_FILE:
         return "not_healthy", f"{platform} publishing is not wired yet"
+    problem = qa_problem(os.path.dirname(video_path))
+    if problem:
+        return "not_healthy", f"not published: {problem}"
     if platform == "tiktok" and not publication.get("approved"):
         from app import tiktok
         a = tiktok.account(settings, channel_id)

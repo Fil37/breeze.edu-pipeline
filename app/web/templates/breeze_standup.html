@@ -92,6 +92,20 @@
     {% else %}<p class="empty small"><span class="big">☕</span>{{ _('Nothing running.') }}</p>{% endif %}
   </section>
 
+  {% if youtube_tokens %}
+  <section class="panel span-2" id="youtube">
+    <div class="panel-title"><h2>{{ _('YouTube access') }}</h2><span class="count">{{ youtube_tokens | length }}</span></div>
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Channel') }}</th><th>{{ _('Token') }}</th><th>{{ _('Checked') }}</th><th>{{ _('To renew') }}</th></tr></thead>
+      <tbody>{% for channel, t in youtube_tokens.items() %}<tr><td><strong>{{ channel }}</strong></td>
+        <td><span class="badge {{ 'ok' if t.state == 'ok' else ('warning' if t.state == 'unreachable' else 'failed') }}">{{ _(t.state) }}</span>
+          <span class="small">{{ _(t.detail) }}</span></td>
+        <td class="small">{{ t.checked_at[:16].replace('T', ' ') }}</td>
+        <td>{% if t.state in ('refused', 'missing') %}<code class="small">python -m app.youtube_auth renew "{{ channel }}"</code>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
   {% if tiktok_accounts %}
   <section class="panel span-2" id="tiktok">
     <div class="panel-title"><h2>{{ _('TikTok accounts') }}</h2><span class="count">{{ tiktok_accounts | length }}</span></div>

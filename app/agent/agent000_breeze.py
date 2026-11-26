@@ -337,6 +337,25 @@ def supervision_db():
     return os.path.join(INSTANCE_DIR, "breeze.db")
 
 
+def own_instance():
+    """OWN_FOLDER_ONLY (the harness lesson of 2026-11-26): the checks that reach outside (Google) or read the
+    account files run for the real instance only, never for a test that points INSTANCE_DIR at a temporary folder."""
+    real = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "instance")
+    return os.path.realpath(INSTANCE_DIR) == os.path.realpath(real)
+
+
+def access_watch(supervision, settings):
+    """COOKIE_WATCH (TikTok) and TOKEN_WATCH (YouTube): an account to renew opens an incident."""
+    from app import tiktok, youtube_auth
+    for row in tiktok.check_accounts(supervision, settings):
+        if row["state"] in tiktok.NEEDS_ACTION:
+            print(f"  TikTok {row['label']}: {row['text']}")
+    routes = load_json(os.path.join(SCHEMAS_DIR, "routes.json")) or []
+    for channel, row in youtube_auth.check_tokens(supervision, settings, routes).items():
+        if row["state"] in ("refused", "missing"):
+            print(f"  YouTube {channel}: {row['detail']}")
+
+
 def start_supervision(settings, run_id, args):
     """At the start of a run (the studio kit's socle, app/run_supervision.py): runs left 'running' by a dead process
     closed 'failed'; the startup checks (keys, tools: the only place that sets an agent 'critical'); the day's backup
@@ -348,10 +367,8 @@ def start_supervision(settings, run_id, args):
         interrupted = supervision.mark_interrupted_runs()
         states = run_supervision.startup_checks(supervision, settings)
         critical = [agent for agent, state in states.items() if state == "critical"]
-        from app import tiktok           # COOKIE_WATCH: an account whose cookies need renewing opens an incident
-        renew = [row for row in tiktok.check_accounts(supervision, settings) if row["state"] in tiktok.NEEDS_ACTION]
-        for row in renew:
-            print(f"  TikTok {row['label']}: {row['text']}")
+        if own_instance():               # the real instance only: a test's copy never calls Google (OWN_FOLDER_ONLY)
+            access_watch(supervision, settings)
         if critical or interrupted:
             print(f"  supervision: {len(interrupted)} interrupted run(s) closed; critical at start: {', '.join(critical) or 'none'}")
         backup = run_supervision.daily_backup(supervision)

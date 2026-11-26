@@ -396,8 +396,10 @@ def standup():
     from app import tiktok
     settings = page.load_json(os.path.join(page.SCHEMAS_DIR, "settings.json")) or {}
     tiktok_accounts = tiktok.accounts(settings) if "tiktok" in (settings.get("enabled_platforms") or []) else []
+    from app import youtube_auth
+    youtube_tokens = youtube_auth.last_states()          # the last start's check (never a token, no network here)
     return render_template("breeze_standup.html", active="standup", supervision=data, costs=page.costs(),
-                           tiktok_accounts=tiktok_accounts, **page.standup())
+                           tiktok_accounts=tiktok_accounts, youtube_tokens=youtube_tokens, **page.standup())
 
 
 def publish_handler(target, parameters):

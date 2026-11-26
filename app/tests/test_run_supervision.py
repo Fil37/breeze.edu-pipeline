@@ -177,6 +177,8 @@ def publish_folder():
         f.write(b"\0" * 4096)
     with open(os.path.join(folder, "metadata.json"), "w") as f:
         json.dump({"title": "Inégalités"}, f)
+    with open(os.path.join(folder, "qa.json"), "w") as f:              # passed by the QA (agent008's QA_GATE)
+        json.dump({"verdict": "pass", "blocking_count": 0, "issues": []}, f)
     saved = helpers.INSTANCE_DIR, helpers.DB_PATH, helpers.ROWS_PATH
     helpers.INSTANCE_DIR, helpers.DB_PATH, helpers.ROWS_PATH = root, os.path.join(root, "breeze.db"), os.path.join(root, "rows.json")
     return folder, lambda: setattr(helpers, "INSTANCE_DIR", saved[0]) or setattr(helpers, "DB_PATH", saved[1]) or setattr(helpers, "ROWS_PATH", saved[2])

@@ -1080,6 +1080,18 @@ working provider to get past agent001.
 4. **YouTube:** create an OAuth client (`YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`) and one
    refresh token per channel with the scopes `youtube.upload`, `youtube.readonly`,
    `yt-analytics.readonly` and `youtube.force-ssl` (the captions), then set `"enabled_platforms": ["youtube"]`.
+   Get or renew a channel's token with `python -m app.youtube_auth renew "breeze_(math)"`: the browser opens, sign in
+   with that channel's Google account, the token goes into `.env` (never shown) and the command names the YouTube
+   channel it opens. The OAuth client must allow the redirect `http://localhost:8799/` (a "Desktop" client does).
+   Publish the OAuth consent screen ("In production"): in "Testing", Google drops every token after 7 days.
+   `python -m app.youtube_auth check` tries each token; every chain start does it too (TOKEN_WATCH) and opens an
+   incident for a refused one, shown on the standup ("YouTube access") and harness's morning page.
+4b. **TikTok:** one account per channel (`settings.json` → `tiktok.accounts_by_channel`). Export each account's
+   cookies (Netscape `cookies.txt`, logged-in browser) to `app/instance/secrets/cookies_tiktok_<name>.txt`.
+   `python -m app.tiktok` shows each account's state; every chain start checks them (COOKIE_WATCH) and opens an
+   incident when a session has expired, ends within 7 days or was refused. The channel page's "Publish" section
+   asks for a publication (YouTube or TikTok, the vertical video); it is uploaded, private, after your approval on
+   the standup, and only if the QA passed it with no blocking error (QA_GATE).
 5. Videos are uploaded as **private**: review them in YouTube Studio, then make them public.
    Each upload costs 1,600 of the 10,000 daily quota units (400 more for its captions,
    `subtitles.srt`), and agent008 refuses to upload when the quota would be exceeded. Captions that

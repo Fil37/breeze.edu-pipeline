@@ -88,11 +88,12 @@ AGENT = "agent010"
 SKILLS = [
     {"skill_id": "html_render", "version": "1.0", "objective": "Render each scene as a web page, frame by frame, with its voice-over",
      "summary": "Playwright frames + ffmpeg; voice by ElevenLabs or edge-tts, German examples said apart; -16 LUFS."},
-    {"skill_id": "vertical_format", "version": "1.0",
-     "objective": "Make the vertical (TikTok, 1080 x 1920) version of each rendered video, without quality loss",
-     "summary": "app/render/vertical.py: the question on top, the whole picture scaled down (never up, its "
-                "subtitle band cut), large subtitles under it, the channel logo, a blurred background; "
-                "video_vertical.mp4 beside video.mp4. Settings: vertical.enabled."},
+    {"skill_id": "vertical_format", "version": "2.0",
+     "objective": "Draw each video a second time for the phone (TikTok, 1080 x 1920), composed for the vertical",
+     "summary": "The same scene page in portrait (portraitLayout): the drawing framed on what it occupies and "
+                "enlarged to the phone's width, instruments under it, wrapped titles, large subtitles, the logo "
+                "top right; same voice, music and timing; video_vertical.mp4 beside video.mp4. "
+                "Setting vertical.enabled. A failure never costs the horizontal video."},
 ]
 THEME = "light"          # the default when no channel theme is given: "light" or "dark" design tokens
 # Each channel's theme: its colours (design tokens), its animated background, its fonts and the style
@@ -1414,6 +1415,8 @@ PAGE_TEMPLATE = r"""<!doctype html>
   #portrait { position:absolute; left:0; top:0; transform-origin:0 0; }
   body.portrait #title { top:150px; padding:0 140px; box-sizing:border-box; line-height:1.15; }   /* clear of the logo, centred */
   body.portrait #subtitle { padding:0 60px; box-sizing:border-box; }
+  body.portrait #plan { width:960px; top:330px; bottom:520px; }
+  body.portrait .plan-item { font-size:44px; line-height:1.2; }
   body.portrait #subs { bottom:390px; font-size:52px; max-width:960px; width:auto; white-space:normal; }
   body.portrait #watermark { right:40px; top:150px; bottom:auto; width:84px; height:84px; opacity:.85; }   /* under TikTok's search */
   .zoom-frame { position:absolute; border:5px dashed var(--accent); border-radius:18px; pointer-events:none; opacity:0; }
@@ -5875,8 +5878,13 @@ function portraitSide() {
 }
 function portraitLayout() {
   if (!D.portrait) return;
-  document.body.classList.add("portrait");
+  const box = drawnBox();                // measured while the page is still the video's size
+  const holder = el("div"); holder.id = "portrait";
+  Object.assign(holder.style, {width: `${D.width}px`, height: `${D.height}px`});
+  stage.insertBefore(holder, document.getElementById("title")); holder.append(WORLD);   // panels keep their size
   const W = D.portrait.width, H = D.portrait.height;
+  for (const node of [document.documentElement, document.body]) Object.assign(node.style, {width: `${W}px`, height: `${H}px`});
+  document.body.classList.add("portrait");
   const title = document.getElementById("title"), subtitle = document.getElementById("subtitle");
   let below = title.offsetTop + title.offsetHeight;
   if (subtitle && subtitle.textContent.trim()) {
@@ -5884,10 +5892,6 @@ function portraitLayout() {
     below = subtitle.offsetTop + subtitle.offsetHeight;
   }
   const area = {l: 40, r: W - 40, t: below + 50, b: H - 390 - 170};     // above the subtitles and TikTok's caption
-  const box = drawnBox();
-  const holder = el("div"); holder.id = "portrait";
-  Object.assign(holder.style, {width: `${D.width}px`, height: `${D.height}px`});
-  stage.insertBefore(holder, title); holder.append(WORLD);
   // the channel's logo stays a fixed size, top right (the user's choice): never enlarged with the drawing
   const mark = document.getElementById("watermark");
   if (mark) stage.append(mark);
@@ -5967,6 +5971,7 @@ def scene_layout(scene):
 def build_page(data):
     """The scene's standalone HTML: markers filled in one pass, so no inserted text is re-read."""
     katex = katex_assets()
+    # a portrait page is laid out at the video's size too (identical to YouTube), then turns itself (portraitLayout)
     parts = {"WIDTH": str(WIDTH), "HEIGHT": str(HEIGHT),
              "DATA": json.dumps(data, ensure_ascii=False).replace("</", "<\\/"),
              "KATEX": (f"<style>{katex[0]}</style><script>{katex[1]}</script>" if katex else "")
@@ -6124,12 +6129,19 @@ def foreign_voice(sound, storyboard):
              for w in (e.get("initial_state") or {}).get("words") or [] if isinstance(w, dict)]
     return {"language": language, "words": words}
 
-def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True, sound=None):
+PORTRAIT = {"width": 1080, "height": 1920}
+
+
+def render_video(storyboard, script, video_path, folder, warnings, style=None, burn_subtitles=True, sound=None,
+                 portrait_path=None):
     """1. every voice-over, 2. every picture in one browser session, 3. join and concatenate, and the
     subtitles in folder/subtitles.srt (burnt into the picture too, unless burn_subtitles is False).
     `sound` {"channel", "music", "effects", "voice_id"}: the music bed and sound effects mixed under the
     voice (app/render/soundtrack.py), what was made going into sound["made"]; the channel's ElevenLabs
-    voice (None: the default)."""
+    voice (None: the default).
+    portrait_path: also the vertical (TikTok) video, each scene drawn a second time in 1080 x 1920 by the same
+    page (PORTRAIT, portraitLayout in the page), with the same voice, music and timing. Its failure never costs
+    the horizontal video: a warning, and no vertical file."""
     from playwright.sync_api import sync_playwright
 
     temp_dir = os.path.join(folder, "temp_html")
@@ -6190,6 +6202,23 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": WIDTH, "height": HEIGHT})
+            tall = browser.new_page(viewport=PORTRAIT) if portrait_path else None
+            portrait_ok = bool(portrait_path)
+
+            def draw_portrait(job, data):
+                """The same scene, drawn again for the phone (vertical); a failure only drops the vertical video."""
+                nonlocal portrait_ok
+                if not portrait_ok:
+                    return
+                try:
+                    tall_path = os.path.join(temp_dir, job["name"] + "_portrait.html")
+                    with open(tall_path, "w", encoding="utf-8") as f:
+                        f.write(build_page({**data, "portrait": PORTRAIT}))
+                    job["visual_portrait"] = os.path.join(temp_dir, job["name"] + "_portrait_visual.mp4")
+                    render_html_visual(tall, tall_path, job["total"], job["visual_portrait"])
+                except Exception as exc:                 # noqa: BLE001 - the horizontal video goes on
+                    portrait_ok = False
+                    warnings.append(f"vertical version not made: {job['name']}: {exc}"[:300])
             number = 0
             zoomed_in = False           # a TUNNEL zooms in the first time only, not again in later scenes
             arrive = False              # the scene before ended on a zoom_in: this one (its inside) arrives from it
@@ -6205,6 +6234,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                             f.write(build_page(data))
                         job["sounds"] = [(item["at"], "pop") for item in data["plan"]]
                         job["entry"]["layout_conflicts"] = render_html_visual(page, html_path, job["total"], job["visual"])
+                        draw_portrait(job, data)
                         arrive = False
                         continue
                     number += 1
@@ -6232,6 +6262,7 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                     job["sounds"] = [(ev["at"], SCENE_SOUNDS[ev.get("action")]) for ev in data.get("events", [])
                                      if ev.get("action") in SCENE_SOUNDS and is_number(ev.get("at"))]
                     conflicts = render_html_visual(page, html_path, job["total"], job["visual"])
+                    draw_portrait(job, data)
                     job["entry"]["layout_conflicts"] = conflicts
                     if conflicts:
                         warnings.append(f"{job['name']}: layout conflicts: {'; '.join(conflicts[:3])}")
@@ -6240,6 +6271,9 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                     warnings.append(f"{job['name']}: {exc}")
                     job["entry"].update(status="error_screen", error=str(exc))
                     make_error_visual(f"{job['name']}\n{exc}", job["total"], job["visual"])
+                    if portrait_ok:                      # an error screen has no vertical twin: no vertical video
+                        portrait_ok = False
+                        warnings.append(f"vertical version not made: {job['name']} was an error screen")
             browser.close()
         # 3. Picture + voice per scene, then the whole video.
         clips, scenes, start = [], [], 0.0
@@ -6260,31 +6294,24 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
                                              os.path.join(temp_dir, "effects.wav"), sound.get("music"), sound.get("effects"),
                                              sound.get("style"))
         concat_scenes(clips, os.path.join(temp_dir, "scenes.txt"), video_path, beds)
+        if portrait_ok:                     # the vertical video: same voices, same music and effects, same timing
+            try:
+                tall_clips = []
+                for job in jobs:
+                    clip_path = os.path.join(temp_dir, job["name"] + "_portrait.mp4")
+                    mux_scene(job["visual_portrait"], job["audio"], job["total"], clip_path)
+                    tall_clips.append(clip_path)
+                concat_scenes(tall_clips, os.path.join(temp_dir, "scenes_portrait.txt"), portrait_path, beds)
+            except Exception as exc:                     # noqa: BLE001
+                warnings.append(f"vertical version not made: {exc}"[:300])
+                if os.path.exists(portrait_path):
+                    os.remove(portrait_path)
         with open(os.path.join(folder, "subtitles.srt"), "w", encoding="utf-8") as f:   # the whole video's lines
             f.write(srt([{**cue, "at": cue["at"] + job["entry"]["start_sec"], "end": cue["end"] + job["entry"]["start_sec"]}
                          for job in jobs for cue in job["subtitles"]]))
         return scenes
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def make_vertical_version(channel_id, settings, folder, video_path, script, renderer_used, warnings):
-    """VERTICAL_FORMAT (2026-11-26): video_vertical.mp4 (TikTok, 1080 x 1920) from the video just rendered
-    (app/render/vertical.py). A failure never blocks the horizontal video: it is a warning."""
-    if renderer_used != "html_playwright" or not (settings.get("vertical") or {}).get("enabled", True):
-        return None
-    if not os.path.exists(video_path):
-        return None
-    from app.render.vertical import make_vertical
-    logo = settings.get("watermark_by_channel", {}).get(channel_id)
-    try:
-        return make_vertical(video_path, os.path.join(folder, "subtitles.srt"), script.get("question"),
-                             os.path.join(folder, "video_vertical.mp4"), duration=media_duration(video_path),
-                             burnt_subtitles=settings.get("burn_subtitles", True),
-                             logo=os.path.join(BASE_DIR, logo) if logo else None)
-    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        warnings.append(f"vertical version not made: {exc}"[:300])
-        return None
 
 
 def run(channel_id: str, settings: dict, routes: list) -> dict:
@@ -6321,8 +6348,12 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
             missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
             if missing:
                 raise RuntimeError(f"{' and '.join(missing)} not found on PATH")
+            vertical_path = os.path.join(folder, "video_vertical.mp4")
+            if os.path.exists(vertical_path):
+                os.remove(vertical_path)                 # never last run's vertical video beside today's
             scenes = render_video(storyboard, script, video_path, folder, warnings, channel_style(channel_id),
-                                  settings.get("burn_subtitles", True), sound)
+                                  settings.get("burn_subtitles", True), sound,
+                                  vertical_path if (settings.get("vertical") or {}).get("enabled") else None)
             duration = round(media_duration(video_path), 2)
             renderer_used = "html_playwright"
     except ImportError:
@@ -6333,7 +6364,6 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         return finish(channel_id, AGENT, "render", "critical", manifest_path, error=f"render failed: {exc!r}")
 
     voice_engine = voice_report(scenes, warnings)
-    vertical = make_vertical_version(channel_id, settings, folder, video_path, script, renderer_used, warnings)
     status = "not_healthy" if warnings else "healthy"
     manifest = {"video_path": video_path, "duration": duration if duration is not None else script.get("total_duration_sec"),
                 "resolution": f"{WIDTH}x{HEIGHT}", "renderer_used": renderer_used, "soundtrack": sound.get("made"),
@@ -6343,8 +6373,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     if renderer_used == "html_playwright":
         manifest["subtitles_path"] = os.path.join(folder, "subtitles.srt")
         provenance.register_artifact(run_id, channel_id, "subtitles.srt", AGENT)
-    if vertical:
-        manifest["vertical"] = vertical
+    vertical_path = os.path.join(folder, "video_vertical.mp4")
+    if renderer_used == "html_playwright" and os.path.exists(vertical_path):
+        manifest["vertical"] = {"path": vertical_path, "resolution": f"{PORTRAIT['width']}x{PORTRAIT['height']}"}
         provenance.register_artifact(run_id, channel_id, "video_vertical.mp4", AGENT)
     save_json(manifest_path, manifest)
     provenance.register_artifact(run_id, channel_id, "render_manifest.json", AGENT)

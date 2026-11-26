@@ -341,13 +341,17 @@ def start_supervision(settings, run_id, args):
     """At the start of a run (the studio kit's socle, app/run_supervision.py): runs left 'running' by a dead process
     closed 'failed'; the startup checks (keys, tools: the only place that sets an agent 'critical'); the day's backup
     of breeze.db in ~/breeze_backups; the agents' skills and breeze's named checks registered; this run marked
-    'running' (the test launcher refuses to start while it is). Returns (store, its run id), or (None, None): the
+    'running' (the test launcher refuses to start while it is). The TikTok accounts' cookies checked (app/tiktok.py). Returns (store, its run id), or (None, None): the
     supervision never stops a run."""
     try:
         supervision = run_supervision.store(supervision_db())
         interrupted = supervision.mark_interrupted_runs()
         states = run_supervision.startup_checks(supervision, settings)
         critical = [agent for agent, state in states.items() if state == "critical"]
+        from app import tiktok           # COOKIE_WATCH: an account whose cookies need renewing opens an incident
+        renew = [row for row in tiktok.check_accounts(supervision, settings) if row["state"] in tiktok.NEEDS_ACTION]
+        for row in renew:
+            print(f"  TikTok {row['label']}: {row['text']}")
         if critical or interrupted:
             print(f"  supervision: {len(interrupted)} interrupted run(s) closed; critical at start: {', '.join(critical) or 'none'}")
         backup = run_supervision.daily_backup(supervision)

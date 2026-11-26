@@ -92,6 +92,20 @@
     {% else %}<p class="empty small"><span class="big">☕</span>{{ _('Nothing running.') }}</p>{% endif %}
   </section>
 
+  {% if tiktok_accounts %}
+  <section class="panel span-2" id="tiktok">
+    <div class="panel-title"><h2>{{ _('TikTok accounts') }}</h2><span class="count">{{ tiktok_accounts | length }}</span></div>
+    <div class="scroll-box"><table>
+      <thead><tr><th>{{ _('Account') }}</th><th>{{ _('Cookies') }}</th><th>{{ _('Session ends') }}</th><th>{{ _('File') }}</th></tr></thead>
+      <tbody>{% for a in tiktok_accounts %}<tr><td><strong>{{ a.label }}</strong></td>
+        <td><span class="badge {{ 'ok' if a.state == 'ok' else ('warning' if a.state in ('missing', 'expiring') else 'failed') }}">{{ _(a.state) }}</span>
+          <span class="small">{{ _(a.text) }}</span></td>
+        <td class="small">{{ a.expires_at or '—' }}{% if a.days_left is not none %} ({{ a.days_left }} {{ _('days') }}){% endif %}</td>
+        <td><code class="small">app/instance/secrets/{{ a.file }}</code></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
   <section class="panel span-2" id="approvals">
     <div class="panel-title"><h2>{{ _('Pending approvals') }}</h2><span class="count">{{ supervision.approvals | length }}</span>
       <form method="post" action="{{ url_for('propose_skills') }}"><input type="hidden" name="csrf" value="{{ csrf }}">

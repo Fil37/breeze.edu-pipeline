@@ -13,12 +13,27 @@
   "publisher": "direct",
   "youtube_quota_limit": 10000,
   "enabled_platforms": [
-    "youtube"
+    "youtube",
+    "tiktok"
   ],
   "dry_run": false,
   "qa_strict_mode": true,
   "burn_subtitles": true,
   "vertical": {"enabled": true},
+  "tiktok": {
+    "note": "2026-11-26, the user: TikTok like auto_clip, one account per channel. video_vertical.mp4, private, after approval on the standup (app/tiktok.py). Cookies: a Netscape cookies.txt export of the account's logged-in browser, at cookies_path (app/instance is never committed). COOKIE_WATCH warns warn_days before the session ends.",
+    "accounts_by_channel": {
+      "breeze_(electronics)": {"label": "breeze électronique", "cookies_path": "app/instance/secrets/cookies_tiktok_electronics.txt"},
+      "breeze_(physics)": {"label": "breeze physique", "cookies_path": "app/instance/secrets/cookies_tiktok_physics.txt"},
+      "breeze_(math)": {"label": "breeze maths", "cookies_path": "app/instance/secrets/cookies_tiktok_math.txt"},
+      "breeze_(economics)": {"label": "breeze économie", "cookies_path": "app/instance/secrets/cookies_tiktok_economics.txt"},
+      "breeze_(allemand)": {"label": "breeze allemand", "cookies_path": "app/instance/secrets/cookies_tiktok_allemand.txt"}
+    },
+    "visibility": "private",
+    "warn_days": 7,
+    "min_gap_hours": 20,
+    "headless": false
+  },
   "voice_by_channel": {
     "breeze_(electronics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
     "breeze_(physics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},

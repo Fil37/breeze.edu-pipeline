@@ -5,7 +5,9 @@ INPUT:  app/instance/{channel_id}/video.mp4 + metadata.json + subtitles.srt (age
         youtube_quota_used_today: injected by the orchestrator)
 OUTPUT: one row per platform appended to app/schemas/rows.json, stage "publish",
         data = {platform, video_id, url, publish_timestamp, quota_used}
-NOTES:  The ONLY agent that touches platform APIs. Only YouTube is wired at launch.
+NOTES:  The ONLY agent that touches platform APIs. YouTube, and TikTok since 2026-11-26 (app/tiktok.py: the
+        vertical video, video_vertical.mp4, on the channel's own TikTok account, through a real browser with that
+        account's cookies; private; the cookies' validity watched at every start, COOKIE_WATCH).
         A publication is a sensitive action (2026-11-20): the run only asks for it (the socle's request_approval,
         target "<channel>:<platform>", parameters: the video, its and the metadata's sha256, the title, private);
         it is uploaded when the user approves it on the standup, by publish_approved() given to decide(), and only
@@ -37,7 +39,14 @@ AGENT = "agent008"
 SKILLS = [
     {"skill_id": "platform_publish", "version": "1.0", "objective": "Upload the video, private, to the channel's platforms",
      "summary": "Since 2026-11-20 a publication waits for the user's approval on the standup."},
+    {"skill_id": "tiktok_publish", "version": "1.0",
+     "objective": "Post the vertical video, private, on the channel's TikTok account after the user's approval",
+     "summary": "app/tiktok.py (auto_clip's way): a fresh browser with only that account's cookies, private visibility "
+                "read back before posting, one post per account per day, no retry. COOKIE_WATCH: each account's "
+                "cookies checked at every start (missing, expired, ending within warn_days, refused by TikTok); one "
+                "that needs renewing opens an incident; the standup lists the accounts."},
 ]
+VIDEO_FILE = {"youtube": "video.mp4", "tiktok": "video_vertical.mp4"}   # what each platform receives
 UPLOAD_COST = 1600  # YouTube Data API units for one videos.insert
 CAPTION_COST = 400  # ... and for one captions.insert
 MIN_VIDEO_BYTES = 1024  # anything smaller is a dry-run placeholder, never uploaded
@@ -118,14 +127,28 @@ def publish_one(channel_id, platform, settings, video_path, metadata, publicatio
         return "not_healthy", "dry_run: nothing uploaded"
     if not os.path.exists(video_path) or os.path.getsize(video_path) < MIN_VIDEO_BYTES:
         return "not_healthy", "no real video to upload"
-    if platform != "youtube":
+    if platform not in VIDEO_FILE:
         return "not_healthy", f"{platform} publishing is not wired yet"
+    if platform == "tiktok" and not publication.get("approved"):
+        from app import tiktok
+        a = tiktok.account(settings, channel_id)
+        if not a:
+            return "not_healthy", f"no TikTok account for {channel_id} (settings tiktok.accounts_by_channel)"
+        state = tiktok.cookie_status(channel_id, a["cookies_path"], int(tiktok.conf(settings).get("warn_days", 7)))
+        if state["state"] in ("missing", "no_session", "expired", "rejected"):    # no approval asked for nothing
+            return "not_healthy", f"TikTok {a.get('label') or channel_id}: {state['text']} ({state['file']})"
 
     if not publication.get("approved"):             # the run asks; the user's approval uploads (publish_approved)
         approval = request_publication(channel_id, platform, video_path, metadata)
         publication["approval_id"] = approval
         return "not_healthy", (f"waiting for the user's approval #{approval} on the standup: nothing uploaded" if approval
                                else "already waiting for the user's approval on the standup: nothing uploaded")
+
+    if platform == "tiktok":
+        from app import tiktok
+        status, error, details = tiktok.publish(channel_id, settings, video_path, metadata)
+        publication.update(details)
+        return status, error
 
     uses_uploadpost = settings.get("publisher") == "uploadpost"
     quota_used_today = settings.get("youtube_quota_used_today", 0)
@@ -171,7 +194,7 @@ def request_publication(channel_id, platform, video_path, metadata):
     return run_supervision.store().request_approval("publish_video", f"{channel_id}:{platform}", {
         "run_id": helpers.RUN_ID, "video": os.path.relpath(video_path, os.path.dirname(os.path.dirname(folder))),
         "video_sha256": sha256(video_path), "metadata_sha256": sha256(os.path.join(folder, "metadata.json")),
-        "title": metadata.get("title"), "privacy": "private"})
+        "title": metadata.get("title"), "privacy": "private"} | ({"format": "vertical 1080x1920"} if platform == "tiktok" else {}))
 
 
 def publish_approved(target, parameters, settings=None, upload=None):
@@ -180,7 +203,8 @@ def publish_approved(target, parameters, settings=None, upload=None):
     `upload` replaces publish_one in tests. Returns the outcome stored with the approval."""
     channel_id, _, platform = target.rpartition(":")
     folder = channel_dir(channel_id)
-    video_path, metadata_path = os.path.join(folder, "video.mp4"), os.path.join(folder, "metadata.json")
+    video_path = os.path.join(folder, VIDEO_FILE.get(platform, "video.mp4"))
+    metadata_path = os.path.join(folder, "metadata.json")
     if not os.path.isfile(video_path) or sha256(video_path) != parameters.get("video_sha256"):
         return {"applied": False, "reason": "the video changed since the request: nothing uploaded"}
     if not os.path.isfile(metadata_path) or sha256(metadata_path) != parameters.get("metadata_sha256"):
@@ -197,7 +221,6 @@ def publish_approved(target, parameters, settings=None, upload=None):
 
 def run(channel_id: str, settings: dict, routes: list) -> dict:
     folder = channel_dir(channel_id)
-    video_path = os.path.join(folder, "video.mp4")
     provenance.check_inputs(channel_id, AGENT, ["video.mp4", "metadata.json"])   # writes nothing in the folder
     metadata = load_json(os.path.join(folder, "metadata.json"))
     route = find_route(routes, channel_id)
@@ -208,6 +231,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     for platform in route.get("publish_platforms", []):
         publication = {"platform": platform, "video_id": None, "url": None,
                        "publish_timestamp": None, "quota_used": 0}
+        video_path = os.path.join(folder, VIDEO_FILE.get(platform, "video.mp4"))
         status, error = publish_one(channel_id, platform, settings, video_path, metadata, publication)
         if error:
             publication["error"] = error

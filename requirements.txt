@@ -12,6 +12,7 @@ pydantic>=2.0
 numpy
 edge-tts>=7.0
 playwright>=1.40        # then: playwright install chromium
+tiktok-uploader==1.2.0  # TikTok (app/tiktok.py): only its upload-form functions; its browser launcher and cookie loader are NOT used
 
 # Publishing and analytics (agents 008, 009)
 requests

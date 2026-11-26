@@ -366,7 +366,11 @@ def standup():
         row["name"] = page.AGENT_NAMES.get(row["id"], row["id"])
     for incident in data["incidents"]:
         incident["name"] = page.AGENT_NAMES.get(incident["agent"], incident["agent"])
-    return render_template("breeze_standup.html", active="standup", supervision=data, costs=page.costs(), **page.standup())
+    from app import tiktok
+    settings = page.load_json(os.path.join(page.SCHEMAS_DIR, "settings.json")) or {}
+    tiktok_accounts = tiktok.accounts(settings) if "tiktok" in (settings.get("enabled_platforms") or []) else []
+    return render_template("breeze_standup.html", active="standup", supervision=data, costs=page.costs(),
+                           tiktok_accounts=tiktok_accounts, **page.standup())
 
 
 def publish_handler(target, parameters):

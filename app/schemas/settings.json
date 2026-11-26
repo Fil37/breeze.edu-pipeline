@@ -18,6 +18,7 @@
   "dry_run": false,
   "qa_strict_mode": true,
   "burn_subtitles": true,
+  "vertical": {"enabled": true},
   "voice_by_channel": {
     "breeze_(electronics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},
     "breeze_(physics)": {"voice_id": "aQROLel5sQbj1vuIVi6B", "name": "Nicolas - Narrator"},

@@ -88,6 +88,11 @@ AGENT = "agent010"
 SKILLS = [
     {"skill_id": "html_render", "version": "1.0", "objective": "Render each scene as a web page, frame by frame, with its voice-over",
      "summary": "Playwright frames + ffmpeg; voice by ElevenLabs or edge-tts, German examples said apart; -16 LUFS."},
+    {"skill_id": "vertical_format", "version": "1.0",
+     "objective": "Make the vertical (TikTok, 1080 x 1920) version of each rendered video, without quality loss",
+     "summary": "app/render/vertical.py: the question on top, the whole picture scaled down (never up, its "
+                "subtitle band cut), large subtitles under it, the channel logo, a blurred background; "
+                "video_vertical.mp4 beside video.mp4. Settings: vertical.enabled."},
 ]
 THEME = "light"          # the default when no channel theme is given: "light" or "dark" design tokens
 # Each channel's theme: its colours (design tokens), its animated background, its fonts and the style
@@ -6187,6 +6192,25 @@ def render_video(storyboard, script, video_path, folder, warnings, style=None, b
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def make_vertical_version(channel_id, settings, folder, video_path, script, renderer_used, warnings):
+    """VERTICAL_FORMAT (2026-11-26): video_vertical.mp4 (TikTok, 1080 x 1920) from the video just rendered
+    (app/render/vertical.py). A failure never blocks the horizontal video: it is a warning."""
+    if renderer_used != "html_playwright" or not (settings.get("vertical") or {}).get("enabled", True):
+        return None
+    if not os.path.exists(video_path):
+        return None
+    from app.render.vertical import make_vertical
+    logo = settings.get("watermark_by_channel", {}).get(channel_id)
+    try:
+        return make_vertical(video_path, os.path.join(folder, "subtitles.srt"), script.get("question"),
+                             os.path.join(folder, "video_vertical.mp4"), duration=media_duration(video_path),
+                             burnt_subtitles=settings.get("burn_subtitles", True),
+                             logo=os.path.join(BASE_DIR, logo) if logo else None)
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        warnings.append(f"vertical version not made: {exc}"[:300])
+        return None
+
+
 def run(channel_id: str, settings: dict, routes: list) -> dict:
     folder = channel_dir(channel_id)
     video_path = os.path.join(folder, "video.mp4")
@@ -6233,6 +6257,7 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
         return finish(channel_id, AGENT, "render", "critical", manifest_path, error=f"render failed: {exc!r}")
 
     voice_engine = voice_report(scenes, warnings)
+    vertical = make_vertical_version(channel_id, settings, folder, video_path, script, renderer_used, warnings)
     status = "not_healthy" if warnings else "healthy"
     manifest = {"video_path": video_path, "duration": duration if duration is not None else script.get("total_duration_sec"),
                 "resolution": f"{WIDTH}x{HEIGHT}", "renderer_used": renderer_used, "soundtrack": sound.get("made"),
@@ -6242,6 +6267,9 @@ def run(channel_id: str, settings: dict, routes: list) -> dict:
     if renderer_used == "html_playwright":
         manifest["subtitles_path"] = os.path.join(folder, "subtitles.srt")
         provenance.register_artifact(run_id, channel_id, "subtitles.srt", AGENT)
+    if vertical:
+        manifest["vertical"] = vertical
+        provenance.register_artifact(run_id, channel_id, "video_vertical.mp4", AGENT)
     save_json(manifest_path, manifest)
     provenance.register_artifact(run_id, channel_id, "render_manifest.json", AGENT)
     return finish(channel_id, AGENT, "render", status, manifest_path, data={**manifest, "warnings": warnings})

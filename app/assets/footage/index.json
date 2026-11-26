@@ -350,6 +350,97 @@
       "ai_generated": false,
       "query": "budget de ménage",
       "fetched_at": "2026-11-06T02:28:47Z"
+    },
+    "pixabay:75546": {
+      "source": "pixabay",
+      "id": 75546,
+      "file": "pixabay_75546_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-75546/",
+      "user": "EtoileOfficial",
+      "tags": "gaz, poêle, feu, flamme, chauffer, la combustion, allumage",
+      "duration": 77,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "flamme de gaz",
+      "fetched_at": "2026-11-07T18:04:38Z"
+    },
+    "pixabay:47215": {
+      "source": "pixabay",
+      "id": 47215,
+      "file": "pixabay_47215_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-47215/",
+      "user": "nanoslavic",
+      "tags": "carte mère, électronique, ordinateur, boucle, conseil, composants, frites, technologie, la technologie, carte principale, numérique, circuit, matériel, les pièces, processeur, module, microélectronique, électrique, réparation, ingénierie, carte de circuit imprimé, pcb, macro",
+      "duration": 50,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "carte électronique",
+      "fetched_at": "2026-11-07T18:35:13Z"
+    },
+    "pixabay:4853": {
+      "source": "pixabay",
+      "id": 4853,
+      "file": "pixabay_4853_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-4853/",
+      "user": "klimkin",
+      "tags": "argent, euro, la finance, un salaire, en espèces, économie, le revenu, banque, profit, entreprise, chèque",
+      "duration": 10,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "bulletin de salaire",
+      "fetched_at": "2026-11-07T19:11:45Z"
+    },
+    "pixabay:204582": {
+      "source": "pixabay",
+      "id": 204582,
+      "file": "pixabay_204582_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-204582/",
+      "user": "crows",
+      "tags": "regardez, mécanique, mouvement, équipement, le printemps, tulle, balancier, structure, rubis, bijoux, conception",
+      "duration": 15,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "horloge à balancier",
+      "fetched_at": "2026-11-07T22:01:56Z"
+    },
+    "pixabay:17013": {
+      "source": "pixabay",
+      "id": 17013,
+      "file": "pixabay_17013_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-17013/",
+      "user": "jeanvdmeulen",
+      "tags": "pluie, l'eau, mouiller, gouttes, goutte, goutte de pluie, gouttes de pluie, gouttelettes, flaque, reflets, live wallpaper",
+      "duration": 37,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "flaque eau nuages pluie",
+      "fetched_at": "2026-11-21T11:12:30Z"
+    },
+    "pixabay:211700": {
+      "source": "pixabay",
+      "id": 211700,
+      "file": "pixabay_211700_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-211700/",
+      "user": "Gylfi",
+      "tags": "volcan, cratère, cône de projection, éruption, islande, feu, chaud, flamboyant, fondu, magma, lave, nature, fumée, sous pression, gaz, énergie, géologie, volcanologie",
+      "duration": 17,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "volcan en éruption",
+      "fetched_at": "2026-11-21T11:28:26Z"
+    },
+    "pixabay:33093": {
+      "source": "pixabay",
+      "id": 33093,
+      "file": "pixabay_33093_1920.mp4",
+      "page_url": "https://pixabay.com/videos/id-33093/",
+      "user": "computergottyt",
+      "tags": "ordinateur, boîtier, led, bleu, illuminé, ventilateur, carte mère",
+      "duration": 13,
+      "width": 1920,
+      "ai_generated": false,
+      "query": "led sur pile",
+      "fetched_at": "2026-11-21T11:44:01Z"
     }
   },
   "queries": {
@@ -380,7 +471,14 @@
     "circuit électronique": "pixabay:5365",
     "pendule horloge": "pixabay:136345",
     "projet équipe tableau": "pixabay:39892",
-    "budget de ménage": "pixabay:59139"
+    "budget de ménage": "pixabay:59139",
+    "flamme de gaz": "pixabay:75546",
+    "carte électronique": "pixabay:47215",
+    "bulletin de salaire": "pixabay:4853",
+    "horloge à balancier": "pixabay:204582",
+    "flaque eau nuages pluie": "pixabay:17013",
+    "volcan en éruption": "pixabay:211700",
+    "led sur pile": "pixabay:33093"
   },
   "checked": [
     "lune ciel nuit",
@@ -406,7 +504,14 @@
     "circuit électronique",
     "pendule horloge",
     "projet équipe tableau",
-    "budget de ménage"
+    "budget de ménage",
+    "flamme de gaz",
+    "carte électronique",
+    "bulletin de salaire",
+    "horloge à balancier",
+    "flaque eau nuages pluie",
+    "volcan en éruption",
+    "led sur pile"
   ],
   "rejected": {
     "pixabay:159674": "an electrician at an electrical panel, picked for 'usine de puces' (economics, 2026-11-03)",

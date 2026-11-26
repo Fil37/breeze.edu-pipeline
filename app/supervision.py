@@ -87,6 +87,34 @@ SCHEMA_V2 = (
 )
 
 
+def pid_alive(pid) -> bool:
+    """NEVER os.kill(pid, 0) on Windows: it terminates the process there (2026-11-26). OpenProcess instead."""
+    import os
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return ctypes.GetLastError() == 5
+        code = ctypes.c_ulong()
+        kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel.CloseHandle(handle)
+        return code.value == 259
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (ProcessLookupError, OSError):
+        return False
+    return True
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -532,14 +560,8 @@ class SupervisionStore:
         closed = []
         with self.connect() as c:
             for r in c.execute("SELECT run_id, owner_pid FROM sup_runs WHERE status IN ('pending','running')").fetchall():
-                try:
-                    if r["owner_pid"]:
-                        os.kill(int(r["owner_pid"]), 0)
-                        continue
-                except PermissionError:
+                if r["owner_pid"] and pid_alive(r["owner_pid"]):
                     continue
-                except (ProcessLookupError, ValueError):
-                    pass
                 c.execute("UPDATE sup_runs SET status='failed', completed_at=? WHERE run_id=?", (now_iso(), r["run_id"]))
                 c.execute("UPDATE sup_tasks SET status='cancelled', completed_at=? WHERE run_id=? AND status IN "
                           "('pending','running','waiting_dependency','waiting_approval')", (now_iso(), r["run_id"]))
@@ -754,14 +776,5 @@ def busy_runs(db_path: str | Path, extra_sql: tuple[str, ...] = ()) -> list[str]
         con.close()
     except sqlite3.Error:
         return []
-    alive = []
-    for run_id, pid in rows:
-        try:
-            if pid:
-                os.kill(int(pid), 0)
-                alive.append(run_id)
-        except (ProcessLookupError, ValueError):
-            pass
-        except PermissionError:
-            alive.append(run_id)
+    alive = [run_id for run_id, pid in rows if pid and pid_alive(pid)]
     return alive + extra

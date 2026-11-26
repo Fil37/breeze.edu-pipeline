@@ -275,13 +275,8 @@ def start_process(argv, log_path):
 
 
 def pid_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (ProcessLookupError, ValueError, TypeError):
-        return False
-    except PermissionError:
-        return True
+    from app.supervision import pid_alive as alive      # never os.kill(pid, 0): it kills on Windows
+    return alive(pid)
 
 
 def web_runs():
